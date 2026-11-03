@@ -2,6 +2,15 @@ const pendingPorts = new Map<string, MessagePort>();
 const waiters = new Map<string, Array<(port: MessagePort) => void>>();
 const cancelledSessions = new Set<string>();
 
+/**
+ * Forwards Zoom media to a main-owned MessagePortMain. Electron currently drops
+ * the entire renderer message when an ArrayBuffer is in the transfer list:
+ * https://github.com/electron/electron/issues/34905
+ */
+export function postZoomMediaMessage(port: Pick<MessagePort, 'postMessage'>, message: unknown): void {
+  port.postMessage(message);
+}
+
 window.addEventListener('message', (event: MessageEvent) => {
   if (event.source !== window || !event.data || typeof event.data !== 'object') return;
   const message = event.data as { source?: unknown; type?: unknown; sessionId?: unknown };

@@ -172,3 +172,4 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.settings-stream-fields { min-inline-size: 0; margin: 0; padding: 0; border: 0; }

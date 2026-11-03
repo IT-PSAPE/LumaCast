@@ -29,6 +29,7 @@ interface StreamingSession {
   recoveryBytes: number;
   retryCount: number;
   retryTimer: NodeJS.Timeout | null;
+  startupTimer: NodeJS.Timeout | null;
   reconnecting: boolean;
 }
 
@@ -36,12 +37,14 @@ export interface StreamOutputRetryOptions {
   maxRetries: number;
   retryDelayMs: number;
   maxRecoveryBufferBytes: number;
+  startupTimeoutMs: number;
 }
 
 const DEFAULT_RETRY_OPTIONS: StreamOutputRetryOptions = {
   maxRetries: 5,
   retryDelayMs: 1000,
   maxRecoveryBufferBytes: 64 * 1024 * 1024,
+  startupTimeoutMs: 30_000,
 };
 
 function validateDestination(value: unknown): string {
@@ -108,9 +111,11 @@ export class StreamOutput {
     const session: StreamingSession = {
       id: randomUUID(), outputId, statusMode, destination, settings, child, closed, close, stopping: false, stopTask: null, failure: null, progressBuffer: '', bitrateKbps: 0,
       externallyLive: false,
-      webmHeader: null, recoveryChunks: [], recoveryBytes: 0, retryCount: 0, retryTimer: null, reconnecting: false,
+      webmHeader: null, recoveryChunks: [], recoveryBytes: 0, retryCount: 0, retryTimer: null, startupTimer: null, reconnecting: false,
     };
     this.active.set(session.id, session);
+    session.startupTimer = setTimeout(() => this.failStartup(session), this.retryOptions.startupTimeoutMs);
+    session.startupTimer.unref?.();
     this.sendStatus({ state: 'connecting' }, session.outputId);
     this.watchProcess(session, child);
     return session.id;
@@ -158,6 +163,7 @@ export class StreamOutput {
     if (!session.stopping) {
       session.stopping = true;
       session.reconnecting = false;
+      this.clearStartupTimer(session);
       if (session.retryTimer) clearTimeout(session.retryTimer);
       session.retryTimer = null;
       if (this.isProcessAlive(session.child)) session.child.stdin.end();
@@ -180,7 +186,10 @@ export class StreamOutput {
 
   reportStatus(id: string, status: StreamRuntimeStatus): void {
     const session = this.requireSession(id);
-    if (status.state === 'error') session.failure = new Error(status.message ?? 'The streaming service reported an error.');
+    if (status.state === 'error') {
+      session.failure = new Error(status.message ?? 'The streaming service reported an error.');
+      this.clearStartupTimer(session);
+    }
     if (status.state === 'live') session.externallyLive = true;
     const withBitrate = status.state === 'live' ? { ...status, bitrateKbps: session.bitrateKbps } : status;
     this.sendStatus(withBitrate, session.outputId);
@@ -188,6 +197,7 @@ export class StreamOutput {
 
   async stopAll(): Promise<void> {
     await Promise.all([...this.active.values()].map((session) => this.stop(session.id).catch(() => {
+      this.clearStartupTimer(session);
       if (session.retryTimer) clearTimeout(session.retryTimer);
       session.child.kill();
       this.active.delete(session.id);
@@ -213,7 +223,7 @@ export class StreamOutput {
     // and the stream to emit an asynchronous `error` event as well.
     child.stdin.on('error', () => this.scheduleReconnect(session, child));
     child.stderr.on('data', (chunk: Buffer) => {
-      if (!this.isActive(session) || session.child !== child) return;
+      if (!this.isActive(session) || session.child !== child || session.failure || session.stopping) return;
       session.progressBuffer += chunk.toString('utf8');
       const lines = session.progressBuffer.split(/\r?\n/);
       session.progressBuffer = lines.pop() ?? '';
@@ -225,7 +235,12 @@ export class StreamOutput {
         }
         if (line.startsWith('progress=') && line !== 'progress=end') sawProgress = true;
       }
-      if (sawProgress && (session.statusMode === 'transport' || session.externallyLive)) this.sendStatus({ state: 'live', bitrateKbps: session.bitrateKbps }, session.outputId);
+      if (sawProgress) {
+        this.clearStartupTimer(session);
+        if (session.statusMode === 'transport' || session.externallyLive) {
+          this.sendStatus({ state: 'live', bitrateKbps: session.bitrateKbps }, session.outputId);
+        }
+      }
     });
     child.on('error', () => this.scheduleReconnect(session, child));
     child.on('close', () => {
@@ -298,11 +313,26 @@ export class StreamOutput {
   private failSession(session: StreamingSession, error: Error): void {
     session.failure = error;
     session.reconnecting = false;
+    this.clearStartupTimer(session);
     if (session.retryTimer) clearTimeout(session.retryTimer);
     session.retryTimer = null;
     this.sendStatus({ state: 'error', message: error.message }, session.outputId);
     if (this.isProcessAlive(session.child)) session.child.kill();
     session.close();
+  }
+
+  private failStartup(session: StreamingSession): void {
+    session.startupTimer = null;
+    if (!this.isActive(session) || session.stopping || session.failure) return;
+    const message = session.webmHeader === null
+      ? 'No media reached the streaming encoder. Check the program output and try again.'
+      : 'The streaming encoder did not start sending data. Check the server and output settings, then try again.';
+    this.failSession(session, new Error(message));
+  }
+
+  private clearStartupTimer(session: StreamingSession): void {
+    if (session.startupTimer) clearTimeout(session.startupTimer);
+    session.startupTimer = null;
   }
 
   private writeTo(child: OutputProcess, bytes: Buffer): Promise<void> {

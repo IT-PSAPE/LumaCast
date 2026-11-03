@@ -5,6 +5,7 @@ import {
   createDefaultProject,
   createDefaultStreamAudioSettings,
   createDefaultStreamRecordingPreferences,
+  createDefaultStreamServiceSettings,
   VIDEO_ENCODER_OPTIONS,
   type StreamProject,
 } from '../../../../apps/stream/shared/desktop-api';
@@ -66,11 +67,29 @@ function renderDialog(overrides: Partial<SettingsDialogProps> & { project?: Stre
     ...overrides,
   };
 
-  render(<SettingsDialog {...props} />);
-  return { project, setProjectValue, onClose, onUpdateMonitoringDevice, setReplayBufferDurationSeconds };
+  const view = render(<SettingsDialog {...props} />);
+  return { project, setProjectValue, onClose, onUpdateMonitoringDevice, setReplayBufferDurationSeconds, props, rerender: view.rerender };
 }
 
 describe('SettingsDialog', () => {
+  it('locks destination edits when output starts while keeping other settings available', () => {
+    const settings = { ...createDefaultStreamServiceSettings(), streamKey: 'test-stream-key' };
+    const onSaveStreamServiceSettings = vi.fn();
+    const { props, rerender } = renderDialog({ initialPage: 'stream', streamServiceSettings: settings, onSaveStreamServiceSettings });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Unapplied title' } });
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue('Unapplied title');
+
+    rerender(<SettingsDialog {...props} streamDestinationsLocked />);
+
+    expect(screen.getByRole('combobox', { name: 'Service' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Title' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Title' })).toHaveValue(settings.youtube.title);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Title' }), { target: { value: 'Changed during output' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    expect(onSaveStreamServiceSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole('tab', { name: 'Video' })).toBeEnabled();
+  });
+
   it('renders every settings page in the left nav and switches the visible page content', () => {
     renderDialog();
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();

@@ -135,6 +135,7 @@ export class ZoomSdkStreaming {
     if (this.active !== session || session.stopping) return;
     if (event.state === 'authenticated' && !session.meetingStarted) {
       session.meetingStarted = true;
+      this.emit({ outputId: 'zoom', state: 'connecting', connectionPhase: 'joining', message: 'Joining Zoom meeting.' });
       try { failIfRejected(session.addon.startMeeting(session.meetingId, zak, userId, displayName)); }
       catch (error) { this.fail(session, error instanceof Error ? error.message : 'Zoom could not join the selected meeting.'); }
       return;
@@ -142,12 +143,17 @@ export class ZoomSdkStreaming {
     if (event.state === 'meeting') {
       if (session.studioRequested) return;
       session.studioRequested = true;
+      this.emit({ outputId: 'zoom', state: 'connecting', connectionPhase: 'starting-output', message: 'Starting Zoom output.' });
       try { failIfRejected(session.addon.startProductionStudio(session.settings.width, session.settings.height)); }
       catch (error) { this.fail(session, error instanceof Error ? error.message : 'Zoom Production Studio could not start.'); }
       return;
     }
     if (event.state === 'production-studio') {
       this.emit({ outputId: 'zoom', state: 'live', message: event.message || 'Zoom is receiving the production output.' });
+      return;
+    }
+    if (event.state === 'production-studio-stopped') {
+      this.fail(session, 'Zoom Production Studio stopped sending. Start the output again.');
       return;
     }
     if (event.state === 'error') {
@@ -159,8 +165,12 @@ export class ZoomSdkStreaming {
       this.emit({ outputId: 'zoom', state: 'stopped', message: event.message || 'Zoom meeting ended.' });
       return;
     }
-    if (event.state === 'meeting-connecting' || event.state === 'production-studio-starting') {
-      this.emit({ outputId: 'zoom', state: 'connecting', message: event.message });
+    if (event.state === 'meeting-connecting') {
+      this.emit({ outputId: 'zoom', state: 'connecting', connectionPhase: 'joining', message: event.message || 'Joining Zoom meeting.' });
+      return;
+    }
+    if (event.state === 'production-studio-starting') {
+      this.emit({ outputId: 'zoom', state: 'connecting', connectionPhase: 'starting-output', message: event.message || 'Starting Zoom output.' });
     }
   }
 

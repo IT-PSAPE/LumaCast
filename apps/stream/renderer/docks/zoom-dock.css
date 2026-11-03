@@ -5,47 +5,21 @@
   container-type: inline-size;
 }
 
-.zoom-provider-row {
-  min-width: 0;
-  min-height: 41px;
-  flex: 0 0 41px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-2);
-  border-bottom: 1px solid var(--border-color-secondary);
-}
-
-.zoom-provider-mark {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+.zoom-brand-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-container);
-  color: white;
+  overflow: hidden;
+  border-radius: 6px;
   background: #2d8cff;
 }
 
-.zoom-provider-mark svg { width: 14px; height: 14px; stroke-width: 2.2; }
-
-.zoom-provider-wordmark {
-  flex: 0 0 auto;
-  color: #2d8cff;
-  font-size: var(--text-label-md);
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1;
-}
-
-.zoom-provider-account {
-  min-width: 0;
-  margin-left: auto;
-  overflow: hidden;
-  color: var(--text-color-tertiary);
-  font-size: var(--text-label-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.zoom-brand-icon img {
+  display: block;
+  width: 18.1339px;
+  height: 4.07512px;
 }
 
 .zoom-dock-body {
@@ -54,14 +28,16 @@
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2);
+  gap: var(--space-1);
+  padding: var(--space-1);
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .zoom-dock-body > * { min-width: 0; max-width: 100%; }
+
+.zoom-output-error { flex: 0 0 auto; }
 
 .zoom-panel-notice {
   min-width: 0;
@@ -88,87 +64,217 @@
   margin-top: var(--space-0-5);
 }
 
-.zoom-meeting-summary {
+.zoom-meeting-list {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-0-5);
-  padding: var(--space-2);
-  border: 1px solid var(--border-color-secondary);
-  border-radius: var(--radius-control);
-  background: var(--background-color-secondary);
+  gap: var(--space-1);
 }
 
-.zoom-meeting-summary strong {
-  overflow: hidden;
-  color: var(--text-color-primary);
-  font-size: var(--text-label-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.zoom-meeting-summary span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-color-tertiary);
-  font-size: var(--text-sm);
-  line-height: 1.4;
-  text-overflow: ellipsis;
-}
-
-.zoom-meeting-summary .zoom-meeting-summary__eyebrow {
-  color: var(--text-color-tertiary);
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.zoom-dock-footer {
-  min-width: 0;
-  min-height: 34px;
-  flex: 0 0 34px;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-2);
-  border-top: 1px solid var(--border-color-secondary);
-}
-
-.zoom-footer-row {
-  min-width: 0;
+.zoom-meeting-row {
   width: 100%;
+  min-width: 0;
+  min-height: 56px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--text-color-secondary);
+  background: var(--background-color-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.zoom-status-row {
+.zoom-meeting-row:hover:not(:disabled) {
+  color: var(--text-color-primary);
+  background: var(--background-color-tertiary);
+}
+
+.zoom-meeting-row[data-selected='true'] {
+  color: var(--text-color-primary);
+  background: var(--background-color-tertiary);
+  box-shadow: inset 0 0 0 1px var(--color-brand);
+}
+
+.zoom-meeting-row:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+}
+
+.zoom-meeting-row:disabled {
+  color: var(--text-color-tertiary);
+  cursor: default;
+}
+
+.zoom-meeting-row__icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--background-color-tertiary);
+}
+
+.zoom-meeting-row__icon img,
+.zoom-meeting-details__icon img {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.zoom-meeting-row__content {
   min-width: 0;
   flex: 1 1 auto;
   display: flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  overflow: hidden;
-  color: var(--text-color-tertiary);
-  font-size: var(--text-label-xs);
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
-.zoom-status-text {
+.zoom-meeting-row__title {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-color-secondary);
+  color: var(--text-color-primary);
+  font-size: var(--text-label-xs);
+  font-weight: 510;
+  line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.zoom-footer-action {
-  height: 24px;
+.zoom-meeting-row__date {
   min-width: 0;
-  flex: 0 1 auto;
-  padding-inline: var(--space-2);
   overflow: hidden;
+  color: var(--text-color-secondary);
   font-size: var(--text-label-xs);
+  line-height: 1.4;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.zoom-selected-view {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.zoom-meeting-details {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-1);
+}
+
+.zoom-meeting-details__title {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.zoom-meeting-details__icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+}
+
+.zoom-meeting-details__title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: var(--text-label-sm);
+  font-weight: 510;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-meeting-details__status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-color-secondary);
+  font-size: var(--text-label-xs);
+}
+
+.zoom-meeting-details__status > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-meeting-metrics {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding-inline: var(--space-1);
+}
+
+.zoom-meeting-metric {
+  min-width: 0;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.zoom-meeting-metric__label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-label-xs);
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-meeting-metric__value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: var(--text-label-sm);
+  font-weight: 590;
+  line-height: 22px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-meeting-schedule {
+  color: var(--text-color-secondary);
+  font-size: var(--text-label-xs);
+  line-height: 1.4;
+}
+
+.zoom-selected-actions {
+  min-width: 0;
+  display: flex;
+  margin-top: auto;
+  padding: 0 var(--space-1);
+}
+
+.zoom-selected-actions .zoom-return-button {
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  justify-content: center;
+  padding-inline: var(--space-3);
+  font-size: var(--text-label-xs);
 }
 
 .zoom-dialog {
@@ -194,12 +300,7 @@
 
 .modal:has(.zoom-dialog) { width: min(440px, 95vw); max-height: min(620px, 88vh); }
 
-@container zoom-dock (max-width: 280px) {
-  .zoom-provider-account { display: none; }
-}
-
 @container zoom-dock (max-width: 180px) {
-  .zoom-dock-footer:has(.zoom-footer-action) { min-height: 0; flex-basis: auto; padding-block: var(--space-2); }
-  .zoom-dock-footer:has(.zoom-footer-action) .zoom-footer-row { align-items: stretch; flex-direction: column; }
-  .zoom-footer-action { width: 100%; }
+  .zoom-meeting-metrics { flex-direction: column; gap: var(--space-2); }
+  .zoom-meeting-row { gap: var(--space-2); padding: var(--space-2); }
 }

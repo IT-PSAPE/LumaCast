@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import type { ChildProcessByStdio } from 'node:child_process';
 import type { WebContents } from 'electron';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StreamOutputSettings, StreamRuntimeStatus } from '../../../../apps/stream/shared/desktop-api';
 
 vi.mock('../../../../apps/stream/main/media-engine-path', () => ({ bundledMediaEnginePath: () => 'ffmpeg' }));
@@ -59,7 +59,16 @@ class FakeOutputProcess extends EventEmitter {
   }
 }
 
-function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDelayMs = 0, destination = 'rtmps://example.com/live/key', outputSettings = settings) {
+function harness(
+  maxRetries = 2,
+  maxRecoveryBufferBytes = 1024 * 1024,
+  retryDelayMs = 0,
+  destination = 'rtmps://example.com/live/key',
+  outputSettings = settings,
+  startupTimeoutMs = 30_000,
+  outputId = 'primary',
+  statusMode: 'transport' | 'external' = 'transport',
+) {
   const children: FakeOutputProcess[] = [];
   const argumentsList: string[][] = [];
   const statuses: StreamRuntimeStatus[] = [];
@@ -73,11 +82,13 @@ function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDela
   const output = new StreamOutput(
     () => contents as unknown as WebContents,
     spawnProcess as unknown as typeof import('node:child_process').spawn,
-    { maxRetries, retryDelayMs, maxRecoveryBufferBytes },
+    { maxRetries, retryDelayMs, maxRecoveryBufferBytes, startupTimeoutMs },
   );
-  const id = output.start(destination, outputSettings);
+  const id = output.start(destination, outputSettings, outputId, statusMode);
   return { output, id, children, statuses, spawnProcess, argumentsList };
 }
+
+afterEach(() => vi.useRealTimers());
 
 async function waitFor(predicate: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -198,6 +209,116 @@ describe('Stream output destination and reconnect', () => {
     expect(statuses.at(-1)).toMatchObject({ state: 'stopped' });
     expect(statuses.some((status) => status.state === 'error')).toBe(false);
     expect(children).toHaveLength(1);
+  });
+
+  it('fails startup after the deadline when no media reaches the encoder', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(2, 1024 * 1024, 0, undefined, settings, 100);
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(children[0]!.kill).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'error',
+      message: 'No media reached the streaming encoder. Check the program output and try again.',
+    });
+    await output.stop(id);
+  });
+
+  it('reports a separate startup error when media arrives but FFmpeg never reports progress', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(2, 1024 * 1024, 0, undefined, settings, 100);
+    await output.write(id, chunk('webm-header'));
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(children[0]!.kill).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'error',
+      message: 'The streaming encoder did not start sending data. Check the server and output settings, then try again.',
+    });
+    await output.stop(id);
+  });
+
+  it('ignores late FFmpeg progress after the startup deadline has failed the session', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(2, 1024 * 1024, 0, undefined, settings, 100);
+    await output.write(id, chunk('webm-header'));
+
+    await vi.advanceTimersByTimeAsync(100);
+    const statusCountAfterFailure = statuses.length;
+    children[0]!.stderr.write('bitrate=1000kbits/s\nprogress=continue\n');
+
+    expect(statuses).toHaveLength(statusCountAfterFailure);
+    expect(statuses.at(-1)).toMatchObject({ state: 'error' });
+    expect(statuses.some((status) => status.state === 'live')).toBe(false);
+    await output.stop(id);
+  });
+
+  it('clears the startup deadline on the first FFmpeg progress record', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(2, 1024 * 1024, 0, undefined, settings, 100);
+    await output.write(id, chunk('webm-header'));
+    children[0]!.stderr.write('bitrate=1000kbits/s\nprogress=continue\n');
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(statuses.some((status) => status.state === 'error')).toBe(false);
+    expect(children[0]!.kill).not.toHaveBeenCalled();
+    await output.stop(id);
+  });
+
+  it('clears startup timeout on progress in external mode without bypassing provider status gating', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(2, 1024 * 1024, 0, undefined, settings, 100, 'youtube', 'external');
+    await output.write(id, chunk('webm-header'));
+    children[0]!.stderr.write('progress=continue\n');
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(statuses.some((status) => status.state === 'error')).toBe(false);
+    expect(statuses.some((status) => status.state === 'live')).toBe(false);
+    output.reportStatus(id, { state: 'live' });
+    expect(statuses.at(-1)).toMatchObject({ outputId: 'youtube', state: 'live' });
+    await output.stop(id);
+  });
+
+  it('does not reset the startup deadline when reconnect retries start new children', async () => {
+    vi.useFakeTimers();
+    const { output, id, children, statuses } = harness(5, 1024 * 1024, 30, undefined, settings, 50);
+    await output.write(id, chunk('webm-header'));
+    children[0]!.fail();
+
+    await vi.advanceTimersByTimeAsync(30);
+    expect(children).toHaveLength(2);
+    // A late progress record from the failed child must not cancel this session's deadline.
+    children[0]!.stderr.write('progress=continue\n');
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(children).toHaveLength(2);
+    expect(children[1]!.kill).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toMatchObject({
+      state: 'error',
+      message: 'The streaming encoder did not start sending data. Check the server and output settings, then try again.',
+    });
+    await output.stop(id);
+  });
+
+  it('clears startup deadlines on stop, stopAll, and provider-reported failure', async () => {
+    vi.useFakeTimers();
+    const stopped = harness(2, 1024 * 1024, 0, undefined, settings, 100);
+    await stopped.output.stop(stopped.id);
+    const allStopped = harness(2, 1024 * 1024, 0, undefined, settings, 100, 'zoom');
+    await allStopped.output.stopAll();
+    const providerFailed = harness(2, 1024 * 1024, 0, undefined, settings, 100, 'youtube', 'external');
+    providerFailed.output.reportStatus(providerFailed.id, { state: 'error', message: 'YouTube did not detect an incoming video stream.' });
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(stopped.statuses.some((status) => status.state === 'error')).toBe(false);
+    expect(allStopped.statuses.some((status) => status.state === 'error')).toBe(false);
+    expect(providerFailed.statuses.filter((status) => status.state === 'error')).toHaveLength(1);
+    await providerFailed.output.stop(providerFailed.id);
   });
 
   it('keeps destination sessions independent and includes their output IDs in status', async () => {

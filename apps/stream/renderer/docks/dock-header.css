@@ -1,0 +1,68 @@
+.stream-dock-header {
+  box-sizing: border-box;
+  height: 35px !important;
+  min-height: 35px !important;
+  padding: 4px !important;
+  gap: 4px !important;
+}
+
+.stream-dock-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 4px;
+}
+
+.stream-dock-header > div:first-child > span[aria-hidden="true"] {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+}
+
+.stream-dock-header > div:first-child > span[aria-hidden="true"] > svg.lucide {
+  width: 16px;
+  height: 16px;
+}
+
+.stream-dock-header .stream-dock-header__title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: visible;
+  font-size: 12px;
+  font-weight: 510;
+  line-height: 16px;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.stream-dock-header__title-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stream-dock-header__title-suffix {
+  flex: 0 0 auto;
+}
+
+.stream-dock-header .stream-dock-header__actions {
+  gap: 4px;
+}
+
+.stream-dock-header .stream-dock-header__actions > button {
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}

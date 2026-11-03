@@ -30,11 +30,26 @@ describe('providerErrorMessage', () => {
       .toBe('This YouTube channel is not enabled for live streaming. Check channel eligibility in YouTube Studio.');
   });
 
+  it('preserves the actionable Zoom Production Studio sender-stop message', () => {
+    const message = 'Zoom Production Studio stopped sending. Start the output again.';
+    expect(providerErrorMessage('Zoom', message, 'Zoom output failed.')).toBe(message);
+  });
+
   it('turns connection and secure-storage failures into next steps', () => {
     expect(providerErrorMessage('Zoom', new TypeError('fetch failed'), 'Zoom output failed.'))
       .toBe('Could not reach Zoom. Check your internet connection and try again.');
     expect(providerErrorMessage('YouTube', 'Secure credential storage is unavailable on this device, so YouTube cannot be connected safely.', 'YouTube output failed.'))
       .toBe('Secure credential storage is unavailable. Enable it on this device, then reconnect YouTube.');
+  });
+
+  it('preserves the canonical stream encoder startup failures without exposing appended diagnostics', () => {
+    const noMedia = 'No media reached the streaming encoder. Check the program output and try again.';
+    const noProgress = 'The streaming encoder did not start sending data. Check the server and output settings, then try again.';
+
+    expect(providerErrorMessage('YouTube', noMedia, 'YouTube streaming failed.')).toBe(noMedia);
+    expect(providerErrorMessage('Zoom', noProgress, 'Zoom output failed.')).toBe(noProgress);
+    expect(providerErrorMessage('YouTube', `${noMedia} https://private.example/live?key=secret`, 'YouTube streaming failed.'))
+      .toBe('YouTube streaming failed.');
   });
 
   it('uses the caller fallback for provider details that are not vetted', () => {

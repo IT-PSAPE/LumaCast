@@ -3,7 +3,8 @@ import { getStreamService, resolveStreamDestination, validateStreamServiceSettin
 import type { StreamServiceId } from '../../../shared/stream-services';
 import type { AudioMixerEngine } from '../../audio-mixer';
 import zoomAudioProcessorUrl from '../../zoom-audio-processor.js?url';
-import { discardZoomMediaPort, waitForZoomMediaPort } from './zoom-media-port';
+import { discardZoomMediaPort, postZoomMediaMessage, waitForZoomMediaPort } from './zoom-media-port';
+import { convertZoomRgbToI420 } from './zoom-video-frame';
 import {
   createDefaultStreamServiceSettings,
   type StreamAPI, type StreamOutputSettings, type StreamProject, type StreamRuntimeStatus, type StreamServiceSettings,
@@ -35,11 +36,13 @@ interface ActiveZoomStreaming {
   animationFrame: number | null;
   audioSource: MediaStreamAudioSourceNode | null;
   audioNode: AudioWorkletNode | null;
+  videoFrameBuffer: Uint8Array | null;
 }
 
 interface ZoomVideoFrameLike {
-  allocationSize(options: { format: 'I420' }): number;
-  copyTo(destination: Uint8Array, options: { format: 'I420' }): Promise<Array<{ offset: number; stride: number }>>;
+  format: string | null;
+  allocationSize(options: { format: 'RGBA' | 'BGRA' | 'RGBX' | 'BGRX' }): number;
+  copyTo(destination: Uint8Array, options: { format: 'RGBA' | 'BGRA' | 'RGBX' | 'BGRX' }): Promise<Array<{ offset: number; stride: number }>>;
   close(): void;
 }
 
@@ -102,6 +105,7 @@ export interface UseStreamingResult {
   stopStreaming: (outputId?: string) => void;
   goLive: () => void;
   goLiveForService: (service: StreamServiceId | 'zoom') => void;
+  startSelectedDestinations: () => void;
   /** Whether a stream is currently connecting or live — feeds `useWorkspace`'s collection/profile-switch gate. */
   isActive: () => boolean;
 }
@@ -178,24 +182,23 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         }
         const frame = new Frame(canvas, { timestamp: Math.round(performance.now() * 1000) });
         try {
-          const packed = new Uint8Array(frame.allocationSize({ format: 'I420' }));
-          const layout = await frame.copyTo(packed, { format: 'I420' });
+          const format = frame.format;
+          if (format !== 'RGBA' && format !== 'BGRA' && format !== 'RGBX' && format !== 'BGRX') {
+            throw new Error('Zoom video frames must use RGBA, BGRA, RGBX, or BGRX pixels.');
+          }
+          const packedSize = frame.allocationSize({ format });
+          const packed = active.videoFrameBuffer?.byteLength === packedSize
+            ? active.videoFrameBuffer
+            : new Uint8Array(packedSize);
+          const layout = await frame.copyTo(packed, { format });
+          if (active.stopped) return;
+          active.videoFrameBuffer = packed;
           const width = active.settings.width;
           const height = active.settings.height;
-          const compact = new Uint8Array(width * height * 3 / 2);
-          let targetOffset = 0;
-          for (let plane = 0; plane < 3; plane += 1) {
-            const planeWidth = plane === 0 ? width : width / 2;
-            const planeHeight = plane === 0 ? height : height / 2;
-            const { offset, stride } = layout[plane]!;
-            for (let row = 0; row < planeHeight; row += 1) {
-              compact.set(packed.subarray(offset + row * stride, offset + row * stride + planeWidth), targetOffset);
-              targetOffset += planeWidth;
-            }
-          }
+          const compact = convertZoomRgbToI420(packed, width, height, format, layout);
           if (active.stopped) return;
           active.framePending = true;
-          active.port.postMessage({ type: 'video', data: compact.buffer, width, height }, [compact.buffer]);
+          postZoomMediaMessage(active.port, { type: 'video', data: compact.buffer, width, height });
         } finally { frame.close(); }
       })().catch((error) => failZoomStreaming(active, `Zoom video output failed: ${friendlyError(error)}`));
     });
@@ -219,7 +222,7 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
       active.audioNode = audioNode;
       audioNode.port.onmessage = (event: MessageEvent) => {
         if (active.stopped || !event.data || event.data.type !== 'audio' || !(event.data.data instanceof ArrayBuffer)) return;
-        active.port.postMessage(event.data, [event.data.data]);
+        postZoomMediaMessage(active.port, event.data);
       };
       active.port.onmessage = (event: MessageEvent) => {
         if (event.data?.type !== 'ack') return;
@@ -276,7 +279,14 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         ),
       }
       : outputId === 'zoom' && status.state === 'connecting'
-        ? { ...status, message: 'Connecting to Zoom.' }
+        ? {
+          ...status,
+          message: status.connectionPhase === 'joining'
+            ? 'Joining Zoom meeting.'
+            : status.connectionPhase === 'starting-output'
+              ? 'Starting Zoom output.'
+              : 'Connecting to Zoom.',
+        }
         : status;
     const previousState = outputStatusRef.current[outputId]?.state ?? 'stopped';
     outputStatusRef.current[outputId] = visibleStatus;
@@ -500,6 +510,7 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         animationFrame: null,
         audioSource: null,
         audioNode: null,
+        videoFrameBuffer: null,
       };
       zoomStreaming.current = active;
       mediaPort = null;
@@ -581,8 +592,33 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
   };
 
   const goLive = () => goLiveForService(streamServiceSettings.service);
-
   const openStreamDialog = () => setStreamDialogOpen(true);
+
+  const startSelectedDestinations = () => {
+    if (!project || streaming.current.size > 0 || zoomStreaming.current !== null || startingOutputs.current.size > 0) return;
+
+    const { broadcastId } = streamServiceSettings.youtube;
+    const { selectedMeetingId } = streamServiceSettings.zoom;
+    if (!broadcastId && !selectedMeetingId) {
+      openStreamDialog();
+      return;
+    }
+
+    const outputSettings = buildStreamOutputSettings(project.output);
+    const starts: Promise<void>[] = [];
+    if (broadcastId) {
+      starts.push(startPreparedStreaming(
+        () => api.startYouTubeStreaming(broadcastId, outputSettings),
+        'youtube',
+        outputSettings,
+      ));
+    }
+    if (selectedMeetingId) {
+      starts.push(startZoomStreaming(selectedMeetingId, outputSettings));
+    }
+    void Promise.all(starts);
+  };
+
   const streamServiceLabel = getStreamService(streamServiceSettings.service).label;
   const streamStatus = aggregateOutputStatuses(outputStatuses);
   const reconnectCount = Object.values(reconnectCounts).reduce((total, count) => total + count, 0);
@@ -595,7 +631,7 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
     ]), reconnectCount,
     streamDialogOpen, setStreamDialogOpen, openStreamDialog,
     streamServiceSettings, setStreamServiceSettings, streamServiceLabel,
-    startStreaming, startPreparedStreaming, stopStreaming, goLive, goLiveForService,
+    startStreaming, startPreparedStreaming, stopStreaming, goLive, goLiveForService, startSelectedDestinations,
     isActive: () => streaming.current.size > 0 || zoomStreaming.current !== null || startingOutputs.current.size > 0,
   };
 }

@@ -29,6 +29,8 @@ function safeMessage(provider: StreamProvider, rawMessage: string): string | nul
     `${provider} sign-in was cancelled.`,
     `${provider} sign-in timed out. Try connecting again.`,
     `${provider} sign-in could not be verified. Try connecting again.`,
+    'No media reached the streaming encoder. Check the program output and try again.',
+    'The streaming encoder did not start sending data. Check the server and output settings, then try again.',
   ];
   if (provider === 'Zoom') {
     canonicalMessages.push(
@@ -50,6 +52,7 @@ function safeMessage(provider: StreamProvider, rawMessage: string): string | nul
       'Set the program canvas to match Zoom output dimensions.',
       'The selected Zoom audio track is unavailable. Choose another track and try again.',
       'Zoom output could not start. Check the selected meeting and output settings, then try again.',
+      'Zoom Production Studio stopped sending. Start the output again.',
     );
   } else {
     canonicalMessages.push(

@@ -315,7 +315,7 @@ class MacSdkBridge final : public lumastream::zoom::SdkBridge {
       senderReady_ = false;
       productionStarted_ = false;
     }
-    emit("meeting", "Zoom Production Studio stopped sending.");
+    emit("production-studio-stopped", "Zoom Production Studio stopped sending.");
   }
 
  private:

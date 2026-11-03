@@ -267,7 +267,7 @@ export class YouTubeLiveService {
     let pageToken = '';
     const seenPageTokens = new Set<string>();
     while (true) {
-      const params = new URLSearchParams({ part: 'id,snippet,status,contentDetails', mine: 'true', broadcastStatus: 'upcoming', maxResults: '50' });
+      const params = new URLSearchParams({ part: 'id,snippet,status,contentDetails', broadcastStatus: 'upcoming', broadcastType: 'all', maxResults: '50' });
       if (pageToken) params.set('pageToken', pageToken);
       const result = await this.apiRequest<{ items?: YouTubeBroadcastResource[]; nextPageToken?: string }>(`liveBroadcasts?${params}`);
       broadcasts.push(...(result.items ?? []).map(broadcastSummary));

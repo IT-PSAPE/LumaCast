@@ -319,7 +319,7 @@ class WindowsSdkBridge final : public SdkBridge,
       std::lock_guard<std::mutex> lock(senderMutex_);
       sender_ = nullptr;
     }
-    emit("meeting", "Zoom Production Studio stopped.");
+    emit("production-studio-stopped", "Zoom Production Studio stopped sending.");
   }
   void onPSUserStatusChanged(unsigned int, bool) override {}
 

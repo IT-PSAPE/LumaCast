@@ -6,6 +6,40 @@ import { useStreaming } from '../../../../apps/stream/renderer/features/streamin
 afterEach(cleanup);
 
 describe('useStreaming provider errors', () => {
+  it('keeps typed Zoom connection phases and replaces native status text with safe labels', async () => {
+    let onStatus: ((status: StreamRuntimeStatus) => void) | undefined;
+    const api = {
+      loadStreamServiceSettings: vi.fn().mockResolvedValue(createDefaultStreamServiceSettings()),
+      saveStreamServiceSettings: vi.fn().mockResolvedValue(undefined),
+      onStreamStatus: vi.fn((listener: (status: StreamRuntimeStatus) => void) => {
+        onStatus = listener;
+        return () => { onStatus = undefined; };
+      }),
+    } as unknown as StreamAPI;
+    const { result, unmount } = renderHook(() => useStreaming({
+      api,
+      project: null,
+      programCanvasRef: { current: null },
+      ensureMixer: vi.fn(),
+      setActionError: vi.fn(),
+    }));
+    await waitFor(() => expect(onStatus).toBeTypeOf('function'));
+
+    act(() => onStatus?.({ outputId: 'zoom', state: 'connecting', connectionPhase: 'joining', message: 'native join state from /private/path' }));
+    expect(result.current.outputStatuses.zoom).toMatchObject({
+      connectionPhase: 'joining',
+      message: 'Joining Zoom meeting.',
+    });
+    expect(result.current.outputStatuses.zoom?.message).not.toMatch(/native|private/);
+
+    act(() => onStatus?.({ outputId: 'zoom', state: 'connecting', connectionPhase: 'starting-output', message: 'raw native SDK status' }));
+    expect(result.current.outputStatuses.zoom).toMatchObject({
+      connectionPhase: 'starting-output',
+      message: 'Starting Zoom output.',
+    });
+    unmount();
+  });
+
   it('sanitizes Zoom provider status and action errors while preserving RTMP status copy', async () => {
     let onStatus: ((status: StreamRuntimeStatus) => void) | undefined;
     const setActionError = vi.fn();

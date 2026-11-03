@@ -137,13 +137,47 @@ describe('YouTube Live integration', () => {
       scheduledStartTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     });
 
-    expect(calls[0]?.url).toContain('broadcastStatus=upcoming');
-    expect(calls[0]?.url).toContain('mine=true');
+    const listUrl = new URL(calls[0]?.url ?? 'https://example.invalid');
+    expect(listUrl.searchParams.get('broadcastStatus')).toBe('upcoming');
+    expect(listUrl.searchParams.get('broadcastType')).toBe('all');
+    expect(listUrl.searchParams.has('mine')).toBe(false);
+    expect([listUrl.searchParams.has('broadcastStatus'), listUrl.searchParams.has('id'), listUrl.searchParams.has('mine')].filter(Boolean)).toHaveLength(1);
     expect(calls[1]?.init?.method).toBe('POST');
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ snippet: { title: 'Launch stream', description: 'Product launch' }, status: { privacyStatus: 'private' }, contentDetails: { enableAutoStop: true } });
     expect(created).toMatchObject({ id: 'broadcast-2', title: 'Launch stream' });
     await expect(service.createBroadcast({ title: '', description: '', privacy: 'unlisted', broadcastId: '', scheduledStartTime: '' })).rejects.toThrow('stream title');
     expect(calls).toHaveLength(2);
+  });
+
+  it('lists every upcoming broadcast type across pages using one supported filter', async () => {
+    const requests: URL[] = [];
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      requests.push(url);
+      if (url.searchParams.get('pageToken') === 'next-page') {
+        return jsonResponse({ items: [{ id: 'persistent-broadcast', snippet: { title: 'Persistent broadcast' }, status: { lifeCycleStatus: 'ready' } }] });
+      }
+      return jsonResponse({
+        items: [{ id: 'event-broadcast', snippet: { title: 'Scheduled event' }, status: { lifeCycleStatus: 'ready' } }],
+        nextPageToken: 'next-page',
+      });
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.listBroadcasts()).resolves.toMatchObject([
+      { id: 'event-broadcast', title: 'Scheduled event' },
+      { id: 'persistent-broadcast', title: 'Persistent broadcast' },
+    ]);
+
+    expect(requests).toHaveLength(2);
+    for (const url of requests) {
+      expect(url.searchParams.get('broadcastStatus')).toBe('upcoming');
+      expect(url.searchParams.get('broadcastType')).toBe('all');
+      expect(url.searchParams.has('mine')).toBe(false);
+      expect([url.searchParams.has('broadcastStatus'), url.searchParams.has('id'), url.searchParams.has('mine')].filter(Boolean)).toHaveLength(1);
+    }
+    expect(requests[1]?.searchParams.get('pageToken')).toBe('next-page');
   });
 
   it('reads live title, viewer count, view count, and health without changing the broadcast', async () => {
@@ -192,6 +226,24 @@ describe('YouTube Live integration', () => {
       title: 'Private stream',
       currentViewers: null,
       viewCount: null,
+      health: 'excellent',
+    });
+  });
+
+  it('preserves zero-valued YouTube metrics instead of treating them as unavailable', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', contentDetails: { boundStreamId: 'stream-123' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [{ id: 'broadcast-123', statistics: { viewCount: '0' }, liveStreamingDetails: { concurrentViewers: '0' } }] });
+      if (url.pathname.endsWith('/liveStreams')) return jsonResponse({ items: [{ id: 'stream-123', status: { healthStatus: { status: 'good' } } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).resolves.toMatchObject({
+      currentViewers: 0,
+      viewCount: 0,
       health: 'excellent',
     });
   });

@@ -49,14 +49,36 @@ describe('YouTubeStreamDetails', () => {
     expect(screen.getAllByText('—')).toHaveLength(2);
   });
 
+  it('preserves genuine zero viewer and view counts', () => {
+    renderDetails({ ...baseDetails, currentViewers: 0, viewCount: 0 });
+
+    expect(screen.getAllByText('0')).toHaveLength(2);
+    expect(screen.queryByText('—')).not.toBeInTheDocument();
+  });
+
   it('shows em dashes for non-finite metrics', () => {
     renderDetails({ ...baseDetails, currentViewers: Number.NaN, viewCount: Number.POSITIVE_INFINITY });
 
     expect(screen.getAllByText('—')).toHaveLength(2);
   });
 
-  it('renders each YouTube health status independently of output status', () => {
-    const { rerender } = renderDetails(null);
+  it('shows Return only when a caller can safely disarm the selected stream', () => {
+    const onReturn = vi.fn();
+    const { rerender } = render(<YouTubeStreamDetails title="Selected broadcast" details={baseDetails} onReturn={onReturn} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return' }));
+    expect(onReturn).toHaveBeenCalledOnce();
+
+    rerender(<YouTubeStreamDetails title="Selected broadcast" details={baseDetails} />);
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+  });
+
+  it('keeps local output state separate from API health and omits unknown health', () => {
+    const { rerender } = render(<YouTubeStreamDetails title="Selected broadcast" details={null} outputState="live" />);
+    expect(screen.getByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /Provider health:/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Waiting for stream')).not.toBeInTheDocument();
+
     const states = [
       ['waiting', 'Waiting for stream'],
       ['excellent', 'Excellent'],
@@ -65,11 +87,27 @@ describe('YouTubeStreamDetails', () => {
     ] as const;
 
     for (const [health, label] of states) {
-      const details = health === 'waiting' ? null : { ...baseDetails, health };
-      rerender(<YouTubeStreamDetails title="Selected broadcast" details={details} />);
-      expect(screen.getByRole('status', { name: `Stream health: ${label}` })).toBeInTheDocument();
-      expect(screen.getByText(label)).toBeInTheDocument();
+      const details = { ...baseDetails, health };
+      rerender(<YouTubeStreamDetails title="Selected broadcast" details={details} outputState="live" />);
+      expect(screen.getByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+      expect(screen.getByRole('status', { name: `Provider health: ${label}` })).toBeInTheDocument();
+      expect(screen.getByText(`YouTube health: ${label}`)).toBeInTheDocument();
     }
+
+    rerender(<YouTubeStreamDetails title="Selected broadcast" details={baseDetails} outputState="live" providerHealthFresh={false} />);
+    expect(screen.getByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Provider health: Excellent' })).not.toBeInTheDocument();
+  });
+
+  it('visibly distinguishes YouTube waiting health from a live local output', () => {
+    render(<YouTubeStreamDetails
+      title="Selected broadcast"
+      details={{ ...baseDetails, health: 'waiting' }}
+      outputState="live"
+    />);
+
+    expect(screen.getByText('Streaming')).toBeInTheDocument();
+    expect(screen.getByText('YouTube health: Waiting for stream')).toBeInTheDocument();
   });
 
   it('exposes provider notice titles by severity and keeps metrics outside live regions', () => {
@@ -92,7 +130,7 @@ describe('YouTubeStreamDetails', () => {
     expect(interruptionNotice).toHaveAttribute('aria-live', 'assertive');
     expect(copyrightNotice).not.toBe(interruptionNotice);
 
-    const health = screen.getByRole('status', { name: 'Stream health: Excellent' });
+    const health = screen.getByRole('status', { name: 'Provider health: Excellent' });
     expect(health).toHaveAttribute('aria-live', 'polite');
     expect(health).toHaveAttribute('aria-atomic', 'true');
     expect(copyrightNotice).toHaveAttribute('aria-atomic', 'true');

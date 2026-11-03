@@ -24,7 +24,10 @@ describe('YouTubeStreamRow', () => {
     const onSelect = vi.fn();
     render(<YouTubeStreamRow stream={stream} onSelect={onSelect} />);
 
-    const scheduledDate = new Date(stream.scheduledStartTime).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    const date = new Date(stream.scheduledStartTime);
+    const scheduledDay = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+    const scheduledTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+    const scheduledDate = `${scheduledDay} · ${scheduledTime}`;
     expect(screen.getByText(scheduledDate)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Select Weekly show' }));
 

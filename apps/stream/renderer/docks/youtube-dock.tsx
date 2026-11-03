@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { MoreHorizontal, RefreshCw, X } from 'lucide-react';
-import { Banner, EmptyState, Panel, ReacstButton, StatusDot, type StatusTone } from '@lumacast/ui';
+import { RefreshCw } from 'lucide-react';
+import { Banner, EmptyState, Panel, ReacstButton } from '@lumacast/ui';
 import type {
   StreamAPI,
   StreamRuntimeStatus,
@@ -11,18 +11,17 @@ import type {
   YouTubeBroadcastDraft,
   YouTubeLiveDetails,
 } from '../../shared/desktop-api';
-import { validateStreamServiceSettings } from '../../shared/stream-services';
-import { formatElapsed } from '../format-elapsed';
+import { getStreamService, validateStreamServiceSettings } from '../../shared/stream-services';
 import { providerErrorMessage } from '../features/shared/provider-error';
-import { YouTubeSettingsDialog, CreateYouTubeStreamDialog, EndYouTubeStreamDialog } from './youtube-dialogs';
+import { DockHeader } from './dock-header';
+import { YouTubeSettingsDialog, CreateYouTubeStreamDialog } from './youtube-dialogs';
 import { YouTubeStreamDetails } from './youtube-stream-details';
 import { YouTubeStreamRow } from './youtube-stream-row';
-import studioWordmark from '../assets/youtube/studio-wordmark.svg';
+import youtubeIcon from '../assets/youtube/youtube-icon.svg';
 import './youtube-dock.css';
 
 const DETAILS_POLL_INTERVAL_MS = 30_000;
-
-const STATUS_TONES: Record<StreamRuntimeStatus['state'], StatusTone> = { live: 'success', connecting: 'warning', error: 'error', stopped: 'neutral' };
+const MANUAL_METRICS_UNAVAILABLE_MESSAGE = 'Viewer counts require a connected YouTube account and a selected stream.';
 
 export interface YouTubeDockProps {
   api: StreamAPI;
@@ -36,6 +35,8 @@ export interface YouTubeDockProps {
   onStopStreaming(outputId?: string): void;
   onOpenDashboard(): void;
   onHide(): void;
+  selectionLocked?: boolean;
+  onOperationStart?: () => () => void;
   style?: CSSProperties;
   resizer?: ReactNode;
 }
@@ -76,12 +77,10 @@ export function YouTubeDock({
   onChange,
   status,
   activeOutputs,
-  streamingStartedAt,
-  now,
-  onGoLive,
-  onStopStreaming,
   onOpenDashboard,
   onHide,
+  selectionLocked: selectionLockedProp,
+  onOperationStart,
   style,
   resizer,
 }: YouTubeDockProps) {
@@ -96,17 +95,13 @@ export function YouTubeDock({
   const [createBusy, setCreateBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [endConfirmOpen, setEndConfirmOpen] = useState(false);
-  const [endStopPending, setEndStopPending] = useState(false);
-  const [chooserOpen, setChooserOpen] = useState(false);
-  const [detailsResult, setDetailsResult] = useState<{ broadcastId: string; details: YouTubeLiveDetails } | null>(null);
+  const [detailsResult, setDetailsResult] = useState<{ broadcastId: string; details: YouTubeLiveDetails; outputState: StreamRuntimeStatus['state'] } | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState('');
   const [detailsReload, setDetailsReload] = useState(0);
   const broadcastRequestId = useRef(0);
+  const knownBroadcastRef = useRef<YouTubeBroadcast | null>(null);
   const detailsRequestInFlight = useRef(false);
-  const dockBodyRef = useRef<HTMLDivElement | null>(null);
-  const wasChooserOpen = useRef(false);
   const [pageVisible, setPageVisible] = useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
 
   useEffect(() => {
@@ -152,17 +147,24 @@ export function YouTubeDock({
 
   const youtubeSettings: StreamServiceSettings = settings.service === 'youtube' ? settings : { ...settings, service: 'youtube' };
   const accountChannelId = account?.channelId ?? '';
-  const details = accountChannelId && detailsResult?.broadcastId === settings.youtube.broadcastId ? detailsResult.details : null;
+  const details = detailsResult?.broadcastId === settings.youtube.broadcastId ? detailsResult.details : null;
   const validationMessage = validateStreamServiceSettings(youtubeSettings);
   const scheduledBroadcasts = broadcasts.filter((broadcast) => broadcast.status !== 'complete');
   const selectedBroadcast = scheduledBroadcasts.find((broadcast) => broadcast.id === settings.youtube.broadcastId);
+  useEffect(() => {
+    const latestSelectedBroadcast = broadcasts.find((broadcast) => broadcast.id === settings.youtube.broadcastId);
+    if (latestSelectedBroadcast) knownBroadcastRef.current = latestSelectedBroadcast;
+  }, [broadcasts, settings.youtube.broadcastId]);
+  const cachedSelectedBroadcast = knownBroadcastRef.current?.id === settings.youtube.broadcastId ? knownBroadcastRef.current : null;
+  const displayedBroadcast = selectedBroadcast ?? cachedSelectedBroadcast;
   const outputIsRunning = status.state === 'connecting' || status.state === 'live';
   const youtubeOutputStillActive = activeOutputs.some((output) => output.id === 'youtube');
+  const hasManagedSelection = Boolean(settings.youtube.broadcastId);
   const canUseManualOutput = !account && validationMessage === null;
-  const canUseManagedOutput = Boolean(account && settings.youtube.broadcastId && (selectedBroadcast || details?.title));
-  const canGoLive = !accountLoading && !accountBusy && !broadcastsLoading && !youtubeOutputStillActive && !outputIsRunning && (canUseManagedOutput || canUseManualOutput);
-  const hasStaleSelection = Boolean(account && settings.youtube.broadcastId && !selectedBroadcast);
-  const otherActiveOutputs = activeOutputs.filter((output) => output.id !== 'youtube');
+  const activeOutputExists = activeOutputs.some((output) => output.status.state === 'connecting' || output.status.state === 'live');
+  const globallyLocked = Boolean(selectionLockedProp || outputIsRunning || activeOutputExists);
+  const selectionLocked = globallyLocked || youtubeOutputStillActive;
+  const hasStaleSelection = Boolean(settings.youtube.broadcastId && !selectedBroadcast);
 
   useEffect(() => {
     const broadcastId = accountChannelId && pageVisible ? settings.youtube.broadcastId : '';
@@ -171,10 +173,6 @@ export function YouTubeDock({
 
     if (!broadcastId) {
       setDetailsLoading(false);
-      if (!accountChannelId) {
-        setDetailsResult(null);
-        setDetailsError('');
-      }
       return;
     }
 
@@ -192,7 +190,7 @@ export function YouTubeDock({
       try {
         const nextDetails = await api.getYouTubeLiveDetails(broadcastId);
         if (active) {
-          setDetailsResult({ broadcastId, details: nextDetails });
+          setDetailsResult({ broadcastId, details: nextDetails, outputState: status.state });
           setDetailsError('');
         }
       } catch (error) {
@@ -211,7 +209,14 @@ export function YouTubeDock({
       active = false;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [accountChannelId, api, detailsReload, outputIsRunning, pageVisible, settings.youtube.broadcastId]);
+  }, [accountChannelId, api, detailsReload, outputIsRunning, pageVisible, settings.youtube.broadcastId, status.state]);
+
+  useEffect(() => {
+    if (settings.youtube.broadcastId) return;
+    knownBroadcastRef.current = null;
+    setDetailsResult(null);
+    setDetailsError('');
+  }, [settings.youtube.broadcastId]);
 
   function update(patch: Partial<StreamServiceSettings>): void {
     onChange({ ...settings, service: 'youtube', ...patch });
@@ -222,6 +227,8 @@ export function YouTubeDock({
   }
 
   async function connectAccount(): Promise<void> {
+    if (selectionLocked) return;
+    const finishOperation = onOperationStart?.();
     setAccountBusy(true);
     setSettingsError('');
     try {
@@ -237,10 +244,13 @@ export function YouTubeDock({
       setAccountBusy(false);
       setAccountLoading(false);
       setBroadcastsLoading(false);
+      finishOperation?.();
     }
   }
 
   async function disconnectAccount(): Promise<void> {
+    if (selectionLocked) return;
+    const finishOperation = onOperationStart?.();
     setAccountBusy(true);
     setSettingsError('');
     try {
@@ -253,14 +263,18 @@ export function YouTubeDock({
       setSettingsError(providerErrorMessage('YouTube', error, 'Could not disconnect YouTube account.'));
     } finally {
       setAccountBusy(false);
+      finishOperation?.();
     }
   }
 
   async function createStream(draft: YouTubeBroadcastDraft): Promise<void> {
+    if (selectionLocked) return;
+    const finishOperation = onOperationStart?.();
     setCreateBusy(true);
     setCreateError('');
     try {
       const created = await api.createYouTubeBroadcast({ ...draft, broadcastId: '' });
+      knownBroadcastRef.current = created;
       setBroadcasts((previous) => [created, ...previous.filter((broadcast) => broadcast.id !== created.id)]);
       updateYoutubeDraft({
         title: draft.title,
@@ -270,206 +284,132 @@ export function YouTubeDock({
         broadcastId: created.id,
       });
       setCreateOpen(false);
-      setChooserOpen(false);
     } catch (error) {
       setCreateError(providerErrorMessage('YouTube', error, 'Could not create YouTube stream.'));
     } finally {
       setCreateBusy(false);
+      finishOperation?.();
     }
   }
 
   function selectBroadcast(broadcast: YouTubeBroadcast): void {
-    if (outputIsRunning) return;
-    updateYoutubeDraft({ broadcastId: broadcast.id });
-    setChooserOpen(false);
+    if (selectionLocked) return;
+    knownBroadcastRef.current = broadcast;
+    updateYoutubeDraft({
+      broadcastId: broadcast.id,
+      title: broadcast.title,
+      description: broadcast.description,
+      scheduledStartTime: broadcast.scheduledStartTime,
+    });
   }
 
-  const showDetails = outputIsRunning || status.state === 'error' || (!accountLoading && !broadcastsLoading && (Boolean(selectedBroadcast) || canUseManualOutput));
-  const selectedTitle = selectedBroadcast?.title ?? (canUseManualOutput ? settings.youtube.title || 'Manual RTMPS' : '');
+  function returnToStreamList(): void {
+    if (selectionLocked || (status.state !== 'stopped' && status.state !== 'error')) return;
+    updateYoutubeDraft({ broadcastId: '' });
+  }
+
+  const manualServer = getStreamService('youtube').servers.find((server) => server.id === settings.serverId);
+  const manualTitle = manualServer?.url.startsWith('rtmp:') ? 'Manual RTMP' : 'Manual RTMPS';
+  const hasManualOutputState = !hasManagedSelection && status.state !== 'stopped';
+  const showManualDetails = canUseManualOutput || hasManualOutputState;
+  const showDetails = (hasManagedSelection || showManualDetails)
+    && (selectionLocked || hasManualOutputState || (!accountLoading && !broadcastsLoading));
+  const selectedTitle = details?.title ?? displayedBroadcast?.title ?? (showManualDetails ? settings.youtube.title || manualTitle : 'Selected stream unavailable');
   const refreshBusy = accountLoading || broadcastsLoading || accountBusy;
 
-  useEffect(() => {
-    if (chooserOpen && !wasChooserOpen.current) {
-      dockBodyRef.current?.querySelector<HTMLElement>('.youtube-stream-row, .youtube-new-stream-button')?.focus();
-    } else if (!chooserOpen && wasChooserOpen.current && selectedBroadcast) {
-      dockBodyRef.current?.querySelector<HTMLButtonElement>('.youtube-stream-select-button')?.focus();
-    } else if (!chooserOpen && wasChooserOpen.current) {
-      dockBodyRef.current?.querySelector<HTMLButtonElement>('.youtube-open-stream-chooser')?.focus();
-    }
-    wasChooserOpen.current = chooserOpen;
-  }, [chooserOpen, selectedBroadcast]);
-
-  useEffect(() => {
-    if (endStopPending && !youtubeOutputStillActive && !outputIsRunning) {
-      setEndStopPending(false);
-      setEndConfirmOpen(false);
-    }
-  }, [endStopPending, outputIsRunning, youtubeOutputStillActive]);
+  const canReturn = hasManagedSelection && !selectionLocked && (status.state === 'stopped' || status.state === 'error');
+  const openSettings = () => {
+    if (selectionLocked) return;
+    setSettingsError('');
+    setSettingsOpen(true);
+  };
+  const openCreate = () => {
+    if (selectionLocked) return;
+    setCreateError('');
+    setCreateOpen(true);
+  };
+  const headerMenuItems = [
+    { id: 'youtube.settings', label: 'YouTube settings', disabled: selectionLocked, onSelect: openSettings },
+    { id: 'youtube.new-stream', label: 'New stream', disabled: !account || selectionLocked, onSelect: openCreate },
+    { id: 'youtube.studio', label: 'Open YouTube Studio', disabled: selectionLocked, onSelect: onOpenDashboard },
+  ];
 
   let body: ReactNode;
   if (showDetails) {
     body = (
       <>
-        {chooserOpen && account && !outputIsRunning && (
-          <div className="youtube-stream-chooser" role="region" aria-label="Choose a scheduled YouTube stream">
-            <div className="youtube-stream-list-heading">
-              <strong role="heading" aria-level={2}>Select a stream</strong>
-              <ReacstButton variant="default" className="youtube-new-stream-button" onClick={() => { setCreateError(''); setCreateOpen(true); }}>New stream</ReacstButton>
-              <ReacstButton.Icon variant="ghost" size="sm" label="Close stream chooser" onClick={() => setChooserOpen(false)}><X /></ReacstButton.Icon>
-            </div>
-            {broadcastsLoading
-              ? <StreamNotice title="Loading streams" description="Fetching your scheduled YouTube streams." />
-              : broadcastsError
-                ? <StreamNotice title="Could not load streams" description={broadcastsError} tone="error"><ReacstButton variant="default" onClick={() => void refreshStreams()}>Try again</ReacstButton></StreamNotice>
-                : scheduledBroadcasts.length === 0
-                  ? <StreamNotice title="No scheduled streams" description="Create a YouTube stream to get started." />
-                  : <div className="youtube-stream-list" role="list">
-                    {scheduledBroadcasts.map((broadcast) => (
-                      <div role="listitem" key={broadcast.id}>
-                        <YouTubeStreamRow
-                          stream={broadcast}
-                          selected={broadcast.id === settings.youtube.broadcastId}
-                          disabled={outputIsRunning}
-                          onSelect={selectBroadcast}
-                        />
-                      </div>
-                    ))}
-                  </div>}
-          </div>
-        )}
-        {broadcastsError && account && !chooserOpen && (
-          <Banner tone="warning" size="sm" action={<ReacstButton size="xs" onClick={() => void refreshStreams()}>Retry</ReacstButton>}>Streams could not be refreshed: {broadcastsError}</Banner>
-        )}
-        {hasStaleSelection && !selectedBroadcast && !details?.title && !chooserOpen && !outputIsRunning && !youtubeOutputStillActive && (
-          <Banner tone="warning" size="sm" action={<ReacstButton size="xs" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose stream</ReacstButton>}>Selected stream is unavailable.</Banner>
-        )}
-        <div hidden={chooserOpen}>
-          <YouTubeStreamDetails
-            title={selectedTitle}
-            details={details}
-            loading={detailsLoading}
-            onChooseStream={account && (selectedBroadcast || details?.title) && !outputIsRunning && !youtubeOutputStillActive ? () => setChooserOpen(true) : undefined}
-          />
-        </div>
-        {detailsError && account && settings.youtube.broadcastId && (
+        {hasStaleSelection && account && !selectionLocked && <Banner tone="warning" size="sm">Selected stream is unavailable.</Banner>}
+        {broadcastsError && account && <Banner tone="warning" size="sm" action={<ReacstButton size="xs" onClick={() => void refreshStreams()}>Retry</ReacstButton>}>Streams could not be refreshed: {broadcastsError}</Banner>}
+        {detailsError && account && hasManagedSelection && (
           <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>
         )}
-        {status.state === 'error' && status.message && <Banner tone="error" size="sm">{providerErrorMessage('YouTube', status.message, 'YouTube streaming failed.')}</Banner>}
+        <YouTubeStreamDetails
+          title={selectedTitle}
+          details={details}
+          loading={detailsLoading}
+          outputState={status.state}
+          providerHealthFresh={detailsResult?.broadcastId === settings.youtube.broadcastId && detailsResult.outputState === status.state}
+          metricsUnavailableMessage={showManualDetails ? MANUAL_METRICS_UNAVAILABLE_MESSAGE : undefined}
+          onReturn={canReturn ? returnToStreamList : undefined}
+        />
       </>
     );
-  } else if (accountLoading) {
+  } else if (accountLoading || broadcastsLoading) {
     body = <StreamNotice title="Loading streams…" description="Fetching upcoming streams." />;
   } else if (broadcastsError && !account) {
     body = <StreamNotice title="Could not check YouTube connection" description={broadcastsError} tone="error"><ReacstButton variant="default" onClick={() => void refreshStreams()}>Try again</ReacstButton></StreamNotice>;
-  } else if (!account) {
+  } else if (!account && !canUseManualOutput) {
     body = (
       <StreamNotice title="Not connected" description="Connect YouTube in Settings to manage streams.">
-        <ReacstButton variant="default" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}>Connect YouTube</ReacstButton>
+        <ReacstButton variant="default" disabled={selectionLocked} onClick={openSettings}>Connect YouTube</ReacstButton>
       </StreamNotice>
     );
-  } else if (broadcastsLoading) {
-    body = <StreamNotice title="Loading streams…" description="Fetching upcoming streams." />;
-  } else if (broadcastsError) {
+  } else if (broadcastsError && scheduledBroadcasts.length === 0) {
     body = <StreamNotice title="Could not load streams" description={broadcastsError} tone="error"><ReacstButton variant="default" onClick={() => void refreshStreams()}>Try again</ReacstButton></StreamNotice>;
-  } else if (chooserOpen) {
+  } else if (account && scheduledBroadcasts.length === 0) {
     body = (
-      <div className="youtube-stream-chooser" role="region" aria-label="Choose a scheduled YouTube stream">
-        <div className="youtube-stream-list-heading">
-          <strong role="heading" aria-level={2}>Select a stream</strong>
-          <ReacstButton variant="default" className="youtube-new-stream-button" onClick={() => { setCreateError(''); setCreateOpen(true); }}>New stream</ReacstButton>
-          <ReacstButton.Icon variant="ghost" size="sm" label="Close stream chooser" onClick={() => setChooserOpen(false)}><X /></ReacstButton.Icon>
-        </div>
-        {scheduledBroadcasts.length === 0
-          ? <StreamNotice title="No scheduled streams" description="Create a stream to get started." />
-          : <div className="youtube-stream-list" role="list">
-            {scheduledBroadcasts.map((broadcast) => (
-              <div role="listitem" key={broadcast.id}>
-                <YouTubeStreamRow
-                  stream={broadcast}
-                  selected={broadcast.id === settings.youtube.broadcastId}
-                  onSelect={selectBroadcast}
-                />
-              </div>
-            ))}
-          </div>}
-      </div>
+      <StreamNotice title="No scheduled stream" description="Create a stream to use YouTube output.">
+        <ReacstButton variant="default" className="youtube-new-stream-button" disabled={selectionLocked} onClick={openCreate}>New stream</ReacstButton>
+      </StreamNotice>
     );
-  } else if (hasStaleSelection) {
-    body = (
-      <>
-        <StreamNotice title="Selected stream unavailable" description="This stream is no longer in your upcoming list. Refresh or choose another stream." tone="warning">
-          <ReacstButton variant="default" onClick={() => void refreshStreams()}>Refresh streams</ReacstButton>
-          <ReacstButton variant="success" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose another</ReacstButton>
-        </StreamNotice>
-        <YouTubeStreamDetails title={settings.youtube.title} details={details} loading={detailsLoading} />
-        {detailsError && <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>}
-      </>
-    );
-  } else if (selectedBroadcast) {
-    body = <YouTubeStreamDetails title={selectedBroadcast.title} details={details} loading={detailsLoading} />;
   } else {
     body = (
-      <StreamNotice title="No stream selected" description="Choose an upcoming stream to get started.">
-        <ReacstButton variant="default" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Select stream</ReacstButton>
-      </StreamNotice>
+      <>
+        {broadcastsError && <Banner tone="warning" size="sm" action={<ReacstButton size="xs" onClick={() => void refreshStreams()}>Retry</ReacstButton>}>Streams could not be refreshed: {broadcastsError}</Banner>}
+        <div className="youtube-stream-list" role="list" aria-label="Scheduled YouTube streams">
+          {scheduledBroadcasts.map((broadcast) => (
+            <div role="listitem" key={broadcast.id}>
+              <YouTubeStreamRow stream={broadcast} disabled={selectionLocked} onSelect={selectBroadcast} />
+            </div>
+          ))}
+        </div>
+      </>
     );
+  }
+
+  if (status.state === 'error' && status.message) {
+    body = <><Banner tone="error" size="sm">{providerErrorMessage('YouTube', status.message, 'YouTube streaming failed.')}</Banner>{body}</>;
   }
 
   return (
     <Panel density="compact" className="dock youtube-dock" style={style}>
       {resizer}
-      <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>YouTube Live</Panel.HeaderTitle>
-        <Panel.HeaderActions>
-          {account && !outputIsRunning && !youtubeOutputStillActive && (
-            <ReacstButton.Icon variant="ghost" size="sm" label="Refresh streams" disabled={refreshBusy} onClick={() => { void refreshStreams(); setDetailsReload((current) => current + 1); }}>
-              <RefreshCw />
-            </ReacstButton.Icon>
-          )}
-          {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton.Icon variant="ghost" size="sm" label="YouTube settings" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}><MoreHorizontal /></ReacstButton.Icon>}
+      <DockHeader
+        title="YouTube Live"
+        icon={<img className="youtube-dock-header__icon" src={youtubeIcon} alt="" width={24} height={24} draggable={false} />}
+        actions={account && <ReacstButton.Icon variant="ghost" size="sm" label="Refresh streams" disabled={refreshBusy} onClick={() => { void refreshStreams(); setDetailsReload((current) => current + 1); }}><RefreshCw /></ReacstButton.Icon>}
+        menuItems={headerMenuItems}
+        onHide={onHide}
+      />
 
-          <ReacstButton.Icon variant="ghost" size="sm" label="Hide YouTube Live" onClick={onHide}><X /></ReacstButton.Icon>
-        </Panel.HeaderActions>
-      </Panel.Header>
-      <div className="youtube-studio-brand-row">
-        <button type="button" className="youtube-studio-brand-button" aria-label="Open YouTube Studio" title="Open YouTube Studio" onClick={onOpenDashboard}>
-          <img src={studioWordmark} alt="YouTube Studio" width={65.0667} height={16} draggable={false} />
-        </button>
-      </div>
-
-      <div className="youtube-dock-body" ref={dockBodyRef}>{body}</div>
-
-      {otherActiveOutputs.length > 0 && <div className="youtube-active-outputs" aria-label="Other active outputs">
-        {otherActiveOutputs.map((output) => (
-          <div className="youtube-active-output" key={output.id}>
-            <StatusDot tone={STATUS_TONES[output.status.state]} />
-            <span className="youtube-active-output-name">{output.id === 'primary' ? 'Output' : output.id}</span>
-            <span className="youtube-active-output-status">{output.status.state === 'live' ? 'Live' : output.status.state === 'connecting' ? 'Connecting' : output.status.state === 'error' ? 'Error' : 'Offline'}</span>
-            <ReacstButton size="sm" label={`End ${output.id} output`} onClick={() => onStopStreaming(output.id)}>End</ReacstButton>
-          </div>
-        ))}
-      </div>}
-
-      <div className="youtube-dock-footer">
-        <div className="youtube-status-row" role="group" aria-label={`YouTube output ${status.state}`}>
-          <StatusDot tone={STATUS_TONES[status.state]} />
-          <span className="youtube-status-text" role="status" aria-live="polite" aria-atomic="true">{status.state === 'live' ? 'Live' : status.state === 'connecting' ? 'Connecting' : status.state === 'error' ? 'Error' : 'Offline'}</span>
-          {status.state === 'live' && <span className="youtube-elapsed">{formatElapsed(now - (streamingStartedAt ?? now))}</span>}
-          {status.state === 'live' && <span className="youtube-bitrate">{status.bitrateKbps ?? 0} kb/s</span>}
-        </div>
-        {status.state === 'connecting'
-          ? <ReacstButton variant="default" className="youtube-footer-action" onClick={() => onStopStreaming('youtube')}>Cancel</ReacstButton>
-          : status.state === 'live'
-            ? <ReacstButton variant="danger" className="youtube-footer-action" disabled={endStopPending} onClick={() => setEndConfirmOpen(true)}>{endStopPending ? 'Ending…' : 'End stream'}</ReacstButton>
-            : status.state === 'error'
-              ? canGoLive && <ReacstButton variant="success" className="youtube-footer-action" onClick={onGoLive}>Try again</ReacstButton>
-              : canGoLive && <ReacstButton variant="success" className="youtube-footer-action" onClick={onGoLive}>Go live</ReacstButton>}
-      </div>
+      <div className="youtube-dock-body">{body}</div>
 
       <YouTubeSettingsDialog
         open={settingsOpen}
         account={account}
         busy={accountBusy || accountLoading}
+        readOnly={selectionLocked}
+        readClipboardText={api.readClipboardText}
         error={settingsError}
         settings={youtubeSettings}
         onChange={(nextSettings) => onChange({ ...nextSettings, service: 'youtube' })}
@@ -481,19 +421,10 @@ export function YouTubeDock({
         open={createOpen}
         initialDraft={{ ...settings.youtube, broadcastId: '', scheduledStartTime: makeDefaultScheduledStartTime(settings.youtube.scheduledStartTime) }}
         busy={createBusy}
+        selectionLocked={selectionLocked}
         error={createError}
         onClose={() => setCreateOpen(false)}
         onSubmit={(draft) => { void createStream(draft); }}
-      />
-      <EndYouTubeStreamDialog
-        open={endConfirmOpen}
-        busy={endStopPending}
-        onCancel={() => { if (!endStopPending) setEndConfirmOpen(false); }}
-        onConfirm={() => {
-          if (endStopPending) return;
-          setEndStopPending(true);
-          onStopStreaming('youtube');
-        }}
       />
     </Panel>
   );

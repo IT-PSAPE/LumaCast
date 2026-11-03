@@ -11,9 +11,10 @@ export interface YouTubeStreamRowProps {
 
 function formatScheduledStart(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Time not set'
-    : date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  if (Number.isNaN(date.getTime())) return 'Time not set';
+  const scheduledDay = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }).format(date);
+  const scheduledTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+  return `${scheduledDay} · ${scheduledTime}`;
 }
 
 /** A selectable row for a scheduled YouTube broadcast. */

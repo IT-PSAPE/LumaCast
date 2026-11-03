@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type FormEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { ClipboardPaste, Eye, EyeOff } from 'lucide-react';
 import { Banner, Modal, ReacstButton, Select, Textarea } from '@lumacast/ui';
 import type { StreamServiceSettings, YouTubeAccount, YouTubeBroadcastDraft, YouTubePrivacy } from '../../shared/desktop-api';
@@ -14,6 +14,8 @@ export interface YouTubeSettingsDialogProps {
   open: boolean;
   account: YouTubeAccount | null;
   busy: boolean;
+  readOnly?: boolean;
+  readClipboardText(): Promise<string>;
   error: string;
   settings: StreamServiceSettings;
   onChange(next: StreamServiceSettings): void;
@@ -23,9 +25,18 @@ export interface YouTubeSettingsDialogProps {
 }
 
 /** Settings for the compact YouTube dock; API work stays with the dock owner. */
-export function YouTubeSettingsDialog({ open, account, busy, error, settings, onChange, onConnect, onDisconnect, onClose }: YouTubeSettingsDialogProps) {
+export function YouTubeSettingsDialog({ open, account, busy, readOnly = false, readClipboardText, error, settings, onChange, onConnect, onDisconnect, onClose }: YouTubeSettingsDialogProps) {
   const [keyVisible, setKeyVisible] = useState(false);
   const [pasteFailed, setPasteFailed] = useState(false);
+  const settingsRef = useRef(settings);
+  const openRef = useRef(open);
+  const previousOpenRef = useRef(open);
+  const readOnlyRef = useRef(readOnly);
+  const settingsRevisionRef = useRef(0);
+  const pasteRequestRef = useRef(0);
+  settingsRef.current = settings;
+  openRef.current = open;
+  readOnlyRef.current = readOnly;
   const youtubePreset = getStreamService('youtube');
 
   useEffect(() => {
@@ -34,22 +45,43 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
     setPasteFailed(false);
   }, [open]);
 
+  useEffect(() => () => { pasteRequestRef.current += 1; }, []);
+  useLayoutEffect(() => {
+    if ((previousOpenRef.current && !open) || readOnly) pasteRequestRef.current += 1;
+    previousOpenRef.current = open;
+  }, [open, readOnly]);
+
   function update(patch: Partial<StreamServiceSettings>): void {
-    onChange({ ...settings, service: 'youtube', ...patch });
+    if (readOnlyRef.current) return;
+    settingsRevisionRef.current += 1;
+    const nextSettings = { ...settingsRef.current, service: 'youtube' as const, ...patch };
+    settingsRef.current = nextSettings;
+    onChange(nextSettings);
+  }
+
+  function close(): void {
+    pasteRequestRef.current += 1;
+    onClose();
   }
 
   async function pasteStreamKey(): Promise<void> {
+    if (!openRef.current || readOnlyRef.current) return;
+    const requestId = ++pasteRequestRef.current;
+    const settingsRevision = settingsRevisionRef.current;
+    const isCurrentRequest = () => requestId === pasteRequestRef.current
+      && openRef.current && !readOnlyRef.current && settingsRevision === settingsRevisionRef.current;
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboardText();
+      if (!isCurrentRequest()) return;
       setPasteFailed(false);
-      update({ streamKey: text.slice(0, 512) });
+      if (text.length > 0) update({ streamKey: text.slice(0, 512) });
     } catch {
-      setPasteFailed(true);
+      if (isCurrentRequest()) setPasteFailed(true);
     }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="YouTube settings">
+    <Modal open={open} onClose={close} title="YouTube settings">
       <div className="youtube-dialog">
         <section className="youtube-dialog-section" aria-labelledby="youtube-account-heading">
           <h3 id="youtube-account-heading">YouTube account</h3>
@@ -59,19 +91,20 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
               {account && <span>Connected channel</span>}
             </div>
             {account
-              ? <ReacstButton variant="default" disabled={busy} onClick={onDisconnect}>{busy ? 'Disconnecting…' : 'Disconnect'}</ReacstButton>
-              : <ReacstButton variant="default" disabled={busy} onClick={onConnect}>{busy ? 'Connecting…' : 'Connect YouTube'}</ReacstButton>}
+              ? <ReacstButton variant="default" disabled={busy || readOnly} onClick={onDisconnect}>{busy ? 'Disconnecting…' : 'Disconnect'}</ReacstButton>
+              : <ReacstButton variant="default" disabled={busy || readOnly} onClick={onConnect}>{busy ? 'Connecting…' : 'Connect YouTube'}</ReacstButton>}
           </div>
           {error && <Banner tone="error" size="sm">{error}</Banner>}
         </section>
 
         <section className="youtube-dialog-section" aria-labelledby="youtube-manual-heading">
-          <h3 id="youtube-manual-heading">Manual RTMPS</h3>
+          <h3 id="youtube-manual-heading">Manual streaming</h3>
           <p className="youtube-dialog-empty">Used when no YouTube account is connected.</p>
           <Select
             label="YouTube ingest server"
             size="sm"
             value={settings.serverId}
+            disabled={readOnly}
             onValueChange={(serverId) => update({ serverId })}
             options={youtubePreset.servers.map((server) => ({ value: server.id, label: server.label }))}
           />
@@ -84,16 +117,17 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
                 autoCapitalize="off"
                 spellCheck={false}
                 maxLength={512}
+                disabled={readOnly}
                 value={settings.streamKey}
                 onChange={(event) => {
                   setPasteFailed(false);
                   update({ streamKey: event.target.value });
                 }}
               />
-              <ReacstButton.Icon variant="ghost" size="sm" label="Show stream key" pressed={keyVisible} tooltip={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={() => setKeyVisible((visible) => !visible)}>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Show stream key" pressed={keyVisible} disabled={readOnly} tooltip={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={() => setKeyVisible((visible) => !visible)}>
                 {keyVisible ? <EyeOff /> : <Eye />}
               </ReacstButton.Icon>
-              <ReacstButton.Icon variant="ghost" size="sm" label="Paste stream key" onClick={() => void pasteStreamKey()}>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Paste stream key" disabled={readOnly} onClick={() => void pasteStreamKey()}>
                 <ClipboardPaste />
               </ReacstButton.Icon>
             </div>
@@ -102,7 +136,7 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
         </section>
 
         <div className="youtube-dialog-footer">
-          <ReacstButton variant="default" onClick={onClose}>Done</ReacstButton>
+          <ReacstButton variant="default" onClick={close}>Done</ReacstButton>
         </div>
       </div>
     </Modal>
@@ -113,6 +147,7 @@ export interface CreateYouTubeStreamDialogProps {
   open: boolean;
   initialDraft: YouTubeBroadcastDraft;
   busy: boolean;
+  selectionLocked?: boolean;
   error: string;
   onClose(): void;
   onSubmit(draft: YouTubeBroadcastDraft): void;
@@ -128,7 +163,7 @@ function parseLocalDateTime(value: string): string {
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
 }
 
-export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onClose, onSubmit }: CreateYouTubeStreamDialogProps) {
+export function CreateYouTubeStreamDialog({ open, initialDraft, busy, selectionLocked = false, error, onClose, onSubmit }: CreateYouTubeStreamDialogProps) {
   const [draft, setDraft] = useState<YouTubeBroadcastDraft>(() => ({ ...initialDraft }));
   const [touched, setTouched] = useState({ title: false, startTime: false });
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -156,7 +191,7 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     setSubmitAttempted(true);
-    if (busy || !titleValid || !startTimeValid) return;
+    if (busy || selectionLocked || !titleValid || !startTimeValid) return;
     onSubmit(draft);
   }
 
@@ -171,7 +206,7 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
               type="text"
               maxLength={100}
               required
-              disabled={busy}
+              disabled={busy || selectionLocked}
               value={draft.title}
               aria-invalid={showTitleError || undefined}
               aria-describedby={showTitleError ? titleErrorId : undefined}
@@ -180,15 +215,15 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
             />
             {showTitleError && <span id={titleErrorId} className="youtube-dialog-error" role="alert">Enter a title.</span>}
           </div>
-          <Textarea label="Description" rows={3} maxLength={5000} disabled={busy} commitOn="change" value={draft.description} onValueChange={(description) => update({ description })} />
-          <Select label="Stream privacy" size="sm" disabled={busy} value={draft.privacy} onValueChange={(privacy) => update({ privacy })} options={PRIVACY_OPTIONS} />
+          <Textarea label="Description" rows={3} maxLength={5000} disabled={busy || selectionLocked} commitOn="change" value={draft.description} onValueChange={(description) => update({ description })} />
+          <Select label="Stream privacy" size="sm" disabled={busy || selectionLocked} value={draft.privacy} onValueChange={(privacy) => update({ privacy })} options={PRIVACY_OPTIONS} />
           <div className="youtube-dialog-field">
             <label htmlFor={startTimeId}>Start time</label>
             <input
               id={startTimeId}
               type="datetime-local"
               required
-              disabled={busy}
+              disabled={busy || selectionLocked}
               value={toLocalDateTimeValue(draft.scheduledStartTime)}
               aria-invalid={showStartTimeError || undefined}
               aria-describedby={showStartTimeError ? startTimeErrorId : undefined}
@@ -201,7 +236,7 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
           {error && <Banner tone="error" size="sm">{error}</Banner>}
           <div className="youtube-dialog-footer">
             <ReacstButton variant="default" disabled={busy} onClick={onClose}>Cancel</ReacstButton>
-            <ReacstButton variant="success" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create stream'}</ReacstButton>
+            <ReacstButton variant="success" type="submit" disabled={busy || selectionLocked}>{busy ? 'Creating…' : 'Create stream'}</ReacstButton>
           </div>
         </form>
       </div>

@@ -86,6 +86,7 @@ export interface SettingsDialogProps {
   /** Stream destination + YouTube broadcast draft, shared with the YouTube dock. The Stream page shows a disabled empty state when this is omitted. */
   streamServiceSettings?: StreamServiceSettings;
   onSaveStreamServiceSettings?: (settings: StreamServiceSettings) => void;
+  streamDestinationsLocked?: boolean;
   /** Page to open on first render; defaults to the last page visited this session. */
   initialPage?: SettingsPage;
   onRemuxRecording?: () => void;
@@ -143,6 +144,7 @@ export function SettingsDialog({
   platform,
   streamServiceSettings,
   onSaveStreamServiceSettings,
+  streamDestinationsLocked = false,
   initialPage,
   onRemuxRecording,
 }: SettingsDialogProps) {
@@ -182,6 +184,12 @@ export function SettingsDialog({
     setBaseline((current) => (current.streamServiceSettings ? current : { ...current, streamServiceSettings: cloneStreamServiceSettings(streamServiceSettings) }));
   }, [streamServiceSettings]);
 
+  useEffect(() => {
+    if (!streamDestinationsLocked || !streamServiceSettings) return;
+    setDraft((current) => ({ ...current, streamServiceSettings: cloneStreamServiceSettings(streamServiceSettings) }));
+    setBaseline((current) => ({ ...current, streamServiceSettings: cloneStreamServiceSettings(streamServiceSettings) }));
+  }, [streamDestinationsLocked, streamServiceSettings]);
+
   const errors: SettingsDraftErrors = useMemo(() => validateSettingsDraft(draft, platformValue), [draft, platformValue]);
   const hasErrors = hasSettingsDraftErrors(errors);
   const dirty = useMemo(() => isSettingsDraftDirty(draft, baseline), [draft, baseline]);
@@ -196,9 +204,11 @@ export function SettingsDialog({
     setDraft((current) => ({ ...current, recordingPreferences: { ...current.recordingPreferences, ...patch } }));
   };
   const updateStreamService = (patch: Partial<StreamServiceSettings>) => {
+    if (streamDestinationsLocked) return;
     setDraft((current) => (current.streamServiceSettings ? { ...current, streamServiceSettings: { ...current.streamServiceSettings, ...patch } } : current));
   };
   const updateYoutubeDraft = (patch: Partial<YouTubeBroadcastDraft>) => {
+    if (streamDestinationsLocked) return;
     setDraft((current) => (current.streamServiceSettings ? { ...current, streamServiceSettings: { ...current.streamServiceSettings, youtube: { ...current.streamServiceSettings.youtube, ...patch } } } : current));
   };
   const changeStreamService = (serviceId: StreamServiceId) => {
@@ -221,7 +231,7 @@ export function SettingsDialog({
     if (patches.replayBufferDurationSeconds !== undefined) {
       setReplayBufferDurationSeconds(patches.replayBufferDurationSeconds);
     }
-    if (patches.streamServiceSettings) {
+    if (patches.streamServiceSettings && !streamDestinationsLocked) {
       onSaveStreamServiceSettings?.(patches.streamServiceSettings);
     }
     setBaseline(draft);
@@ -264,6 +274,7 @@ export function SettingsDialog({
         return draft.streamServiceSettings ? (
           <StreamPage
             settings={draft.streamServiceSettings}
+            locked={streamDestinationsLocked}
             onChangeService={changeStreamService}
             onUpdate={updateStreamService}
             onUpdateYoutube={updateYoutubeDraft}
@@ -350,11 +361,13 @@ function GeneralPage({ seconds, disabled, onChange }: { seconds: number; disable
 
 function StreamPage({
   settings,
+  locked,
   onChangeService,
   onUpdate,
   onUpdateYoutube,
 }: {
   settings: StreamServiceSettings;
+  locked: boolean;
   onChangeService: (service: StreamServiceId) => void;
   onUpdate: (patch: Partial<StreamServiceSettings>) => void;
   onUpdateYoutube: (patch: Partial<YouTubeBroadcastDraft>) => void;
@@ -362,7 +375,8 @@ function StreamPage({
   const preset = getStreamService(settings.service);
   const validationMessage = validateStreamServiceSettings(settings);
   return (
-    <div className="settings-page">
+    <fieldset className="settings-page settings-stream-fields" disabled={locked} aria-label="Streaming destinations">
+      {locked && <Banner tone="info" size="sm">Streaming destinations are locked during setup or output.</Banner>}
       <div className="popover-heading"><strong>Service</strong></div>
       <Select
         label="Service"
@@ -403,7 +417,7 @@ function StreamPage({
           </Field>
         </>
       )}
-    </div>
+    </fieldset>
   );
 }
 

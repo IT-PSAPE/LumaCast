@@ -42,6 +42,7 @@ export interface AudioMixerEngineOptions {
 export class AudioMixerEngine {
   readonly context: AudioContext;
   readonly destinations: readonly MediaStreamAudioDestinationNode[];
+  private readonly silenceSource: ConstantSourceNode;
   private readonly routes = new Map<string, AudioRoute>();
   private readonly routeGenerations = new Map<string, number>();
   private monitorDeviceQueue: Promise<void> = Promise.resolve();
@@ -56,6 +57,11 @@ export class AudioMixerEngine {
     this.context = options.context ?? new AudioContext({ sampleRate: 48_000 });
     this.monitorDestination = options.monitorDestination ?? this.context.destination;
     this.destinations = AUDIO_TRACKS.map(() => this.context.createMediaStreamDestination());
+    // MediaRecorder needs audio samples even when no sources feed the mixer.
+    this.silenceSource = this.context.createConstantSource();
+    this.silenceSource.offset.value = 0;
+    this.destinations.forEach((destination) => this.silenceSource.connect(destination));
+    this.silenceSource.start();
     this.audioFiltersModuleReady = this.context.audioWorklet
       ? this.context.audioWorklet.addModule(audioFiltersProcessorUrl).then(() => true).catch(() => false)
       : Promise.resolve(false);
@@ -337,6 +343,8 @@ export class AudioMixerEngine {
 
   async close(): Promise<void> {
     for (const id of this.routes.keys()) this.remove(id);
+    this.silenceSource.stop();
+    this.silenceSource.disconnect();
     await this.context.close();
   }
 

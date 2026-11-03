@@ -40,6 +40,7 @@ const PROVIDER_FAILURE = 'YouTube denied access. Reconnect the account or check 
 
 type YouTubeAPI = Pick<
   StreamAPI,
+  | 'readClipboardText'
   | 'getYouTubeAccount'
   | 'connectYouTubeAccount'
   | 'disconnectYouTubeAccount'
@@ -59,10 +60,13 @@ type DockOverrides = {
   onStopStreaming?: (outputId?: string) => void;
   onOpenDashboard?: () => void;
   onHide?: () => void;
+  selectionLocked?: boolean;
+  onOperationStart?: () => () => void;
 };
 
 function createApi(overrides: Partial<YouTubeAPI> = {}): StreamAPI {
   const api: YouTubeAPI = {
+    readClipboardText: vi.fn().mockResolvedValue(''),
     getYouTubeAccount: vi.fn().mockResolvedValue(ACCOUNT),
     connectYouTubeAccount: vi.fn().mockResolvedValue(ACCOUNT),
     disconnectYouTubeAccount: vi.fn().mockResolvedValue(undefined),
@@ -108,6 +112,8 @@ function renderDock(overrides: DockOverrides = {}) {
         onStopStreaming={onStopStreaming}
         onOpenDashboard={onOpenDashboard}
         onHide={onHide}
+        selectionLocked={overrides.selectionLocked}
+        onOperationStart={overrides.onOperationStart}
       />
     );
   }
@@ -132,7 +138,55 @@ function deferred<T>() {
 }
 
 describe('YouTubeDock', () => {
-  it('loads account and broadcasts before showing the no-selection state', async () => {
+  it.each([
+    ['primary', 'Manual RTMPS'],
+    ['legacy', 'Manual RTMP'],
+  ])('identifies the selected manual %s protocol', async (serverId, label) => {
+    renderDock({
+      api: { getYouTubeAccount: vi.fn().mockResolvedValue(null) },
+      settings: { serverId, streamKey: 'fixture-stream-key' },
+    });
+
+    expect(await screen.findByText(label)).toBeInTheDocument();
+  });
+
+  it('shows manual output as Streaming without inventing provider health', async () => {
+    renderDock({
+      api: { getYouTubeAccount: vi.fn().mockResolvedValue(null) },
+      settings: { serverId: 'legacy', streamKey: 'fixture-stream-key' },
+      status: { state: 'live', outputId: 'youtube' },
+      activeOutputs: [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }],
+    });
+
+    expect(await screen.findByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+    expect(screen.getByText('Streaming')).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /Provider health:/ })).not.toBeInTheDocument();
+    expect(screen.queryByText('Waiting for stream')).not.toBeInTheDocument();
+    expect(screen.getByText('Viewer counts require a connected YouTube account and a selected stream.')).toBeInTheDocument();
+    expect(screen.getAllByText('—')).toHaveLength(2);
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['live', 'Streaming'],
+    ['error', 'Error'],
+  ] as const)('shows manual %s details when an account is connected but no stream is selected', async (state, statusLabel) => {
+    renderDock({
+      api: { listYouTubeBroadcasts: vi.fn().mockResolvedValue([]) },
+      settings: { serverId: 'legacy', streamKey: 'fixture-stream-key' },
+      status: { state, outputId: 'youtube' },
+      activeOutputs: state === 'live' ? [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }] : [],
+    });
+
+    expect(await screen.findByLabelText('Current stream details')).toBeInTheDocument();
+    expect(screen.getByText('Manual RTMP')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: `Output status: ${statusLabel}` })).toBeInTheDocument();
+    expect(screen.getByText('Viewer counts require a connected YouTube account and a selected stream.')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Scheduled YouTube streams' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: /Provider health:/ })).not.toBeInTheDocument();
+  });
+
+  it('loads account and broadcasts before showing the scheduled stream list', async () => {
     const accountRequest = deferred<YouTubeAccount | null>();
     const broadcastsRequest = deferred<YouTubeBroadcast[]>();
     const api = createApi({
@@ -154,8 +208,8 @@ describe('YouTubeDock', () => {
       broadcastsRequest.resolve([BROADCAST]);
       await broadcastsRequest.promise;
     });
-    expect(await screen.findByText('No stream selected')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Select stream' })).toBeEnabled();
+    expect(await screen.findByRole('button', { name: /Launch stream/ })).toBeEnabled();
+    expect(screen.getByRole('list', { name: 'Scheduled YouTube streams' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
     expect(api.getYouTubeLiveDetails).not.toHaveBeenCalled();
   });
@@ -174,7 +228,7 @@ describe('YouTubeDock', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
     expect(api.connectYouTubeAccount).not.toHaveBeenCalled();
-    expect(within(dialog).getByRole('heading', { name: 'Manual RTMPS' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('heading', { name: 'Manual streaming' })).toBeInTheDocument();
     expect(within(dialog).getByRole('combobox', { name: 'YouTube ingest server' })).toBeInTheDocument();
 
     const streamKey = within(dialog).getByLabelText('Stream Key');
@@ -186,9 +240,8 @@ describe('YouTubeDock', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Show stream key' }));
     expect(within(dialog).getByLabelText('Stream Key')).toHaveAttribute('type', 'text');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
-    expect(screen.getByRole('button', { name: 'Go live' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Go live' }));
-    expect(onGoLive).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
+    expect(onGoLive).not.toHaveBeenCalled();
     expect(api.connectYouTubeAccount).not.toHaveBeenCalled();
   });
 
@@ -204,7 +257,7 @@ describe('YouTubeDock', () => {
     expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
   });
 
-  it('keeps manual Go live unavailable after Settings closes while OAuth is pending', async () => {
+  it('keeps stream start out of the dock while OAuth is pending', async () => {
     const connectRequest = deferred<YouTubeAccount>();
     const { api } = renderDock({
       settings: { streamKey: 'manual-key' },
@@ -214,9 +267,11 @@ describe('YouTubeDock', () => {
       },
     });
 
-    expect(await screen.findByRole('button', { name: 'Go live' })).toBeEnabled();
+    await screen.findByLabelText('Current stream details');
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'YouTube settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'YouTube settings' }));
     const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect YouTube' }));
     expect(within(dialog).getByRole('button', { name: 'Connecting…' })).toBeDisabled();
@@ -230,21 +285,14 @@ describe('YouTubeDock', () => {
       connectRequest.reject(new Error('OAuth was cancelled.'));
       await connectRequest.promise.catch(() => undefined);
     });
-    expect(await screen.findByRole('button', { name: 'Go live' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
   });
 
-  it('keeps an empty schedule in the chooser and exposes New stream there', async () => {
+  it('shows a New stream action for an empty schedule', async () => {
     renderDock({ api: { listYouTubeBroadcasts: vi.fn().mockResolvedValue([]) } });
-    expect(await screen.findByText('No stream selected')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Select stream' })).toBeEnabled();
+    expect(await screen.findByText('No scheduled stream')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'New stream' })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Select stream' }));
-    expect(await screen.findByText('No scheduled streams')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
-    const chooser = screen.getByLabelText('Choose a scheduled YouTube stream');
-    fireEvent.click(within(chooser).getAllByRole('button', { name: 'New stream' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'New stream' }));
     expect(await screen.findByRole('dialog', { name: 'Create stream' })).toBeInTheDocument();
   });
 
@@ -256,12 +304,9 @@ describe('YouTubeDock', () => {
       settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, scheduledStartTime: '2020-01-01T00:00:00.000Z' } },
       api,
     });
-    expect(await screen.findByText('No stream selected')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select stream' }));
-
-    const chooser = screen.getByLabelText('Choose a scheduled YouTube stream');
+    expect(await screen.findByText('No scheduled stream')).toBeInTheDocument();
     const openWindowStart = Date.now();
-    fireEvent.click(within(chooser).getByRole('button', { name: 'New stream' }));
+    fireEvent.click(screen.getByRole('button', { name: 'New stream' }));
     const dialog = await screen.findByRole('dialog', { name: 'Create stream' });
     fireEvent.change(within(dialog).getByLabelText('Title'), { target: { value: 'Fresh stream' } });
 
@@ -278,11 +323,8 @@ describe('YouTubeDock', () => {
     expect(submittedTimestamp).toBeLessThan(openWindowStart + 6 * 60 * 1000);
   });
 
-  it('selects a scheduled stream with its thumbnail and enables offline Go live', async () => {
+  it('selects a scheduled stream and returns to the list to disarm it', async () => {
     const { api, onChange, onGoLive } = renderDock();
-    expect(await screen.findByText('No stream selected')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select stream' }));
-
     const streamRow = await screen.findByRole('button', { name: /Launch stream/ });
     expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
     expect(within(streamRow).getByText('Launch stream')).toBeInTheDocument();
@@ -293,15 +335,67 @@ describe('YouTubeDock', () => {
       youtube: expect.objectContaining({ broadcastId: BROADCAST.id }),
     }));
     expect(await screen.findByLabelText('Current stream details')).toBeInTheDocument();
-    expect(await screen.findByRole('status', { name: 'Stream health: Excellent' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: 'Output status: Waiting for stream' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: 'Provider health: Excellent' })).toBeInTheDocument();
     expect(api.getYouTubeLiveDetails).toHaveBeenCalledWith(BROADCAST.id);
-    const goLive = screen.getByRole('button', { name: 'Go live' });
-    expect(goLive).toBeEnabled();
-    fireEvent.click(goLive);
-    expect(onGoLive).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Return' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
+    expect(onGoLive).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return' }));
+    expect(await screen.findByRole('list', { name: 'Scheduled YouTube streams' })).toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      youtube: expect.objectContaining({ broadcastId: '' }),
+    }));
   });
 
-  it('keeps scheduled stream details visible while connecting and cancels only the YouTube output', async () => {
+  it('keeps selected broadcast metadata and live details through a missing refresh result and stale account', async () => {
+    const getAccount = vi.fn()
+      .mockResolvedValueOnce(ACCOUNT)
+      .mockResolvedValueOnce(ACCOUNT)
+      .mockResolvedValueOnce(null);
+    const listBroadcasts = vi.fn()
+      .mockResolvedValueOnce([BROADCAST])
+      .mockResolvedValueOnce([]);
+    const { api, onChange, setRuntimeState } = renderDock({
+      api: {
+        getYouTubeAccount: getAccount,
+        listYouTubeBroadcasts: listBroadcasts,
+      },
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: /Launch stream/ }));
+    expect(await screen.findByText('37')).toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      youtube: expect.objectContaining({
+        broadcastId: BROADCAST.id,
+        title: BROADCAST.title,
+        description: BROADCAST.description,
+        scheduledStartTime: BROADCAST.scheduledStartTime,
+      }),
+    }));
+
+    act(() => setRuntimeState(
+      { state: 'live', outputId: 'youtube' },
+      [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }],
+    ));
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh streams' }));
+    await waitFor(() => expect(api.listYouTubeBroadcasts).toHaveBeenCalledTimes(2));
+    expect(screen.getByText('Launch stream')).toBeInTheDocument();
+    expect(screen.getByText('37')).toBeInTheDocument();
+    expect(screen.getByText('82')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh streams' }));
+    await waitFor(() => expect(getAccount).toHaveBeenCalledTimes(3));
+    expect(screen.getByText('Launch stream')).toBeInTheDocument();
+    expect(screen.getByText('37')).toBeInTheDocument();
+    expect(screen.getByText('82')).toBeInTheDocument();
+  });
+
+  it('keeps scheduled stream details visible while connecting without Return or lifecycle actions', async () => {
     const onStopStreaming = vi.fn();
     renderDock({
       settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, broadcastId: BROADCAST.id } },
@@ -312,15 +406,28 @@ describe('YouTubeDock', () => {
 
     expect(await screen.findByText('Launch stream')).toBeInTheDocument();
     expect(await screen.findByLabelText('Current stream details')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(onStopStreaming).toHaveBeenCalledWith('youtube');
-    expect(screen.getByLabelText('Current stream details')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Output status: Connecting' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'End stream' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
+    expect(onStopStreaming).not.toHaveBeenCalled();
   });
 
-  it('shows live metrics and asks before ending the YouTube stream', async () => {
+  it('labels YouTube waiting health separately while local output is live', async () => {
+    renderDock({
+      settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, broadcastId: BROADCAST.id } },
+      status: { state: 'live', outputId: 'youtube' },
+      activeOutputs: [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }],
+      api: { getYouTubeLiveDetails: vi.fn().mockResolvedValue({ ...LIVE_DETAILS, health: 'waiting' }) },
+    });
+
+    expect(await screen.findByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+    expect(await screen.findByText('YouTube health: Waiting for stream')).toBeInTheDocument();
+    expect(screen.queryByText('YouTube health: Excellent')).not.toBeInTheDocument();
+  });
+
+  it('shows live metrics without Return or stop actions, then restores Return after cleanup', async () => {
     const now = 1_000_000;
     const onStopStreaming = vi.fn();
     const { setRuntimeState } = renderDock({
@@ -334,76 +441,103 @@ describe('YouTubeDock', () => {
 
     expect(await screen.findByText('37')).toBeInTheDocument();
     expect(screen.getByText('82')).toBeInTheDocument();
-    expect(screen.getByText('01:05')).toBeInTheDocument();
-    expect(screen.getByText('4200 kb/s')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'End stream' }));
-
-    const confirmation = await screen.findByRole('dialog', { name: 'End stream?' });
-    fireEvent.click(within(confirmation).getByRole('button', { name: 'Keep streaming' }));
+    expect(screen.getByRole('status', { name: 'Output status: Streaming' })).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Provider health: Excellent' })).toBeInTheDocument();
+    expect(screen.queryByText('01:05')).not.toBeInTheDocument();
+    expect(screen.queryByText('4200 kb/s')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'End stream' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
     expect(onStopStreaming).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'End stream' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'End stream' }));
-    const pendingConfirmation = await screen.findByRole('dialog', { name: 'End stream?' });
-    fireEvent.click(within(pendingConfirmation).getByRole('button', { name: 'End stream' }));
-    expect(onStopStreaming).toHaveBeenCalledTimes(1);
-    expect(onStopStreaming).toHaveBeenCalledWith('youtube');
-    expect(within(pendingConfirmation).getByRole('button', { name: 'Ending…' })).toBeDisabled();
-    expect(within(pendingConfirmation).getByRole('button', { name: 'Keep streaming' })).toBeDisabled();
-    fireEvent.click(within(pendingConfirmation).getByRole('button', { name: 'Ending…' }));
-    expect(onStopStreaming).toHaveBeenCalledTimes(1);
 
     act(() => setRuntimeState(
       OFFLINE_STATUS,
       [{ id: 'youtube', status: { state: 'stopped', outputId: 'youtube' } }],
     ));
-    expect(screen.getByRole('dialog', { name: 'End stream?' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
 
-    act(() => setRuntimeState(
-      OFFLINE_STATUS,
-      [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
-    ));
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'End stream?' })).not.toBeInTheDocument());
-    expect(await screen.findByRole('button', { name: 'Go live' })).toBeEnabled();
+    act(() => setRuntimeState(OFFLINE_STATUS, []));
+    expect(await screen.findByRole('button', { name: 'Return' })).toBeEnabled();
+    expect(onStopStreaming).not.toHaveBeenCalled();
   });
 
-  it('shows provider viewer, health, and copyright data while another output has independent controls', async () => {
-    const onStopStreaming = vi.fn();
-    renderDock({
+  it('hides stale provider health after output stops until YouTube confirms the new health', async () => {
+    const stoppedDetailsRequest = deferred<YouTubeLiveDetails>();
+    const getLiveDetails = vi.fn()
+      .mockResolvedValueOnce(LIVE_DETAILS)
+      .mockReturnValueOnce(stoppedDetailsRequest.promise);
+    const { setRuntimeState } = renderDock({
       settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, broadcastId: BROADCAST.id } },
-      activeOutputs: [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
-      api: {
-        getYouTubeLiveDetails: vi.fn().mockResolvedValue({
-          ...LIVE_DETAILS,
-          currentViewers: 37,
-          viewCount: 82,
-          health: 'warning',
-          notices: [{
-            severity: 'error',
-            title: 'Video rejected',
-            description: 'YouTube rejected this video for copyright.',
-            type: 'rejected:copyright',
-          }],
-        }),
-      },
-      onStopStreaming,
+      status: { state: 'live', outputId: 'youtube' },
+      activeOutputs: [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }],
+      api: { getYouTubeLiveDetails: getLiveDetails },
     });
 
-    expect(await screen.findByText('37')).toBeInTheDocument();
-    expect(screen.getByText('82')).toBeInTheDocument();
-    expect(screen.getByRole('status', { name: 'Stream health: Warning' })).toBeInTheDocument();
-    expect(screen.getByText('Video rejected')).toBeInTheDocument();
-    expect(screen.getByText('YouTube rejected this video for copyright.')).toBeInTheDocument();
-    expect(screen.getByLabelText('YouTube output stopped')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Go live' })).toBeEnabled();
+    expect(await screen.findByRole('status', { name: 'Provider health: Excellent' })).toBeInTheDocument();
+    act(() => setRuntimeState(
+      OFFLINE_STATUS,
+      [{ id: 'youtube', status: { state: 'stopped', outputId: 'youtube' } }],
+    ));
 
-    fireEvent.click(screen.getByRole('button', { name: 'End twitch output' }));
-    expect(onStopStreaming).toHaveBeenCalledWith('twitch');
-    expect(screen.getByRole('button', { name: 'Go live' })).toBeEnabled();
+    expect(screen.getByRole('status', { name: 'Output status: Waiting for stream' })).toBeInTheDocument();
+    expect(screen.queryByRole('status', { name: 'Provider health: Excellent' })).not.toBeInTheDocument();
+    await waitFor(() => expect(getLiveDetails).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      stoppedDetailsRequest.resolve({ ...LIVE_DETAILS, health: 'warning' });
+      await stoppedDetailsRequest.promise;
+    });
+    expect(screen.getByRole('status', { name: 'Provider health: Warning' })).toBeInTheDocument();
   });
 
-  it('waits for YouTube output cleanup before offering runtime retry', async () => {
-    const onGoLive = vi.fn();
+  it('keeps the stream list and account actions locked while another output is active', async () => {
+    renderDock({
+      activeOutputs: [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
+    });
+
+    const streamRow = await screen.findByRole('button', { name: /Launch stream/ });
+    expect(streamRow).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    expect(screen.getByRole('menuitem', { name: 'New stream' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('menuitem', { name: 'YouTube settings' })).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.queryByRole('button', { name: 'Go live' })).not.toBeInTheDocument();
+  });
+
+  it('makes YouTube settings read-only when a global output becomes active', async () => {
+    const { setRuntimeState } = renderDock();
+    await screen.findByRole('list', { name: 'Scheduled YouTube streams' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'YouTube settings' }));
+    const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
+
+    act(() => setRuntimeState(
+      { state: 'live', outputId: 'primary' },
+      [{ id: 'primary', status: { state: 'live', outputId: 'primary' } }],
+    ));
+
+    expect(within(dialog).getByRole('button', { name: 'Disconnect' })).toBeDisabled();
+    expect(within(dialog).getByRole('combobox', { name: 'YouTube ingest server' })).toBeDisabled();
+    expect(within(dialog).getByLabelText('Stream Key')).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Show stream key' })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Paste stream key' })).toBeDisabled();
+  });
+
+  it('uses the native clipboard API for the settings dialog paste button', async () => {
+    const readClipboardText = vi.fn().mockResolvedValue('native-clipboard-key');
+    const { onChange } = renderDock({ api: { readClipboardText } });
+    await screen.findByRole('list', { name: 'Scheduled YouTube streams' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'YouTube settings' }));
+    const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Paste stream key' }));
+
+    await waitFor(() => expect(readClipboardText).toHaveBeenCalledOnce());
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ service: 'youtube', streamKey: 'native-clipboard-key' }));
+  });
+
+  it('waits for YouTube output cleanup before enabling Return', async () => {
     const { setRuntimeState } = renderDock({
       settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, broadcastId: BROADCAST.id } },
       status: { state: 'error', outputId: 'youtube', message: 'HTTP 403 access_token=private-provider-detail' },
@@ -411,24 +545,26 @@ describe('YouTubeDock', () => {
         { id: 'youtube', status: { state: 'error', outputId: 'youtube' } },
         { id: 'twitch', status: { state: 'live', outputId: 'twitch' } },
       ],
-      onGoLive,
     });
 
     expect(await screen.findByText('Launch stream')).toBeInTheDocument();
     expect(screen.getByText('YouTube streaming failed.')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Output status: Error' })).toBeInTheDocument();
     expect(screen.queryByText(/private-provider-detail/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
 
     act(() => setRuntimeState(
       { state: 'error', outputId: 'youtube', message: 'HTTP 403 access_token=private-provider-detail' },
       [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
     ));
 
-    const tryAgain = await screen.findByRole('button', { name: 'Try again' });
-    expect(tryAgain).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'End twitch output' })).toBeInTheDocument();
-    fireEvent.click(tryAgain);
-    expect(onGoLive).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Return' })).not.toBeInTheDocument();
+
+    act(() => setRuntimeState(
+      { state: 'error', outputId: 'youtube', message: 'HTTP 403 access_token=private-provider-detail' },
+      [],
+    ));
+    expect(await screen.findByRole('button', { name: 'Return' })).toBeEnabled();
   });
 
   it('retries a recoverable live-details error and replaces it with current provider details', async () => {
@@ -444,7 +580,7 @@ describe('YouTubeDock', () => {
     expect(screen.queryByText('Temporary YouTube details failure.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry details' }));
 
-    expect(await screen.findByRole('status', { name: 'Stream health: Excellent' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', { name: 'Provider health: Excellent' })).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(api.getYouTubeLiveDetails).toHaveBeenCalledTimes(2);
   });
@@ -461,7 +597,7 @@ describe('YouTubeDock', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('YouTube denied access. Reconnect your account or check that the channel is eligible for live streaming.');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
-    expect(await screen.findByText('No stream selected')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Launch stream/ })).toBeInTheDocument();
     expect(api.listYouTubeBroadcasts).toHaveBeenCalledTimes(2);
   });
 
@@ -490,7 +626,10 @@ describe('YouTubeDock', () => {
   });
 
   it('shows a safe fallback when YouTube account connection fails', async () => {
+    const finishOperation = vi.fn();
+    const onOperationStart = vi.fn(() => finishOperation);
     renderDock({
+      onOperationStart,
       api: {
         getYouTubeAccount: vi.fn().mockResolvedValue(null),
         connectYouTubeAccount: vi.fn().mockRejectedValue(new Error('OAuth token endpoint returned access_token=private-provider-detail')),
@@ -503,6 +642,8 @@ describe('YouTubeDock', () => {
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not connect YouTube account.');
     expect(within(dialog).queryByText(/private-provider-detail/)).not.toBeInTheDocument();
+    expect(onOperationStart).toHaveBeenCalledOnce();
+    expect(finishOperation).toHaveBeenCalledOnce();
   });
 
   it('does not schedule another details poll when an in-flight request resolves after unmount', async () => {
@@ -524,24 +665,24 @@ describe('YouTubeDock', () => {
     expect(setTimeoutSpy).not.toHaveBeenCalled();
   });
 
-  it('keeps Studio, hide, and other-output controls working independently', async () => {
+  it('keeps YouTube Studio and hide actions in the dock menu', async () => {
     const onOpenDashboard = vi.fn();
     const onHide = vi.fn();
     const onStopStreaming = vi.fn();
     renderDock({
-      activeOutputs: [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
       onOpenDashboard,
       onHide,
       onStopStreaming,
     });
-    await screen.findByText('No stream selected');
+    await screen.findByRole('list', { name: 'Scheduled YouTube streams' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open YouTube Studio' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Hide YouTube Live' }));
-    fireEvent.click(screen.getByRole('button', { name: 'End twitch output' }));
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open YouTube Studio' }));
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube Live actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hide YouTube Live' }));
 
     expect(onOpenDashboard).toHaveBeenCalledTimes(1);
     expect(onHide).toHaveBeenCalledTimes(1);
-    expect(onStopStreaming).toHaveBeenCalledWith('twitch');
+    expect(onStopStreaming).not.toHaveBeenCalled();
   });
 });
