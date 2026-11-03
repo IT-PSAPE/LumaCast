@@ -87,8 +87,17 @@ Capture audio enablement and the selected camera audio device are part of
 resource identity. Staged audio-input changes therefore preserve Program's
 current capture until Transition. Camera video and audio are acquired separately;
 audio failure leaves the video track usable. Camera audio requires an explicit
-input or one unique input with the same reported device group. Window audio
-uses Windows system loopback and is labelled accordingly in the interface.
+input or one unique input with the same reported device group. Display capture
+can combine video with explicitly selected application audio or the system mix
+on supported Windows/macOS hosts. Audio is off by default; the picker
+records its mode and application path. A failed audio helper leaves video live
+and reports the audio error without changing modes.
+Window capture is video-only because the available native audio paths are scoped
+to an app/process tree rather than an individual window. Shared mode resolution,
+renderer acquisition/attachment, and main's display-media grant suppress legacy
+window audio settings without substituting app or system audio. Live legacy audio
+routes are stopped while video stays active. Browser sources provide isolated
+page audio through their own webContents media-source ID (ADR-0121).
 
 Studio Mode keeps the persisted project as the editable draft and renders
 Program from a separate, session-only snapshot of the selected root scene, its
@@ -102,21 +111,25 @@ finishes. Outside Studio Mode, Program follows the existing live-edit behavior.
 Program state is volatile and is rebuilt from the loaded project after restart
 because Stream outputs stop when the app closes.
 
-Runtime resources use session-local UUIDs mapped from the logical source ID and
-resource descriptor. Preview, Program, and an outgoing transition share an
-unchanged resource; a changed asset, device, browser URL, or slideshow list
-gets its own staged resource. Browser viewport dimensions are also part of
-browser resource identity. Sharing an unchanged media resource preserves its
-playback position across transitions. Runtime deduplication uses the Program
-snapshot's configuration when a resource is shared. Native capture tracks and
-their mixer routes stay warm while the source descriptor remains in any draft,
-Program, or outgoing graph, even when that source is not currently rendered.
+Runtime resources use session-local UUIDs. Video/audio assets, ordered slideshow
+or presentation page lists, and normalized browser URL plus viewport identify
+shared stateful resources across logical source IDs. Native inputs retain
+logical-source and capture-binding identity. A changed resource descriptor gets
+its own staged resource; transforms and mixer controls remain authored per
+source. Shared runtime frames and status fan out to every logical alias.
+Visible Program configuration wins over outgoing and Preview configuration;
+hidden aliases do not retain runtime ownership. Native capture tracks and
+their mixer routes stay warm while an effectively visible reference remains in
+any draft, Program, or outgoing graph, even when outside the current view.
 Camera and microphone capture is acquired only when the source enters an active
 view scope; moving between scenes or thumbnails does not tear down an existing
 capture, while deleting or replacing its last graph reference releases it.
-Browser pages are recreatable and are opened only while owned by Preview,
-Program, an outgoing transition, a visible thumbnail, or a mounted Multiview
-tile; they close when their last active view releases them. Runtime UUIDs and
+Browser pages open on their first active view and then remain while referenced
+by any draft, Program, or outgoing graph, preserving DOM and navigation state.
+Inactive visible pages are throttled. Hiding or deleting the last effectively
+visible reference closes them; showing a hidden browser again reloads its page.
+Preview interaction sends bounded pointer, wheel, and key events to the hidden
+page using CDP, with crop/rotation/output coordinate mapping. Runtime UUIDs and
 resource state are not persisted, so the native IPC UUID contract remains
 unchanged.
 
@@ -143,14 +156,19 @@ new user gesture to start capture after the source stops or Stream restarts;
 the current Electron loopback path captures system audio rather than selecting
 an individual output device or application.
 
-Application Audio Capture adds a separate Windows process-loopback path. A
-Stream-owned .NET 8 helper uses WASAPI process loopback, lists visible
-interactive processes, and captures the selected process tree as 48 kHz stereo
-float PCM. Main owns the helper executable, validates its process-list output,
-and refreshes the list before starting capture; the selected PID must still
-match the persisted executable path. The scene stores the executable path, not
-the PID, so process identity is transient and capture must be started again
-after Stream restarts. Main owns one capture child and transferred MessagePort
+Application Audio Capture uses a Stream-owned .NET 8 WASAPI process-loopback
+helper on Windows and a Core Audio process-tap helper on macOS 14.2 or later.
+The catalog groups process trees under GUI app roots and requires audio-session
+evidence plus a visible, non-minimized window. It is a picker filter, not a
+capture authorization boundary. Main validates the selected PID/path syntax;
+the native helper checks that live PID against the expected executable path.
+Both helpers emit 48 kHz stereo float PCM. macOS uses a tap-only aggregate so
+the physical output device's clock cannot change the captured PCM's playback
+rate. The scene stores the executable path, not
+the PID, so process identity is transient. Standalone Application Audio requires
+a new live selection after restart; display capture restores combined app audio
+only when the saved path uniquely matches a live catalog entry. Main owns one
+capture child and transferred MessagePort
 per source, and stops the child when the source is stopped or its renderer
 connection closes. The trusted renderer feeds PCM frames into a bounded
 AudioWorklet queue, exposes its output as a MediaStream, and routes it through
@@ -164,7 +182,7 @@ family and size, bold/italic, horizontal/vertical alignment, outline, shadow,
 and a translucent background. Older sources receive the default style during
 project decode; text is rendered using fonts installed on the host (ADR-0107).
 
-The helper is a self-contained Windows x64 executable and rejects capture on
+The Windows helper is a self-contained x64 executable and rejects capture on
 Windows builds older than 20348; process listing is not itself a guarantee that
 capture is supported. Stream's development and Windows packaging scripts
 publish the helper, and the Windows installer includes it as an application
@@ -172,23 +190,57 @@ resource. Live PCM capture still requires runtime verification on a supported
 Windows host. This path captures a selected process tree, not an output-device
 endpoint or all system audio.
 
-Display and Window Capture sources also persist their selected capture ID, but
-their live media tracks are session-only. The selected-source properties expose
+Display and Window Capture sources persist their latest capture ID plus separate
+target clues (display ID or window title and app icon hash). Live tracks are
+session-only. Active sources re-enumerate and restore only a unique safe match
+after startup or a lost track; missing or ambiguous targets require manual
+selection. Automatic capture uses a fresh one-shot main-process authorization
+for desktop media, separate from camera/microphone permission. Properties expose
 Reconnect Capture when the track is absent and Change Capture while it is live.
 Both actions use the trusted user-gesture picker; selecting a replacement binds
 the new track to the existing source ID and keeps the source's saved scene
 properties. Cursor mode is initialized from the saved source and persisted if
-changed in the picker. Stream does not start desktop capture automatically on
-project load (ADR-0104).
+changed in the picker. A capture binding generation distinguishes explicit
+replacement from automatic refresh so a recycled native ID cannot revive a
+previous session (ADR-0104).
 
-Media sources persist their loop, restart-on-activation, and end-frame settings
+Media sources persist their loop, reset-on-entry, and end-frame settings
 with the scene. `RuntimeVideoBank` binds each resource for its runtime lifetime
 and starts media video/audio playback only for Program and retained outgoing
-visuals. Staged Preview media remains paused; slideshow images stay on their
-current frame until Program advances the timer. Reusing the same source and
-resource keeps its playback position across transitions. Canvas composition
+visuals. Preview shares the current frame when its resource is already on air;
+Preview-only media remains paused. Leaving Program pauses playback and returning
+resumes it. Reset on entering Program is opt-in for media, browser, slideshow,
+and presentation sources, and does not reset continuously active resources.
+Collection changes remount the bank and clear runtime cursors and sessions;
+profile changes keep matching resources alive while applying output settings.
+Hiding every alias unmounts the player and releases its decoder and mixer route.
+A per-bank metadata cache restores seekable media's playhead and paused/ended state on re-show unless entry reset is
+enabled; hidden slide cursors remain until their final graph reference is deleted.
+Canvas composition
 omits the last video frame when the source's end-frame setting is enabled
 (ADR-0102, ADR-0118).
+
+Image slideshows import multiple images atomically. Presentation sources import
+local PPTX or PDF into ordered managed PNG pages through a bounded worker;
+conversion uses office-kit and PDFium without an installed office suite or
+network service. The packaged native renderer reads bundled fonts staged outside
+`app.asar`. Pages are static and travel with portable collection bundles.
+Previous/Next/Reset update a shared runtime cursor immediately in every matching
+Preview, Program, and outgoing view, without mutating project or snapshot
+configuration. A saved legacy page index seeds the cursor only once. Automatic
+advancement is explicit opt-in; manual navigation pauses it until explicitly
+resumed. Cursor state survives scene changes while a graph reference remains
+(ADR-0120).
+The transition bar keeps its slide picker and navigation at the far right.
+Canonical selection survives Preview and source-row changes; visible Program
+decks are always eligible, and hidden decks are excluded. Studio Mode and the
+Program projector live beside Settings in the title bar.
+
+Canvas editing snaps to canvas/source edges and centers within six CSS pixels;
+Alt bypasses snapping. Shift locks aspect ratio on resize handles, while
+Command (macOS) or Ctrl (Windows/Linux) crops the visible source without changing
+its pixel scale. Guide coordinates account for output letterboxing. Transform
+shortcuts respect source and ancestor locks.
 
 The main process stores a validated collection index plus one project JSON file
 per collection under Stream app data. Profiles are stored separately in
@@ -279,7 +331,11 @@ Audio sources from the live/program scene feed their selected program tracks.
 Sources in the Studio Mode preview stay out of those buses and local monitoring
 until transitioned to Program (ADR-0060, ADR-0118). Streaming selects one of
 the six buses; recordings can mux any
-combination of them into separate audio streams (ADR-0087).
+combination of them into separate audio streams (ADR-0087). A zero-offset
+ConstantSource keeps every bus producing silent samples when no sources are
+attached; otherwise Chromium's VP9/Opus MediaRecorder can wait indefinitely
+without producing WebM chunks. The silence source has no monitor route and
+closes with the mixer.
 
 Per-source audio settings include a gain filter, optional microphone neural
 noise suppression, noise gate, downward expander, compressor (threshold and
@@ -400,8 +456,31 @@ keyframe interval, optional hardware encoding, and live bitrate status. MP4
 recording has its own encoder settings. The main process can remux selected MKV
 or WebM recordings to MP4 by stream-copying compatible codecs into a temporary
 file beside the chosen destination, then publishing it only after FFmpeg
-succeeds (ADR-0099). Replay
-Buffer retains up to 60 seconds of the program output for saving. Per-source
+succeeds (ADR-0099).
+
+Provider docks select destinations without starting output. Their persisted
+YouTube broadcast ID and Zoom meeting ID form the selected destination set;
+Controls starts those outputs independently and retains per-output stop/error
+handling. An empty set opens the manual RTMP destination dialog. Saved manual
+credentials do not silently add another destination to a provider start.
+An initial 30-second deadline requires FFmpeg transport progress across startup
+retries. It distinguishes missing recorder input from encoder/output startup
+failure, then clears on progress; provider confirmation remains independent.
+Destination changes are locked while any output connects or runs. Zoom's typed
+connection phase distinguishes joining from Production Studio startup; elapsed
+time begins when the renderer starts sending media. Canvas frames are copied in
+their native RGB channel order and converted to full-range I420 for the existing
+SDK senders. Media buffers are copied to `MessagePortMain`, because ArrayBuffer
+transfer lists drop the message payload ([Electron #34905](https://github.com/electron/electron/issues/34905)).
+The existing SDK bridge does not collect participant counts.
+YouTube's output lifecycle is independent of API-reported health and viewer
+metrics. The selected authorized broadcast ID scopes metrics; manual keys do
+not identify a video. Zoom's native sender-stop event fails and tears down its
+output session, while callbacks after explicit stop are ignored. NDI remains
+a local Program sender, with starting/stopping surfaced in both its dialog and
+Controls.
+
+Replay Buffer retains up to 60 seconds of the program output for saving. Per-source
 color correction, opacity, blur, HTTP(S) browser page
 rendering, configurable global output hotkeys, per-source audio monitoring, and
 chroma key and neural microphone noise suppression are available. Camera sources

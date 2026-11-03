@@ -26,7 +26,7 @@ imports an app; `tool/check_electron_architecture.mjs` enforces both.
 
 ## Requirements
 
-- Node.js `22.13.0` or newer (CI pins exactly `22.13.0`)
+- Node.js `22.18.0` or newer (CI pins exactly `22.18.0`)
 - npm `11.6.2` or newer (`package.json#packageManager`)
 
 For the native NDI addon build, also install the toolchain for your
@@ -105,16 +105,53 @@ Scene thumbnails show the composed scene and a vertical input-activity meter.
 In Studio Mode, source and Mixer edits stay in Preview until Transition commits
 them to Program, including edits to the same scene already on air. Captures stay
 live, while Preview-only video, audio, and slideshow timers wait for Program.
-Unchanged shared sources keep their playback position across transitions.
+Matching video, audio, slideshow, presentation, and browser resources share one
+session across scenes and keep their state when transitioning away and back.
+**Reset when entering Program** is off by default and never resets a resource
+that remains on air through a transition.
 Disconnected cameras show color bars; unavailable assets and inputs have source
 indicators, and action notices appear at the bottom right.
 The app is Windows-first and is built independently from OBS. Per-source crop,
 color correction, opacity, blur, chroma key, audio monitoring, microphone noise
 suppression, gain, noise gate, expander, compressor, and limiter controls are available.
+Right-click a source and choose **Properties**, or double-click its row, to open
+its settings in a dialog without resizing the Sources dock. Source availability
+uses status icons; hover an icon for the status and any error details.
+Image Slideshow accepts multiple images at once, and **Add Images** in its
+properties appends more (up to 100). **Presentation** imports `.pptx` and `.pdf`
+files as static slides; export Google Slides to either format first. Imports
+stay local and support files up to 50 MB and 100 slides. PowerPoint formatting
+may differ; use PDF to preserve the authored appearance. Animations and embedded
+media are not played.
+
+**Previous**, **Next**, and **Reset** at the right of the transition bar change
+the selected slideshow or presentation in Preview and Program together. The
+slide picker keeps its selection while preparing other scenes, including a
+deck that remains live on Program. Studio Mode and the Program projector are
+beside Settings in the top bar. Slideshows stay manual unless **Advance
+automatically** is enabled in Properties; manual navigation pauses it again.
+Other source property edits remain staged in Studio Mode until **Transition**.
+Hidden sources stay in the Sources list but leave playback controls and audio
+panels. When every visible copy is hidden, Stream releases its runtime resources;
+slide positions and seekable media playback state are retained. Browser pages close and reload
+when shown again. A still-visible Program copy remains live until Transition.
+Select a browser source and choose **Interact** above Preview to click, type,
+and scroll in the page; press Escape to return to canvas editing.
+Canvas dragging snaps to canvas and source edges or centers; hold Alt to bypass.
+Hold Shift while resizing to preserve aspect ratio, or Command on macOS / Ctrl
+on Windows and Linux while dragging a handle to crop. Fit, center, and reset use
+Command/Ctrl+F, Command/Ctrl+D, and Command/Ctrl+R.
 Global hotkeys can toggle streaming controls, recording, and replay capture.
 Browser sources can route page audio through the per-source mixer.
-Window/display sources have a **Capture system audio** toggle. On Windows this
-captures the desktop mix, including other applications. Video devices have a
+On Windows and macOS, display sources can include explicitly selected application
+audio or the system mix. **Capture audio** and **Audio source** control that choice.
+Window Capture stays video-only: the current native audio APIs capture an app or
+process tree, including its other windows. Stream disables window audio rather
+than capturing a broader mix. Use a Browser source to isolate one page's audio.
+Application Audio Capture lists apps with visible, non-minimized windows and audio
+session evidence; it captures the selected app, including its other windows.
+Capture-picker previews retain a 16:9 frame and fit the thumbnail without cropping.
+Video devices have a
 **Capture audio** toggle and a separate audio-input selector; Stream selects an
 input automatically only when the device reports one unambiguous matching input.
 If audio cannot start, video stays available and the source reports the audio
@@ -138,30 +175,48 @@ camera sound controls with generated devices in an isolated scene collection.
 Set `NDI_LOCAL_LOOPBACK_TEST=1` to also run the NDI input/output smoke test with
 a generated pattern and tone. NDI tests require the built addon and local runtime;
 they publish only synthetic test media.
+The macOS `node tests/apps/stream/e2e/audio-pitch.smoke.mjs` probe verifies the
+native helper through a local RTMP recording with owned synthetic tones.
+`node tests/apps/stream/e2e/browser-audio-isolation.smoke.mjs` verifies that two
+Stream-owned pages do not mix their audio. Both require a Stream build and use
+isolated profiles; neither captures user audio nor starts an external broadcast.
 YouTube account connection uses a Google OAuth Desktop app client ID supplied
 as `LUMASTREAM_GOOGLE_CLIENT_ID` when building LumaStream. Connected accounts
 can select or create upcoming streams and stream to YouTube over RTMPS; OAuth
 tokens are stored with the operating system's secure credential storage. The
-YouTube panel lists scheduled streams with thumbnails and shows viewer counts,
-input health, and provider notices. Account and manual RTMPS controls are in its
-Settings dialog; new streams are created in a separate dialog. YouTube's Data
+YouTube dock lists scheduled streams with thumbnails and shows viewer counts,
+input health, and provider notices. Account and manual streaming controls are in its
+Settings dialog; new streams are created in a separate dialog. The dock shows
+local output state separately from YouTube's reported stream health. Viewer
+counts require a connected account and a selected broadcast; a manual stream
+key alone cannot supply them. Missing counts remain unavailable rather than zero.
+YouTube's Data
 API does not expose the general Content ID warning feed.
 The Zoom Meeting SDK uses a Public Client ID supplied as
 `LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID` when building LumaStream. Connected Zoom
 accounts can select or create scheduled meetings; OAuth tokens are stored with
 the operating system's secure credential storage. The Zoom panel keeps the
-selected meeting and output actions in view; account settings and meeting
-creation open in separate dialogs. The native Meeting SDK sender
+selected meeting, connection stage, and elapsed output time in view; account
+settings and meeting creation open in separate dialogs. Participant counts are
+not currently collected by the SDK bridge. The native Meeting SDK sender
 joins with the connected user's ZAK and sends raw I420 video and PCM audio from
 the program canvas and mixer through Production Studio. It runs alongside
-YouTube RTMPS and local recording. The SDK app key, OAuth access token, and
+YouTube RTMPS and local recording. Zoom's CPU pixel conversion can limit frame
+rate at 4K. The SDK app key, OAuth access token, and
 user's ZAK serve separate purposes. Production Studio can send only when the
 signed-in user is the meeting host or co-host. Zoom requires app review before
 joining meetings outside the SDK app owner's account.
 The Controls panel contains streaming, recording, and replay actions, with
-independent stop or cancel controls for each active destination. Global settings
-are available from the title bar. File > Convert to MP4 and Settings > Advanced
-repackage MKV or WebM recordings without re-encoding, keeping the original file.
+independent stop or cancel controls for each active destination. Select a YouTube
+stream and/or Zoom meeting in its dock, then use **Controls > Start Streaming**
+to start the selected destinations together. **Return** clears a selection before
+starting; destination changes stay locked while any output is connecting or live.
+Refresh retrieves
+the provider's latest schedule, including entries created elsewhere. With no
+provider selected, Start Streaming opens the manual destination dialog. Global
+settings are available from the title bar. File > Convert to MP4 and Settings >
+Advanced repackage MKV or WebM recordings without re-encoding, keeping the
+original file.
 Zoom's PKCE guide lists Meeting SDK 7.0.2 as preferred. Use the exact native
 Windows/macOS packages and version supplied through the Zoom Marketplace, then
 check their platform changelog and minimum-version policy before packaging.
@@ -252,7 +307,7 @@ npm run build:flux
 npm run e2e --workspace apps/flux
 ```
 
-It creates temporary photos and catalogs, preserves source files, and writes screenshots and timing results to `apps/flux/output/playwright/`. Use Node.js 22.13 or newer, as required by the workspace.
+It creates temporary photos and catalogs, preserves source files, and writes screenshots and timing results to `apps/flux/output/playwright/`. Use Node.js 22.18 or newer, as required by the workspace.
 
 Check the architecture rules against the working tree:
 
