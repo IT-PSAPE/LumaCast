@@ -12,4 +12,27 @@ describe('runtime editor projection', () => {
     expect(projectRuntimeMap([source], values)).toEqual(new Map([['image', 'capture'], ['image:slide', 'image']]));
     expect(projectRuntimeRecord([other], { [key]: 0.7, [getSourceRuntimeId(other)]: 0.2 })).toEqual({ image: 0.2 });
   });
+
+  it('projects a shared resource session and its staged image references to every editor copy', () => {
+    const first = { ...source, id: 'first-copy' };
+    const second = { ...source, id: 'second-copy' };
+    const runtimeId = getSourceRuntimeId(first);
+    expect(getSourceRuntimeId(second)).toBe(runtimeId);
+
+    const mediaElement = {};
+    const stagedImage = {};
+    expect(projectRuntimeMap([first, second], new Map([
+      [runtimeId, mediaElement],
+      [`${runtimeId}:slide`, stagedImage],
+    ]))).toEqual(new Map([
+      ['first-copy', mediaElement],
+      ['second-copy', mediaElement],
+      ['first-copy:slide', stagedImage],
+      ['second-copy:slide', stagedImage],
+    ]));
+    expect(projectRuntimeRecord([first, second], { [runtimeId]: { state: 'ready' } })).toEqual({
+      'first-copy': { state: 'ready' },
+      'second-copy': { state: 'ready' },
+    });
+  });
 });

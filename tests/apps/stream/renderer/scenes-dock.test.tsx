@@ -42,12 +42,22 @@ function rowFor(name: string): HTMLButtonElement {
 }
 
 describe('ScenesDock', () => {
-  it('no longer renders the old footer (dots, count, scene-options menu button)', () => {
+  it('uses the shared dock header and no longer renders the old footer', () => {
     renderDock();
     expect(document.querySelector('.scene-dock-footer')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Scenes actions' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Scene options' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Redo' })).toBeNull();
+  });
+
+  it('hides the dock from the shared header actions menu', async () => {
+    const { onHide } = renderDock();
+    fireEvent.click(screen.getByRole('button', { name: 'Scenes actions' }));
+    await settle();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Scenes' }));
+    await settle();
+    expect(onHide).toHaveBeenCalledOnce();
   });
 
   it('selects a right-clicked, not-yet-active scene and opens its context menu', async () => {

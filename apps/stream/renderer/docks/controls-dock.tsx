@@ -1,15 +1,20 @@
 import { type CSSProperties, type ReactNode } from 'react';
-import { Copy, Pause, Play, Radio, Square, X } from 'lucide-react';
+import { Copy, Network, Pause, Play, Radio, SlidersHorizontal, Square } from 'lucide-react';
 import { Panel, ReacstButton, StatusDot } from '@lumacast/ui';
+import { DockHeader } from './dock-header';
 import type { StreamRuntimeStatus } from '../../shared/desktop-api';
 import './controls-dock.css';
 
 export interface ControlsDockProps {
-  ndiControl?: ReactNode;
+  ndiSending: boolean;
+  ndiStarting?: boolean;
+  ndiStopping?: boolean;
+  onOpenNdiOutput: () => void;
   style?: CSSProperties;
   resizer?: ReactNode;
   onHide: () => void;
   working: boolean;
+  streamingStartDisabled?: boolean;
   streamOutputs: Array<{ id: string; label: string; status: StreamRuntimeStatus; duration: string }>;
   onGoLive: () => void;
   onStopStreaming: (outputId: string) => void;
@@ -29,11 +34,15 @@ export interface ControlsDockProps {
 }
 
 export function ControlsDock({
-  ndiControl,
+  ndiSending,
+  ndiStarting = false,
+  ndiStopping = false,
+  onOpenNdiOutput,
   style,
   resizer,
   onHide,
   working,
+  streamingStartDisabled = false,
   streamOutputs,
   onGoLive,
   onStopStreaming,
@@ -53,28 +62,23 @@ export function ControlsDock({
 }: ControlsDockProps) {
   const activeOutputs = streamOutputs.filter(({ status }) => status.state === 'live' || status.state === 'connecting');
   const failedOutputs = streamOutputs.filter(({ status }) => status.state === 'error');
+  const ndiState = ndiStopping ? 'Stopping' : ndiStarting ? 'Starting' : ndiSending ? 'Active' : '';
 
   return (
     <Panel density="compact" className="dock controls-dock" style={style}>
       {resizer}
-      <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>Controls</Panel.HeaderTitle>
-        <Panel.HeaderActions>
-          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Controls" onClick={onHide}><X /></ReacstButton.Icon>
-        </Panel.HeaderActions>
-      </Panel.Header>
+      <DockHeader title="Controls" icon={<SlidersHorizontal />} onHide={onHide} />
 
       <div className="control-body">
-        {ndiControl}
         <div className="control-rows">
           {activeOutputs.length === 0
-            ? <ReacstButton className="control-row control-action" variant="success" disabled={working} onClick={onGoLive}><Radio size={13} />Go Live</ReacstButton>
+            ? <ReacstButton className="control-row control-action" variant="success" disabled={working || streamingStartDisabled} onClick={onGoLive}><Radio size={13} />Start Streaming</ReacstButton>
             : activeOutputs.map(({ id, label, status, duration }) => {
               const connecting = status.state === 'connecting';
               const actionLabel = connecting ? `Cancel ${label}` : `Stop ${label}`;
               return (
                 <div className="control-output-row" key={id}>
-                  <span className="control-output-state"><StatusDot tone="error" />{connecting ? `Connecting · ${label}` : `Live · ${label}`}</span>
+                  <span className="control-output-state"><StatusDot tone={connecting ? 'warning' : 'success'} />{connecting ? `Connecting · ${label}` : `Live · ${label}`}</span>
                   {!connecting && <span className="control-duration" aria-label={`${label} duration`}>{duration}</span>}
                   <ReacstButton className="control-row-action control-output-action" variant="danger" size="sm" aria-label={actionLabel} onClick={() => onStopStreaming(id)}>
                     <Square size={11} fill="currentColor" />{connecting ? 'Cancel' : 'Stop'}
@@ -89,6 +93,10 @@ export function ControlsDock({
               <span><strong>{label}</strong>{status.message ? ` · ${status.message}` : ' · Could not connect'}</span>
             </div>
           ))}
+
+          <ReacstButton className="control-row control-action" aria-haspopup="dialog" onClick={onOpenNdiOutput}>
+            <Network size={13} />NDI output{ndiState ? ` · ${ndiState}` : ''}
+          </ReacstButton>
 
           {recordingFinalizing ? (
             <ReacstButton className="control-row control-action" disabled><StatusDot tone="error" size="md" />Finalizing recording…</ReacstButton>

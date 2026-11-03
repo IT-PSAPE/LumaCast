@@ -1,8 +1,11 @@
-import { ChevronDown, ChevronUp, Pause, Play, Plus, Square, Volume2, VolumeX, X } from 'lucide-react';
+import { useCallback, useSyncExternalStore } from 'react';
+import { ChevronDown, ChevronUp, Pause, Play, Plus, Square, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { Checkbox, NumberField, ReacstButton, Select, Slider, Textarea, TextField, type SelectOption } from '@lumacast/ui';
 import { canReferenceScene } from '../../shared/scene-reference-graph';
-import { supportsDisplayCaptureSystemAudio, textFontFamiliesForPlatform, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
+import { WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE, captureAudioApplicationName, captureAudioModeForSource } from '../../shared/capture-audio';
+import { primaryShortcutLabel, supportsApplicationAudioCapture, textFontFamiliesForPlatform, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
+import { getSlidePlaybackRevision, isSlidePlaybackManuallyPaused, setSourceSlideshowAutoAdvance, subscribeSlidePlayback } from '../slideshow';
 import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture/helpers';
 import {
   AUDIO_TRACKS,
@@ -53,8 +56,12 @@ const formatBalance = (value: number): string => (value < -2 ? 'Left' : value > 
 const clampInt = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, Math.trunc(value)));
 
 function supportsChromaKey(source: StreamSource): boolean {
-  return ['display', 'window', 'camera', 'image', 'slideshow', 'browser'].includes(source.kind)
+  return ['display', 'window', 'camera', 'image', 'slideshow', 'presentation', 'browser'].includes(source.kind)
     || (source.kind === 'media' && source.mediaKind === 'video');
+}
+
+function supportsPlaybackRestart(source: StreamSource): boolean {
+  return source.kind === 'media' || source.kind === 'browser' || source.kind === 'slideshow' || source.kind === 'presentation';
 }
 
 export interface SourcePropertiesProps {
@@ -106,6 +113,14 @@ export interface SourcePropertiesProps {
   onUpdateSourceFilters: (sourceId: string, filters: Partial<SourceFilters>) => void;
   onUpdateSourceCrop: (sourceId: string, crop: Partial<SourceCrop>) => void;
   onUpdateSourceChromaKey: (sourceId: string, chromaKey: Partial<ChromaKeyFilter>) => void;
+}
+
+function SlideshowAutoAdvance({ source, onUpdate }: { source: StreamSource; onUpdate: SourcePropertiesProps['onUpdateSource'] }) {
+  const subscribe = useCallback((listener: () => void) => subscribeSlidePlayback(source, listener), [source]);
+  const snapshot = useCallback(() => getSlidePlaybackRevision(source), [source]);
+  useSyncExternalStore(subscribe, snapshot, () => 0);
+  return <Checkbox label="Advance automatically" checked={source.slideshowAutoAdvance === true && !isSlidePlaybackManuallyPaused(source)}
+    onCheckedChange={(enabled) => onUpdate(source.id, (current) => setSourceSlideshowAutoAdvance(current, enabled))} />;
 }
 
 export function SourceProperties({
@@ -174,7 +189,7 @@ export function SourceProperties({
 
   return (
     <div className="source-properties">
-      <div className="property-heading"><span>{sourceIcon(selectedSource.kind, selectedSource.mediaKind)}{selectedSource.name}</span><ReacstButton.Icon variant="ghost" size="sm" label="Remove source" onClick={onRemove}><X /></ReacstButton.Icon></div>
+      <div className="property-heading"><span>{sourceIcon(selectedSource.kind, selectedSource.mediaKind)}{selectedSource.name}</span><ReacstButton.Icon variant="ghost" size="sm" label="Remove source" onClick={onRemove}><Trash2 /></ReacstButton.Icon></div>
       {selectedSource.kind === 'group' && <TextField size="sm" label="Group name" labelPlacement="inline" maxLength={120} commitOn="change" value={selectedSource.name} onValueChange={(name) => patchSource({ name })} />}
       {selectedSource.kind === 'scene' && <Select size="sm" label="Scene" labelPlacement="inline" value={selectedSource.referencedSceneId ?? ''} onValueChange={(sceneId) => {
         const target = project.scenes.find((scene) => scene.id === sceneId);
@@ -211,7 +226,27 @@ export function SourceProperties({
       </>}
       {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <>
         <ReacstButton size="sm" disabled={working} onClick={() => onOpenCapturePicker(selectedSource.kind === 'display' ? 'screen' : 'window', selectedSource.id)}>{runtimesSnapshot.has(selectedSource.id) ? 'Change Capture' : 'Reconnect Capture'}</ReacstButton>
-        {supportsDisplayCaptureSystemAudio(platform) && <Checkbox label="Capture system audio" checked={selectedSource.captureAudioEnabled ?? true} disabled={working} onCheckedChange={(enabled) => onToggleDesktopCaptureAudio(selectedSource, enabled)} />}
+        {selectedSource.kind === 'window' && <>
+          <Checkbox label="Capture audio" checked={false} disabled onCheckedChange={() => undefined} />
+          <div className="text-sm text-secondary">{WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE}</div>
+        </>}
+        {selectedSource.kind === 'display' && supportsApplicationAudioCapture(platform) && <>
+          <Checkbox
+            label="Capture audio"
+            checked={captureAudioModeForSource(selectedSource, platform) !== 'off'}
+            disabled={working}
+            onCheckedChange={(enabled) => {
+              if (enabled) onToggleDesktopCaptureAudio(selectedSource, true);
+              else onToggleDesktopCaptureAudio(selectedSource, false);
+            }}
+          />
+          {captureAudioModeForSource(selectedSource, platform) !== 'off' && <div className="flex items-center justify-between gap-2">
+            <span className="text-secondary">{captureAudioModeForSource(selectedSource, platform) === 'system'
+              ? 'System audio'
+              : captureAudioApplicationName(selectedSource.captureAudioApplicationPath) ?? 'Application audio'}</span>
+            <ReacstButton size="sm" disabled={working} onClick={() => onOpenCapturePicker(selectedSource.kind === 'display' ? 'screen' : 'window', selectedSource.id)}>Change audio</ReacstButton>
+          </div>}
+        </>}
         <Select size="sm" label="Capture Cursor" labelPlacement="inline" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onValueChange={(cursorMode) => onUpdateCaptureCursorMode(selectedSource.id, cursorMode)} options={CURSOR_OPTIONS} />
       </>}
       {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
@@ -219,7 +254,7 @@ export function SourceProperties({
           {(['x', 'y', 'width', 'height'] as const).map((key) => <NumberField key={key} size="sm" label={TRANSFORM_LABELS[key]} disabled={selectedSource.locked} min={key === 'x' || key === 'y' ? -32768 : 1} max={32768} step={1} value={selectedSource.transform[key]} onValueChange={(value) => onUpdateSourceTransform(selectedSource.id, key, String(value))} />)}
           <NumberField size="sm" label="Rotation" disabled={selectedSource.locked} min={-180} max={180} step={1} value={selectedSource.transform.rotation ?? 0} onValueChange={(value) => onUpdateSourceTransform(selectedSource.id, 'rotation', String(value))} />
         </div>
-        <div className="transform-actions"><ReacstButton size="sm" disabled={selectedSource.locked} onClick={() => fitSource(selectedSource)}>Fit to Canvas</ReacstButton><ReacstButton size="sm" disabled={selectedSource.locked} onClick={() => centerSource(selectedSource)}>Center</ReacstButton><ReacstButton size="sm" disabled={selectedSource.locked} onClick={() => onResetTransform(selectedSource)}>Reset</ReacstButton></div>
+        <div className="transform-actions"><ReacstButton size="sm" title={`Fit to Canvas (${primaryShortcutLabel(platform, 'F')})`} disabled={selectedSource.locked} onClick={() => fitSource(selectedSource)}>Fit to Canvas</ReacstButton><ReacstButton size="sm" title={`Center (${primaryShortcutLabel(platform, 'D')})`} disabled={selectedSource.locked} onClick={() => centerSource(selectedSource)}>Center</ReacstButton><ReacstButton size="sm" title={`Reset (${primaryShortcutLabel(platform, 'R')})`} disabled={selectedSource.locked} onClick={() => onResetTransform(selectedSource)}>Reset</ReacstButton></div>
       </details>}
       {selectedSource.kind === 'text' && textStyle && <>
         <Textarea label="Text" rows={3} commitOn="change" value={selectedSource.text ?? ''} onValueChange={(text) => patchSource({ text })} />
@@ -260,20 +295,21 @@ export function SourceProperties({
           <ReacstButton size="sm" disabled={!playbackInProgram || !mediaElements.has(selectedSource.id)} onClick={() => onStopPlayback(selectedSource.id)}><Square size={11} />Stop</ReacstButton>
         </div>
         <Checkbox label="Loop" checked={selectedSource.loop ?? false} onCheckedChange={(loop) => patchSource({ loop })} />
-        <Checkbox label="Restart when entering Program" checked={selectedSource.restartPlaybackWhenActive ?? true} onCheckedChange={(restartPlaybackWhenActive) => patchSource({ restartPlaybackWhenActive })} />
         <Checkbox label="Show nothing when playback ends" checked={selectedSource.showNothingWhenPlaybackEnds ?? true} onCheckedChange={(showNothingWhenPlaybackEnds) => patchSource({ showNothingWhenPlaybackEnds })} />
       </>}
       {selectedSource.kind === 'slideshow' && <div className="slideshow-properties">
+        <SlideshowAutoAdvance source={selectedSource} onUpdate={updateSource} />
         <NumberField size="sm" label="Slide duration" labelPlacement="inline" suffix="s" min={1} max={600} value={selectedSource.slideshowIntervalSeconds ?? 5} onValueChange={(seconds) => patchSource({ slideshowIntervalSeconds: clampInt(seconds, 1, 600) })} />
         <Checkbox label="Loop" checked={selectedSource.slideshowLoop ?? true} onCheckedChange={(slideshowLoop) => patchSource({ slideshowLoop })} />
         <div className="slideshow-list" aria-label="Slideshow images">{(selectedSource.slideshowImages ?? []).map((image, index) => <div className="slideshow-image-row" key={image.assetId}>
           <span title={image.name}>{index + 1}. {image.name}</span>
           <div><ReacstButton.Icon variant="ghost" size="xs" label={`Move ${image.name} up`} disabled={index === 0} onClick={() => moveSlideshowImage(selectedSource.id, index, -1)}><ChevronUp /></ReacstButton.Icon><ReacstButton.Icon variant="ghost" size="xs" label={`Move ${image.name} down`} disabled={index === (selectedSource.slideshowImages?.length ?? 0) - 1} onClick={() => moveSlideshowImage(selectedSource.id, index, 1)}><ChevronDown /></ReacstButton.Icon><ReacstButton.Icon variant="ghost" size="xs" label={`Remove ${image.name}`} disabled={(selectedSource.slideshowImages?.length ?? 0) <= 1} onClick={() => removeSlideshowImage(selectedSource.id, index)}><X /></ReacstButton.Icon></div>
         </div>)}</div>
-        <ReacstButton size="sm" fullWidth disabled={working || (selectedSource.slideshowImages?.length ?? 0) >= 100} onClick={() => addSlideshowImage(selectedSource.id)}><Plus size={12} />Add Image</ReacstButton>
+        <ReacstButton size="sm" fullWidth disabled={working || (selectedSource.slideshowImages?.length ?? 0) >= 100} onClick={() => addSlideshowImage(selectedSource.id)}><Plus size={12} />Add Images</ReacstButton>
       </div>}
       {selectedSource.kind === 'browser' && <TextField size="sm" label="URL" labelPlacement="inline" readOnly value={selectedSource.url ?? ''} onValueChange={() => undefined} />}
       {selectedSource.kind === 'browser' && <Checkbox label="Capture Audio" checked={selectedSource.browserAudioEnabled ?? false} onCheckedChange={(enabled) => updateBrowserAudio(selectedSource.id, enabled)} />}
+      {supportsPlaybackRestart(selectedSource) && <Checkbox label="Reset when entering Program" checked={selectedSource.restartPlaybackWhenActive === true} onCheckedChange={(restartPlaybackWhenActive) => patchSource({ restartPlaybackWhenActive })} />}
       {hasAudioMeter && <div className="volume-property">
         <Slider size="sm" label="Volume" labelPlacement="inline" min={0} max={200} value={Math.round(selectedSource.muted ? 0 : selectedSource.volume * 100)} onValueChange={(value) => updateSourceSettings(selectedSource.id, { volume: value / 100, muted: false })} />
         <ReacstButton.Icon variant="ghost" size="sm" label="Mute source" pressed={selectedSource.muted} tooltip={selectedSource.muted ? 'Unmute source' : 'Mute source'} onClick={() => updateSourceSettings(selectedSource.id, { volume: selectedSource.volume, muted: !selectedSource.muted })}>{selectedSource.muted ? <VolumeX /> : <Volume2 />}</ReacstButton.Icon>

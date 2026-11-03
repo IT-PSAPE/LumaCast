@@ -3,6 +3,7 @@ import { classifyHotkeyCapture } from '../../hotkey-capture';
 import type {
   StreamAPI, StreamGlobalHotkeys, StreamHotkeyAction, StreamProject, StreamSource,
 } from '../../../shared/desktop-api';
+import { isSourceTransformableInTree } from '../../source-selection';
 import { friendlyError } from '../shared/friendly-error';
 import { defaultTransform } from '../sources/helpers';
 
@@ -252,13 +253,17 @@ export function useHotkeys(params: UseHotkeysParams): UseHotkeysResult {
       if (event.ctrlKey && event.shiftKey && event.code === 'KeyR') {
         event.preventDefault();
         if (context.isActivelyRecording()) context.stopRecording(); else void context.startRecording();
+        return;
       }
       if (!context.selectedSource || !context.project) return;
       const selected = context.selectedSource;
       const activeProject = context.project;
       const delta = event.shiftKey ? 10 : 1;
       const modifier = event.ctrlKey || event.metaKey;
-      if (modifier) {
+      const activeScene = activeProject.scenes.find((scene) => scene.id === activeProject.activeSceneId);
+      const canTransformSelected = activeScene !== undefined
+        && isSourceTransformableInTree(activeScene.sources, selected.id);
+      if (modifier && canTransformSelected) {
         if (event.code === 'KeyF') { event.preventDefault(); context.fitSource(selected); return; }
         if (event.code === 'KeyS') { event.preventDefault(); context.stretchSource(selected); return; }
         if (event.code === 'KeyD') { event.preventDefault(); context.centerSource(selected); return; }

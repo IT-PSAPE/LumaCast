@@ -261,6 +261,19 @@ describe('applyApplicationMenu', () => {
       expect(send).toHaveBeenCalledWith('edit.paste');
     });
 
+    it('keeps native text editing available when source editing actions are disabled', () => {
+      setPlatform('darwin');
+      const template = makeEditTemplate();
+      template[0]!.submenu = template[0]!.submenu!.map((item) => ({ ...item, disabled: true }));
+      applyApplicationMenu(template, vi.fn());
+      const edit = findTop('edit').submenu as MenuItemConstructorOptions[];
+
+      for (const id of ['edit.undo', 'edit.redo', 'edit.copy', 'edit.paste']) {
+        expect(edit.find((item) => item.id === id)!.enabled).not.toBe(false);
+      }
+      expect(edit.find((item) => item.id === 'edit.delete')!.enabled).toBe(false);
+    });
+
     it('tolerates no focused webContents for the dual-handled edit actions', () => {
       setPlatform('darwin');
       vi.mocked(webContents.getFocusedWebContents).mockReturnValue(null as never);

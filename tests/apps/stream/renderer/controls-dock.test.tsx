@@ -1,11 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ControlsDock, type ControlsDockProps } from '../../../../apps/stream/renderer/docks/controls-dock';
 
 afterEach(cleanup);
 
+async function settle() {
+  await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 50); }); });
+}
+
 function renderDock(overrides: Partial<ControlsDockProps> = {}) {
   const props: ControlsDockProps = {
+    ndiSending: false,
+    onOpenNdiOutput: vi.fn(),
     onHide: vi.fn(),
     working: false,
     streamOutputs: [],
@@ -31,10 +37,18 @@ function renderDock(overrides: Partial<ControlsDockProps> = {}) {
 }
 
 describe('ControlsDock', () => {
+  it('blocks only streaming while a provider destination is being configured', () => {
+    renderDock({ streamingStartDisabled: true });
+    expect(screen.getByRole('button', { name: 'Start Streaming' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Start Replay Buffer' })).toBeEnabled();
+  });
+
   it('shows only useful idle actions and keeps save disabled until a replay is ready', () => {
     const props = renderDock();
     for (const [label, handler] of [
-      ['Go Live', props.onGoLive],
+      ['Start Streaming', props.onGoLive],
+      ['NDI output', props.onOpenNdiOutput],
       ['Record', props.onStartRecording],
       ['Start Replay Buffer', props.onStartReplayBuffer],
     ] as const) {
@@ -47,12 +61,38 @@ describe('ControlsDock', () => {
     expect(screen.queryByRole('button', { name: /Controls options|Remux|Settings/ })).toBeNull();
   });
 
-  it('keeps the hide control and disables starting actions while a task is working', () => {
+  it.each([false, true])('keeps NDI output in the action list with its active state (%s)', (ndiSending) => {
+    const props = renderDock({ ndiSending });
+    const ndi = screen.getByRole('button', { name: ndiSending ? 'NDI output · Active' : 'NDI output' });
+    const actions = screen.getByRole('button', { name: 'Start Streaming' }).parentElement!;
+    expect(ndi.parentElement).toBe(actions);
+    expect([...actions.children].map((action) => action.textContent)).toEqual([
+      'Start Streaming', ndiSending ? 'NDI output · Active' : 'NDI output', 'Record', 'Start Replay Buffer', 'Save Replay',
+    ]);
+    expect(ndi).toHaveAttribute('aria-haspopup', 'dialog');
+    fireEvent.click(ndi);
+    expect(props.onOpenNdiOutput).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [{ ndiStarting: true }, 'NDI output · Starting'],
+    [{ ndiStopping: true }, 'NDI output · Stopping'],
+    [{ ndiSending: true, ndiStopping: true }, 'NDI output · Stopping'],
+  ])('keeps NDI transitions visible in Controls (%s)', (state, label) => {
+    const props = renderDock(state);
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    expect(props.onOpenNdiOutput).toHaveBeenCalledOnce();
+  });
+
+  it('keeps hide in the header actions menu and disables starting actions while a task is working', async () => {
     const props = renderDock({ working: true, canSaveReplay: true });
-    for (const label of ['Go Live', 'Record', 'Start Replay Buffer', 'Save Replay']) {
+    for (const label of ['Start Streaming', 'Record', 'Start Replay Buffer', 'Save Replay']) {
       expect(screen.getByRole('button', { name: label })).toBeDisabled();
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Hide Controls' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Controls actions' }));
+    await settle();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Controls' }));
+    await settle();
     expect(props.onHide).toHaveBeenCalledOnce();
   });
 
@@ -63,7 +103,7 @@ describe('ControlsDock', () => {
         { id: 'zoom', label: 'Zoom', status: { state: 'connecting' }, duration: '' },
       ],
     });
-    expect(screen.queryByRole('button', { name: 'Go Live' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Start Streaming' })).toBeNull();
     expect(screen.getByText('Live · YouTube')).toBeTruthy();
     expect(screen.getByText('Connecting · Zoom')).toBeTruthy();
     expect(screen.getByLabelText('YouTube duration').textContent).toBe('05:41');

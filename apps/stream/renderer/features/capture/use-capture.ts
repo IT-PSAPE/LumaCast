@@ -3,6 +3,14 @@ import { AudioMixerEngine } from '../../audio-mixer';
 import { audioOutputDeviceOptions, type AudioOutputDeviceOption } from '../../audio-output-devices';
 import { retainDesktopAudioTracks } from '../../desktop-audio-capture';
 import { bindDesktopCaptureSource } from '../../desktop-capture-binding';
+import { captureTargetForOption } from '../../../shared/capture-target';
+import {
+  captureAudioModeForSource,
+  hasWindowCaptureAudioIntent,
+  uniqueAudioApplicationForPath,
+  WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE,
+  type CaptureAudioMode,
+} from '../../../shared/capture-audio';
 import { listenForMediaStreamEnd } from '../../media-stream-ended';
 import { flattenSourceNodes } from '../../../shared/source-tree';
 import {
@@ -17,19 +25,22 @@ import {
   type StreamSource,
 } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
-import { getOriginSourceId, toRuntimeSource, type RuntimeSource } from '../../source-runtime';
+import { getOriginSourceId, getSourceRuntimeId, preserveDesktopCaptureRuntime, toRuntimeSource, type RuntimeSource } from '../../source-runtime';
 import { createSource, DEFAULT_AUDIO_FILTERS } from '../sources/helpers';
+import { desktopAudioCaptureModeForPlatform, supportsApplicationAudioCapture } from '../../../shared/platform-capabilities';
+import { getVisibleSourceIdsForScenes } from '../../../shared/scene-reference-graph';
+import { useBrowserSessions } from './use-browser-sessions';
 import {
   applyBrowserFrame,
   audioInputCaptureConstraints,
   browserAudioCaptureConstraints,
+  combineCaptureStreams,
   explicitAudioInputDevices,
   getInputCaptureStream,
   inputCaptureConstraints,
   listInputDevices,
   monitoringDeviceError,
   pairedCameraAudioDeviceId,
-  type BrowserSourceConfig,
   type InputCaptureKind,
   type InputDeviceOption,
 } from './helpers';
@@ -37,7 +48,7 @@ import {
 export type ApplicationAudioInput = Awaited<ReturnType<AudioMixerEngine['createApplicationAudioInput']>>;
 
 export interface SourceStatus {
-  state: 'starting' | 'ready' | 'unavailable';
+  state: 'starting' | 'ready' | 'warning' | 'unavailable';
   message?: string;
 }
 
@@ -46,6 +57,31 @@ class CaptureOperationCancelled extends Error {
     super('Capture operation belongs to an earlier workspace.');
     this.name = 'CaptureOperationCancelled';
   }
+}
+
+type DesktopRestoreReason = 'startup' | 'track-ended';
+
+function desktopRestoreConstraints(sourceId: string, frameRate: number, cursorMode: CaptureCursorMode, includeAudio: boolean): MediaStreamConstraints {
+  const video = {
+    mandatory: {
+      chromeMediaSource: 'desktop',
+      chromeMediaSourceId: sourceId,
+      maxFrameRate: frameRate,
+    },
+    cursor: cursorMode,
+  } as unknown as MediaTrackConstraints;
+  const audio = includeAudio ? {
+    mandatory: {
+      chromeMediaSource: 'desktop',
+      chromeMediaSourceId: sourceId,
+      echoCancellation: false,
+    },
+  } as unknown as MediaTrackConstraints : false;
+  return { video, audio };
+}
+
+function hasLiveVideoTrack(stream: MediaStream): boolean {
+  return stream.getVideoTracks().some((track) => track.readyState === 'live');
 }
 
 function isCaptureOperationCancelled(error: unknown): boolean {
@@ -62,6 +98,8 @@ export interface UseCaptureParams {
   programProject: StreamProject | null;
   /** Runtime IDs of sources currently visible in Program. */
   programSourceIds: ReadonlySet<string>;
+  /** Logical source IDs visible in Program, disambiguating shared runtime resources. */
+  programSourceOriginIds?: ReadonlySet<string>;
   /** Runtime resources still owned by an outgoing transition snapshot. */
   retainedSourceIds?: ReadonlySet<string>;
   liveScene: StreamScene | null;
@@ -89,7 +127,7 @@ export interface UseCaptureResult {
   applicationAudioInputs: RefObject<Map<string, ApplicationAudioInput>>;
   applicationAudioSessions: RefObject<Map<string, { pid: number; path: string }>>;
   ensureMixer: () => AudioMixerEngine;
-  attachRuntime: (source: StreamSource, stream: MediaStream) => Promise<void>;
+  attachRuntime: (source: StreamSource, stream: MediaStream, preserveNativeAudioInput?: boolean) => Promise<void>;
   stopRuntime: (sourceId: string) => void;
   connectMediaElement: (source: StreamSource, element: HTMLMediaElement) => Promise<void>;
   onMediaPlaybackState: (sourceId: string, element: HTMLMediaElement | null) => void;
@@ -117,11 +155,18 @@ export interface UseCaptureResult {
   setCaptureOptions: Dispatch<SetStateAction<DesktopSourceOption[] | null>>;
   setCaptureKind: Dispatch<SetStateAction<'screen' | 'window' | 'audio' | null>>;
   setCaptureTargetSourceId: Dispatch<SetStateAction<string | null>>;
-  includeSystemAudio: boolean;
-  setIncludeSystemAudio: Dispatch<SetStateAction<boolean>>;
+  supportsSystemAudio: boolean;
+  supportsApplicationAudio: boolean;
+  captureAudioMode: CaptureAudioMode;
+  setCaptureAudioMode: Dispatch<SetStateAction<CaptureAudioMode>>;
+  captureAudioApplications: AudioApplicationOption[] | null;
+  captureAudioApplicationLoading: boolean;
+  selectedCaptureAudioApplication: AudioApplicationOption | null;
+  onLoadCaptureAudioApplications: () => void;
+  onSelectCaptureAudioApplication: (application: AudioApplicationOption | null) => void;
   captureCursorMode: CaptureCursorMode;
   setCaptureCursorMode: Dispatch<SetStateAction<CaptureCursorMode>>;
-  openCapturePicker: (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, includeSystemAudio?: boolean) => Promise<void>;
+  openCapturePicker: (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, audioMode?: CaptureAudioMode) => Promise<void>;
   addDesktopCapture: (option: DesktopSourceOption) => Promise<void>;
 
   applicationAudioOptions: AudioApplicationOption[] | null;
@@ -155,18 +200,24 @@ export interface UseCaptureResult {
  * effects/timings of the former inline App.tsx implementation.
  */
 export function useCapture(params: UseCaptureParams): UseCaptureResult {
-  const { api, project, projectRef, allSources, allSourcesRef, programProject, programSourceIds, activeSourceIds, activeSourceIdsRef, setActionError, working, setWorking, displayCaptureSystemAudio, imageElements, closeSourceMenu, addToActiveScene, updateSource } = params;
+  const { api, project, projectRef, allSources, allSourcesRef, programProject, programSourceIds, programSourceOriginIds, activeSourceIds, activeSourceIdsRef, setActionError, working, setWorking, imageElements, closeSourceMenu, addToActiveScene, updateSource } = params;
 
   const [captureOptions, setCaptureOptions] = useState<DesktopSourceOption[] | null>(null);
   const [captureKind, setCaptureKind] = useState<'screen' | 'window' | 'audio' | null>(null);
   const [captureTargetSourceId, setCaptureTargetSourceId] = useState<string | null>(null);
+  const manualCaptureRevision = useRef(0);
+  const desktopRestoreQueue = useRef<Promise<void>>(Promise.resolve());
+  const captureAudioApplicationRequest = useRef(0);
+  const [captureAudioMode, setCaptureAudioMode] = useState<CaptureAudioMode>('off');
+  const [captureAudioApplications, setCaptureAudioApplications] = useState<AudioApplicationOption[] | null>(null);
+  const [captureAudioApplicationLoading, setCaptureAudioApplicationLoading] = useState(false);
+  const [selectedCaptureAudioApplication, setSelectedCaptureAudioApplication] = useState<AudioApplicationOption | null>(null);
   const [applicationAudioOptions, setApplicationAudioOptions] = useState<AudioApplicationOption[] | null>(null);
   const [applicationAudioTargetSourceId, setApplicationAudioTargetSourceId] = useState<string | null>(null);
   const [inputDevicePicker, setInputDevicePicker] = useState<InputCaptureKind | null>(null);
   const [inputDeviceOptions, setInputDeviceOptions] = useState<Record<InputCaptureKind, InputDeviceOption[]>>({ camera: [], microphone: [] });
   const [cameraAudioEnabled, setCameraAudioEnabled] = useState(true);
   const [cameraAudioDeviceId, setCameraAudioDeviceId] = useState('');
-  const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
   const [captureCursorMode, setCaptureCursorMode] = useState<CaptureCursorMode>('motion');
   const [audioSettings, setAudioSettings] = useState<StreamAudioSettings>(createDefaultStreamAudioSettings);
   const [audioOutputDevices, setAudioOutputDevices] = useState<AudioOutputDeviceOption[]>([]);
@@ -179,15 +230,17 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
 
   const runtimes = useRef(new Map<string, MediaStream>());
   const runtimeSources = useRef(new Map<string, RuntimeSource>());
+  const mediaElementConnectionOwners = useRef(new Map<string, symbol>());
   const previouslyOwnedRuntimeIds = useRef(new Set<string>());
+  const runtimeOwnershipEpochs = useRef(new Map<string, number>());
   const applicationAudioInputs = useRef(new Map<string, ApplicationAudioInput>());
   const applicationAudioSessions = useRef(new Map<string, { pid: number; path: string }>());
   const mixer = useRef<AudioMixerEngine | null>(null);
   const audioSettingsRef = useRef(audioSettings);
   audioSettingsRef.current = audioSettings;
-  const browserConfigs = useRef(new Map<string, BrowserSourceConfig>());
   const browserAudioInFlight = useRef(new Set<string>());
   const pendingBrowserFrames = useRef(new Map<string, ArrayBuffer>());
+  const nativeAudioStartupFailures = useRef(new WeakMap<ApplicationAudioInput, string>());
   const inputRestoreAttempts = useRef(new Set<string>());
   const inputRestoreInFlight = useRef(new Set<string>());
   const noiseSuppressionFailures = useRef(new Set<string>());
@@ -196,10 +249,22 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const nativeCaptureLocks = useRef(new Map<string, Promise<void>>());
   const programProjectRef = useRef(programProject);
   const programSourceIdsRef = useRef(programSourceIds);
+  const programSourceOriginIdsRef = useRef(programSourceOriginIds);
   const retainedSourceIdsRef = useRef(params.retainedSourceIds ?? new Set<string>());
   programProjectRef.current = programProject;
   programSourceIdsRef.current = programSourceIds;
+  programSourceOriginIdsRef.current = programSourceOriginIds;
   retainedSourceIdsRef.current = params.retainedSourceIds ?? new Set<string>();
+
+  const hasRuntimeOwner = useCallback((runtimeId: string) => allSourcesRef.current.some((source) => source.id === runtimeId)
+    || programSourceIdsRef.current.has(runtimeId)
+    || retainedSourceIdsRef.current.has(runtimeId), []);
+  const isVisibleInDraft = useCallback((source: StreamSource) => {
+    const draft = projectRef.current;
+    if (!draft) return false;
+    const visibleIds = getVisibleSourceIdsForScenes(draft.scenes, draft.scenes.map((scene) => scene.id));
+    return visibleIds.has(getSourceRuntimeId(source));
+  }, [projectRef]);
 
   const withNativeCaptureLock = useCallback(async <T,>(runtimeId: string, operation: () => Promise<T>): Promise<T> => {
     const previous = nativeCaptureLocks.current.get(runtimeId) ?? Promise.resolve();
@@ -237,14 +302,33 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     });
   }, []);
 
+  const reportCameraAudioFailure = useCallback((runtimeId: string, error: unknown) => {
+    const message = `Camera sound could not be captured. Video remains active: ${friendlyError(error)}`;
+    setSourceStatus(runtimeId, { state: 'warning', message });
+    setActionError(message);
+  }, [setActionError, setSourceStatus]);
+
+  const desktopRestoreAttempts = useRef(new Map<string, { signature: string; attempts: number; inFlight: boolean; ownershipEpoch: number }>());
+  const desktopRestoreRef = useRef<(source: RuntimeSource) => void>(() => undefined);
+  const releaseRuntimeOwnership = useCallback((runtimeId: string) => {
+    runtimeOwnershipEpochs.current.set(runtimeId, (runtimeOwnershipEpochs.current.get(runtimeId) ?? 0) + 1);
+    mediaElementConnectionOwners.current.delete(runtimeId);
+    desktopRestoreAttempts.current.delete(runtimeId);
+    const inputAttemptPrefix = `${runtimeId}:`;
+    for (const key of inputRestoreAttempts.current) {
+      if (key.startsWith(inputAttemptPrefix)) inputRestoreAttempts.current.delete(key);
+    }
+  }, []);
+
   const committedSource = useCallback((runtimeId: string): StreamSource | undefined => {
     const committed = programProjectRef.current;
     if (!committed) return undefined;
-    for (const scene of committed.scenes) {
-      const source = flattenSourceNodes(scene.sources).find((candidate) => candidate.id === runtimeId);
-      if (source) return source;
-    }
-    return undefined;
+    const visibleOrigins = programSourceOriginIdsRef.current;
+    const candidates = committed.scenes
+      .flatMap((scene) => flattenSourceNodes(scene.sources))
+      .filter((candidate) => candidate.id === runtimeId
+        && (visibleOrigins ? visibleOrigins.has(getOriginSourceId(candidate)) : candidate.visible));
+    return candidates[candidates.length - 1];
   }, []);
 
   const committedAudioSettings = useCallback((runtimeId: string) => {
@@ -261,7 +345,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     };
   }, [committedSource]);
 
-  const applyCommittedAudioSettings = useCallback(async (runtimeId: string) => {
+  const applyCommittedAudioSettings = useCallback(async (runtimeId: string, isCurrent: () => boolean = () => true) => {
     const audioMixer = mixer.current;
     if (!audioMixer) return;
     const settings = committedAudioSettings(runtimeId);
@@ -278,7 +362,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     }
     if (noiseSuppressionFailures.current.has(runtimeId) || !audioMixer.sourceIds().includes(runtimeId)) return;
     const ready = await audioMixer.setNoiseSuppression(runtimeId, true);
-    if (!ready && !noiseSuppressionFailures.current.has(runtimeId)) {
+    if (isCurrent() && !ready && !noiseSuppressionFailures.current.has(runtimeId)) {
       noiseSuppressionFailures.current.add(runtimeId);
       setActionError('Neural noise suppression could not be started for this audio source.');
     }
@@ -339,19 +423,31 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     const generation = captureSessionGeneration.current;
     const runtimeSource = toRuntimeSource(source);
     const runtimeId = runtimeSource.id;
+    if (!hasRuntimeOwner(runtimeId)) throw new CaptureOperationCancelled();
+    const connectionOwner = Symbol(runtimeId);
+    mediaElementConnectionOwners.current.set(runtimeId, connectionOwner);
     runtimeSources.current.set(runtimeId, runtimeSource);
+    const isCurrentConnection = () => generation === captureSessionGeneration.current
+      && mediaElementConnectionOwners.current.get(runtimeId) === connectionOwner
+      && hasRuntimeOwner(runtimeId);
+    const cleanUpOrphanedConnection = (audioMixer: AudioMixerEngine) => {
+      if (mediaElementConnectionOwners.current.get(runtimeId) === connectionOwner && !hasRuntimeOwner(runtimeId)) {
+        mediaElementConnectionOwners.current.delete(runtimeId);
+      }
+      if (mediaElementConnectionOwners.current.has(runtimeId)) return;
+      audioMixer.remove(runtimeId);
+      if (runtimeSources.current.get(runtimeId) === runtimeSource) runtimeSources.current.delete(runtimeId);
+      if (!hasRuntimeOwner(runtimeId)) clearSourceStatus(runtimeId);
+    };
     setSourceStatus(runtimeId, { state: 'starting' });
+    const audioMixer = ensureMixer();
     try {
-      const audioMixer = ensureMixer();
       const settingsAtCreation = committedAudioSettings(runtimeId);
       const routeAlreadyExists = audioMixer.sourceIds().includes(runtimeId);
       const routeSettings = routeAlreadyExists ? settingsAtCreation : { ...settingsAtCreation, programActive: false };
       const noiseSuppressionReady = await audioMixer.addMediaElement(runtimeId, element, routeSettings);
-      if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      if (!allSourcesRef.current.some((candidate) => candidate.id === runtimeId)) {
-        audioMixer.remove(runtimeId);
-        runtimeSources.current.delete(runtimeId);
-        clearSourceStatus(runtimeId);
+      if (!isCurrentConnection()) {
+        cleanUpOrphanedConnection(audioMixer);
         throw new CaptureOperationCancelled();
       }
       if (!audioMixer.sourceIds().includes(runtimeId)) throw new Error('The audio route became unavailable while it was being connected.');
@@ -360,25 +456,34 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
         if (!noiseSuppressionFailures.current.has(runtimeId)) setActionError('Neural noise suppression could not be started for this audio source.');
         noiseSuppressionFailures.current.add(runtimeId);
       }
-      await applyCommittedAudioSettings(runtimeId);
+      await applyCommittedAudioSettings(runtimeId, isCurrentConnection);
+      if (!isCurrentConnection()) {
+        cleanUpOrphanedConnection(audioMixer);
+        throw new CaptureOperationCancelled();
+      }
       const appliedSettings = committedAudioSettings(runtimeId);
       if ((appliedSettings.audioFilters?.noiseGate || appliedSettings.audioFilters?.expander)
         && audioMixer.setAudioFilters(runtimeId, appliedSettings.audioFilters) === false) {
         setActionError('Audio filters are unavailable in this audio runtime.');
       }
       await audioMixer.resume();
-      if (generation !== captureSessionGeneration.current || !allSourcesRef.current.some((candidate) => candidate.id === runtimeId)) {
+      if (!isCurrentConnection()) {
+        cleanUpOrphanedConnection(audioMixer);
         throw new CaptureOperationCancelled();
       }
       setSourceStatus(runtimeId, { state: 'ready' });
       setMeterLevels((current) => ({ ...current, [runtimeId]: 0 }));
     } catch (error) {
       if (isCaptureOperationCancelled(error)) throw error;
+      if (!isCurrentConnection()) {
+        cleanUpOrphanedConnection(audioMixer);
+        throw new CaptureOperationCancelled();
+      }
       setSourceStatus(runtimeId, { state: 'unavailable', message: friendlyError(error) });
       setActionError(`Media audio could not be added: ${friendlyError(error)}`);
       throw error;
     }
-  }, [allSourcesRef, applyCommittedAudioSettings, clearSourceStatus, committedAudioSettings, ensureMixer, setActionError, setSourceStatus]);
+  }, [applyCommittedAudioSettings, clearSourceStatus, committedAudioSettings, ensureMixer, hasRuntimeOwner, setActionError, setSourceStatus]);
 
   const onMediaPlaybackState = useCallback((sourceId: string, element: HTMLMediaElement | null) => {
     setMediaPlaybackStates((current) => {
@@ -391,14 +496,14 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     });
   }, []);
 
-  const stopRuntimeRaw = useCallback((runtimeId: string, clearStatus = true) => {
+  const stopRuntimeRaw = useCallback((runtimeId: string, clearStatus = true, preserveNativeAudioInput = false) => {
     const stream = runtimes.current.get(runtimeId);
     // Remove ownership before stopping tracks so the resulting `ended` events
     // are not mistaken for an unexpected device disconnect.
     runtimes.current.delete(runtimeId);
     stream?.getTracks().forEach((track) => track.stop());
     const applicationAudioInput = applicationAudioInputs.current.get(runtimeId);
-    if (applicationAudioInput) {
+    if (applicationAudioInput && !preserveNativeAudioInput) {
       applicationAudioInputs.current.delete(runtimeId);
       applicationAudioSessions.current.delete(runtimeId);
       applicationAudioInput.close();
@@ -412,25 +517,60 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     setRuntimeRevision((value) => value + 1);
   }, [api, clearSourceStatus]);
 
-  const attachRuntime = useCallback(async (source: StreamSource, stream: MediaStream) => {
+  const attachRuntime = useCallback(async (source: StreamSource, stream: MediaStream, preserveNativeAudioInput = false) => {
     const generation = captureSessionGeneration.current;
     const runtimeSource = toRuntimeSource(source);
     const runtimeId = runtimeSource.id;
-    runtimeSources.current.set(runtimeId, runtimeSource);
     const existing = runtimes.current.get(runtimeId);
-    if (existing && existing !== stream && existing.getTracks().some((track) => track.readyState !== 'ended')) {
+    let suppressedWindowAudio = false;
+    if (source.kind === 'window') {
+      const unexpectedAudioTracks = stream.getAudioTracks().filter((track) => track.readyState === 'live');
+      if (unexpectedAudioTracks.length > 0) {
+        const videoTracks = stream.getVideoTracks();
+        const overlapsExistingVideo = videoTracks.some((track) => existing?.getVideoTracks().includes(track));
+        unexpectedAudioTracks.forEach((track) => track.stop());
+        stream = new MediaStream(overlapsExistingVideo ? videoTracks.map((track) => track.clone()) : videoTracks);
+        suppressedWindowAudio = true;
+      }
+    }
+    runtimeSources.current.set(runtimeId, runtimeSource);
+    const existingWindowAudio = runtimeSource.kind === 'window' && (
+      (existing?.getAudioTracks().some((track) => track.readyState === 'live') ?? false)
+      || applicationAudioInputs.current.has(runtimeId)
+      || (mixer.current?.sourceIds().includes(runtimeId) ?? false)
+    );
+    suppressedWindowAudio ||= existingWindowAudio;
+    const cameraAudioUpgrade = runtimeSource.kind === 'camera'
+      && runtimeSource.captureAudioEnabled === true
+      && existing?.getVideoTracks().some((track) => track.readyState === 'live') === true
+      && !existing.getAudioTracks().some((track) => track.readyState === 'live')
+      && stream.getVideoTracks().some((track) => track.readyState === 'live')
+      && stream.getAudioTracks().some((track) => track.readyState === 'live');
+    if (!preserveNativeAudioInput && !cameraAudioUpgrade && !existingWindowAudio
+      && existing && existing !== stream && existing.getTracks().some((track) => track.readyState !== 'ended')) {
       stream.getTracks().forEach((track) => track.stop());
-      setSourceStatus(runtimeId, { state: 'ready' });
+      if (suppressedWindowAudio) {
+        const message = `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`;
+        setSourceStatus(runtimeId, { state: 'warning', message });
+        setActionError(message);
+      } else {
+        setSourceStatus(runtimeId, { state: 'ready' });
+      }
       return;
     }
-    if (existing && existing !== stream) stopRuntimeRaw(runtimeId, false);
+    if (existing && existing !== stream) {
+      stopRuntimeRaw(runtimeId, false, preserveNativeAudioInput);
+      runtimeSources.current.set(runtimeId, runtimeSource);
+    }
     setSourceStatus(runtimeId, { state: 'starting' });
     runtimes.current.set(runtimeId, stream);
     setRuntimeRevision((value) => value + 1);
+    let removeVideoTrackListeners: () => void = () => {};
     const clearEndedRuntime = () => {
       if (generation !== captureSessionGeneration.current
         || runtimes.current.get(runtimeId) !== stream
         || stream.getTracks().some((track) => track.readyState !== 'ended')) return false;
+      removeVideoTrackListeners();
       runtimes.current.delete(runtimeId);
       mixer.current?.remove(runtimeId);
       const applicationAudioInput = applicationAudioInputs.current.get(runtimeId);
@@ -444,10 +584,29 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       setSourceStatus(runtimeId, { state: 'unavailable', message: 'Capture ended.' });
       setActionError(`${runtimeSource.name} disconnected.`);
       setRuntimeRevision((value) => value + 1);
+      if (runtimeSource.kind === 'display' || runtimeSource.kind === 'window') desktopRestoreRef.current(runtimeSource);
       return true;
     };
     const handleEnded = () => { clearEndedRuntime(); };
     const removeEndedListeners = listenForMediaStreamEnd(stream, handleEnded);
+    if (runtimeSource.kind === 'display' || runtimeSource.kind === 'window') {
+      const videoTracks = stream.getVideoTracks();
+      const handleVideoEnded = () => {
+        if (generation !== captureSessionGeneration.current || runtimes.current.get(runtimeId) !== stream
+          || videoTracks.some((track) => track.readyState === 'live')
+          || stream.getTracks().every((track) => track.readyState === 'ended')) return;
+        removeEndedListeners();
+        removeVideoTrackListeners();
+        stopRuntimeRaw(runtimeId, false);
+        setSourceStatus(runtimeId, { state: 'unavailable', message: 'Capture video ended.' });
+        setActionError(`${runtimeSource.name} disconnected.`);
+        desktopRestoreRef.current(runtimeSource);
+      };
+      for (const track of videoTracks) track.addEventListener('ended', handleVideoEnded);
+      removeVideoTrackListeners = () => {
+        for (const track of videoTracks) track.removeEventListener('ended', handleVideoEnded);
+      };
+    }
     if (stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'ended')) {
       handleEnded();
       removeEndedListeners();
@@ -511,8 +670,37 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       removeEndedListeners();
       return;
     }
-    setSourceStatus(runtimeId, { state: 'ready' });
+    if (suppressedWindowAudio) {
+      const message = `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`;
+      setSourceStatus(runtimeId, { state: 'warning', message });
+      setActionError(message);
+    } else {
+      setSourceStatus(runtimeId, { state: 'ready' });
+    }
   }, [api, applyCommittedAudioSettings, committedAudioSettings, ensureMixer, setActionError, setSourceStatus, stopRuntimeRaw]);
+
+  const stripUnsupportedWindowAudio = useCallback(async (source: StreamSource) => {
+    if (source.kind !== 'window') return false;
+    const runtimeId = toRuntimeSource(source).id;
+    const stream = runtimes.current.get(runtimeId);
+    const liveVideoTracks = stream?.getVideoTracks().filter((track) => track.readyState === 'live') ?? [];
+    const hasLiveAudio = stream?.getAudioTracks().some((track) => track.readyState === 'live') ?? false;
+    const hasNativeAudio = applicationAudioInputs.current.has(runtimeId);
+    const hasAudioRoute = mixer.current?.sourceIds().includes(runtimeId) ?? false;
+    if (!hasLiveAudio && !hasNativeAudio && !hasAudioRoute) return false;
+
+    const videoOnlyStream = liveVideoTracks.length > 0
+      ? new MediaStream(liveVideoTracks.map((track) => track.clone()))
+      : null;
+    stopRuntimeRaw(runtimeId, false);
+    if (videoOnlyStream) await attachRuntime(source, videoOnlyStream);
+    const message = videoOnlyStream
+      ? `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`
+      : WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE;
+    setSourceStatus(runtimeId, { state: 'warning', message });
+    setActionError(message);
+    return true;
+  }, [attachRuntime, setActionError, setSourceStatus, stopRuntimeRaw]);
 
   const stopRuntime = useCallback((sourceId: string) => {
     const candidates = [...runtimes.current.keys()].filter((runtimeId) => {
@@ -530,94 +718,192 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     }
   }, [allSourcesRef, stopRuntimeRaw]);
 
-  const startApplicationAudioRuntime = useCallback(async (source: StreamSource, application: AudioApplicationOption) => {
-    if (source.kind !== 'application-audio') throw new Error('Invalid application-audio source.');
+  const startNativeAudioRuntime = useCallback(async (
+    source: StreamSource,
+    mode: Exclude<CaptureAudioMode, 'off'>,
+    application?: AudioApplicationOption,
+    videoStream?: MediaStream,
+  ) => {
+    if (source.kind === 'window') throw new Error(WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE);
+    const validSource = mode === 'application'
+      ? source.kind === 'application-audio' || source.kind === 'display'
+      : source.kind === 'desktop-audio' || source.kind === 'display';
+    if (!validSource || (mode === 'application' && !application)) throw new Error('Invalid native audio capture request.');
+
     const generation = captureSessionGeneration.current;
     const runtimeSource = toRuntimeSource(source);
     const runtimeId = runtimeSource.id;
     await withNativeCaptureLock(runtimeId, async () => {
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      if (applicationAudioInputs.current.has(runtimeId)) return;
+      let existingInput = applicationAudioInputs.current.get(runtimeId);
+      const existingRuntime = runtimes.current.get(runtimeId);
+      const existingApplication = applicationAudioSessions.current.get(runtimeId);
+      const sameAudioCapture = existingInput
+        && (mode === 'system'
+          ? !existingApplication
+          : existingApplication?.pid === application!.pid && existingApplication.path === application!.path);
+      if (existingInput && !sameAudioCapture) {
+        applicationAudioInputs.current.delete(runtimeId);
+        applicationAudioSessions.current.delete(runtimeId);
+        existingInput.close();
+        await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
+        existingInput = undefined;
+      }
+      if (existingInput && !videoStream && existingRuntime?.getTracks().some((track) => track.readyState === 'live')) {
+        return;
+      }
+
       runtimeSources.current.set(runtimeId, runtimeSource);
       setSourceStatus(runtimeId, { state: 'starting' });
-      const input = await ensureMixer().createApplicationAudioInput();
-      if (generation !== captureSessionGeneration.current) { input.close(); throw new CaptureOperationCancelled(); }
-      applicationAudioInputs.current.set(runtimeId, input);
-      applicationAudioSessions.current.set(runtimeId, { pid: application.pid, path: application.path });
+      let input = existingInput;
+      let combinedStream: MediaStream | null = null;
+      if (!input) {
+        input = await ensureMixer().createApplicationAudioInput();
+        if (generation !== captureSessionGeneration.current) { input.close(); throw new CaptureOperationCancelled(); }
+        applicationAudioInputs.current.set(runtimeId, input);
+        if (mode === 'application') applicationAudioSessions.current.set(runtimeId, { pid: application!.pid, path: application!.path });
+        else applicationAudioSessions.current.delete(runtimeId);
+      }
+
       try {
-        await api.startApplicationAudioCapture(runtimeId, application.pid, application.path);
+        if (!existingInput) {
+          if (mode === 'application') await api.startApplicationAudioCapture(runtimeId, application!.pid, application!.path);
+          else await api.startSystemAudioCapture(runtimeId);
+        }
         if (generation !== captureSessionGeneration.current) {
-          input.close();
+          if (applicationAudioInputs.current.get(runtimeId) === input) {
+            applicationAudioInputs.current.delete(runtimeId);
+            applicationAudioSessions.current.delete(runtimeId);
+            input.close();
+          }
           await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
           throw new CaptureOperationCancelled();
         }
-        await attachRuntime(runtimeSource, input.stream);
+        const startupFailure = nativeAudioStartupFailures.current.get(input);
+        if (startupFailure) throw new Error(startupFailure);
+        if (applicationAudioInputs.current.get(runtimeId) !== input) throw new CaptureOperationCancelled();
+
+        if (videoStream) {
+          // Runtime replacement stops every track in the old stream. Clone both
+          // inputs so replacing a preview variant cannot stop the new capture
+          // or the native helper's output tracks.
+          const liveVideoTracks = videoStream.getVideoTracks().filter((track) => track.readyState === 'live');
+          if (liveVideoTracks.length === 0) throw new Error('The selected window did not provide a live video track.');
+          const videoOnly = new MediaStream(liveVideoTracks.map((track) => track.clone()));
+          const audioOnly = new MediaStream(input.stream.getAudioTracks().map((track) => track.clone()));
+          combinedStream = combineCaptureStreams(videoOnly, audioOnly);
+        } else {
+          combinedStream = input.stream;
+        }
+        await attachRuntime(runtimeSource, combinedStream, true);
+        if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+        const attachFailure = nativeAudioStartupFailures.current.get(input);
+        if (attachFailure) throw new Error(attachFailure);
+        if (applicationAudioInputs.current.get(runtimeId) !== input) throw new CaptureOperationCancelled();
+        if (videoStream && !hasLiveVideoTrack(runtimes.current.get(runtimeId) ?? combinedStream)) {
+          throw new Error('The selected window did not provide a live video track.');
+        }
+        videoStream?.getTracks().forEach((track) => track.stop());
       } catch (error) {
-        if (applicationAudioInputs.current.get(runtimeId) === input) {
+        if (combinedStream && combinedStream !== input.stream) {
+          if (runtimes.current.get(runtimeId) === combinedStream) stopRuntimeRaw(runtimeId, false, true);
+          else combinedStream.getTracks().forEach((track) => track.stop());
+        }
+        const stillOwnsInput = applicationAudioInputs.current.get(runtimeId) === input;
+        if (stillOwnsInput) {
           applicationAudioInputs.current.delete(runtimeId);
           applicationAudioSessions.current.delete(runtimeId);
+          input.close();
         }
-        input.close();
-        await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
-        if (generation === captureSessionGeneration.current) setSourceStatus(runtimeId, { state: 'unavailable', message: friendlyError(error) });
+        if (!nativeAudioStartupFailures.current.has(input)) {
+          await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
+        }
+        if (generation === captureSessionGeneration.current && !isCaptureOperationCancelled(error)) {
+          setSourceStatus(runtimeId, { state: 'unavailable', message: friendlyError(error) });
+        }
         throw error;
       }
     });
-  }, [api, attachRuntime, ensureMixer, setSourceStatus, withNativeCaptureLock]);
+  }, [api, attachRuntime, ensureMixer, setSourceStatus, stopRuntimeRaw, withNativeCaptureLock]);
+
+  const startApplicationAudioRuntime = useCallback(async (source: StreamSource, application: AudioApplicationOption) => {
+    if (source.kind !== 'application-audio') throw new Error('Invalid application-audio source.');
+    await startNativeAudioRuntime(source, 'application', application);
+  }, [startNativeAudioRuntime]);
 
   const startSystemAudioRuntime = useCallback(async (source: StreamSource) => {
     if (source.kind !== 'desktop-audio') throw new Error('Invalid desktop-audio source.');
-    const generation = captureSessionGeneration.current;
-    const runtimeSource = toRuntimeSource(source);
-    const runtimeId = runtimeSource.id;
-    await withNativeCaptureLock(runtimeId, async () => {
-      if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      if (applicationAudioInputs.current.has(runtimeId)) return;
-      runtimeSources.current.set(runtimeId, runtimeSource);
-      setSourceStatus(runtimeId, { state: 'starting' });
-      const input = await ensureMixer().createApplicationAudioInput();
-      if (generation !== captureSessionGeneration.current) { input.close(); throw new CaptureOperationCancelled(); }
-      applicationAudioInputs.current.set(runtimeId, input);
-      try {
-        await api.startSystemAudioCapture(runtimeId);
-        if (generation !== captureSessionGeneration.current) {
-          input.close();
-          await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
-          throw new CaptureOperationCancelled();
-        }
-        await attachRuntime(runtimeSource, input.stream);
-      } catch (error) {
-        if (applicationAudioInputs.current.get(runtimeId) === input) applicationAudioInputs.current.delete(runtimeId);
-        input.close();
-        await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
-        if (generation === captureSessionGeneration.current) setSourceStatus(runtimeId, { state: 'unavailable', message: friendlyError(error) });
-        throw error;
-      }
-    });
-  }, [api, attachRuntime, ensureMixer, setSourceStatus, withNativeCaptureLock]);
+    await startNativeAudioRuntime(source, 'system');
+  }, [startNativeAudioRuntime]);
 
-  const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, includeAudioOverride?: boolean) => {
+  const loadCaptureAudioApplications = useCallback(async (savedApplicationPath?: string) => {
+    const request = ++captureAudioApplicationRequest.current;
+    setCaptureAudioApplicationLoading(true);
+    try {
+      const applications = await api.listAudioApplications();
+      if (request !== captureAudioApplicationRequest.current) return;
+      setCaptureAudioApplications(applications);
+      if (savedApplicationPath) {
+        setSelectedCaptureAudioApplication(uniqueAudioApplicationForPath(applications, savedApplicationPath, api.platform));
+      } else {
+        setSelectedCaptureAudioApplication((selected) => selected && applications.some((candidate) => candidate.pid === selected.pid && candidate.path === selected.path) ? selected : null);
+      }
+    } catch (error) {
+      if (request === captureAudioApplicationRequest.current) {
+        setCaptureAudioApplications(null);
+        setSelectedCaptureAudioApplication(null);
+        setActionError(`Could not list running applications: ${friendlyError(error)}`);
+      }
+    } finally {
+      if (request === captureAudioApplicationRequest.current) setCaptureAudioApplicationLoading(false);
+    }
+  }, [api, setActionError]);
+
+  const onLoadCaptureAudioApplications = useCallback(() => {
+    if (captureKind === 'window') return;
+    void loadCaptureAudioApplications();
+  }, [captureKind, loadCaptureAudioApplications]);
+  const onSelectCaptureAudioApplication = useCallback((application: AudioApplicationOption | null) => {
+    setSelectedCaptureAudioApplication(application);
+  }, []);
+
+  const supportsSystemAudio = desktopAudioCaptureModeForPlatform(api.platform) !== 'unavailable';
+  const supportsApplicationAudio = supportsApplicationAudioCapture(api.platform);
+
+  const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, audioModeOverride?: CaptureAudioMode) => {
+    const manualRevision = ++manualCaptureRevision.current;
     closeSourceMenu();
     setActionError('');
+    let savedApplicationPath: string | undefined;
+    let initialAudioMode: CaptureAudioMode = 'off';
     if (targetSourceId) {
       const target = findSourceByOrigin(targetSourceId);
       if (target?.kind === 'display' || target?.kind === 'window') {
         setCaptureCursorMode(target.cursorMode ?? 'motion');
-        setIncludeSystemAudio(includeAudioOverride ?? target.captureAudioEnabled ?? displayCaptureSystemAudio);
+        initialAudioMode = kind === 'window' ? 'off' : audioModeOverride ?? captureAudioModeForSource(target, api.platform);
+        savedApplicationPath = initialAudioMode === 'application' ? target.captureAudioApplicationPath : undefined;
       }
-    } else if (kind !== 'audio') {
-      setIncludeSystemAudio(true);
     }
+    if (kind === 'window') initialAudioMode = 'off';
+    if ((initialAudioMode === 'system' && !supportsSystemAudio)
+      || (initialAudioMode === 'application' && !supportsApplicationAudio)) initialAudioMode = 'off';
+    setCaptureAudioMode(kind === 'audio' ? 'off' : initialAudioMode);
+    captureAudioApplicationRequest.current += 1;
+    setCaptureAudioApplications(null);
+    setSelectedCaptureAudioApplication(null);
+    setCaptureAudioApplicationLoading(false);
     setWorking(true);
     try {
       const sources = await api.listDesktopSources(kind === 'audio' ? 'screen' : kind);
+      if (manualRevision !== manualCaptureRevision.current) return;
       setCaptureKind(kind);
       setCaptureTargetSourceId(targetSourceId ?? null);
       setCaptureOptions(sources);
+      if (initialAudioMode === 'application' && savedApplicationPath) void loadCaptureAudioApplications(savedApplicationPath);
     } catch (error) {
-      setActionError(`Could not list capture sources: ${friendlyError(error)}`);
+      if (manualRevision === manualCaptureRevision.current) setActionError(`Could not list capture sources: ${friendlyError(error)}`);
     } finally {
-      setWorking(false);
+      if (manualRevision === manualCaptureRevision.current) setWorking(false);
     }
   };
 
@@ -645,6 +931,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       setActionError('The desktop audio source is no longer available.');
       return;
     }
+    if (target && !isVisibleInDraft(target)) return;
     const source = target ?? createSource('desktop-audio', project.output, 'Desktop Audio', { captureId: 'system' });
     setWorking(true);
     setActionError('');
@@ -669,6 +956,16 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       setApplicationAudioTargetSourceId(null);
       return;
     }
+    if (target && !isVisibleInDraft(target)) {
+      updateSource(getOriginSourceId(target), (current) => ({
+        ...current,
+        name: application.name,
+        applicationPath: application.path,
+      }));
+      setApplicationAudioOptions(null);
+      setApplicationAudioTargetSourceId(null);
+      return;
+    }
     const source = target
       ? { ...target, name: application.name, applicationPath: application.path }
       : createSource('application-audio', project.output, application.name, { applicationPath: application.path });
@@ -689,18 +986,80 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const addDesktopCapture = async (option: DesktopSourceOption) => {
     if (!project || working) return;
     const generation = captureSessionGeneration.current;
-    const captureMode = captureKind;
-    if (!captureMode) return;
+    const pickerKind = captureKind;
+    if (!pickerKind) return;
+    const reconnectSource = captureTargetSourceId ? findSourceByOrigin(captureTargetSourceId) : null;
+    const isWindowCapture = pickerKind === 'window' || (pickerKind === 'screen' && option.kind === 'window');
+    const unsupportedWindowAudioRequested = isWindowCapture
+      && (captureAudioMode !== 'off'
+        || (reconnectSource?.kind === 'window' && hasWindowCaptureAudioIntent(reconnectSource)));
+    const selectedAudioMode = pickerKind === 'audio' || isWindowCapture ? 'off' : captureAudioMode;
+    const selectedApplication = selectedAudioMode === 'application' ? selectedCaptureAudioApplication : null;
+    if (selectedAudioMode === 'system' && !supportsSystemAudio) {
+      setActionError('System audio capture is unavailable on this platform.');
+      return;
+    }
+    if (selectedAudioMode === 'application' && (!supportsApplicationAudio || !selectedApplication)) {
+      setActionError('Select an application before starting capture with application audio.');
+      return;
+    }
+    const reconnectKindMatches = pickerKind === 'audio'
+      ? reconnectSource?.kind === 'desktop-audio'
+      : reconnectSource?.kind === 'display' || reconnectSource?.kind === 'window';
+    if (reconnectSource && reconnectKindMatches && !isVisibleInDraft(reconnectSource)) {
+      const originId = getOriginSourceId(reconnectSource);
+      if (pickerKind === 'audio') {
+        updateSource(originId, (current) => getOriginSourceId(current) === originId
+          ? { ...current, captureId: option.id }
+          : current);
+      } else {
+        const reboundSource = bindDesktopCaptureSource(reconnectSource, option, captureCursorMode);
+        const configuredSource = {
+          ...reboundSource,
+          captureAudioEnabled: selectedAudioMode !== 'off',
+          captureAudioMode: selectedAudioMode === 'off' ? undefined : selectedAudioMode,
+          captureAudioApplicationPath: selectedAudioMode === 'application' ? selectedApplication?.path : undefined,
+        };
+        updateSource(originId, (current) => getOriginSourceId(current) === originId
+          ? {
+            ...current,
+            captureId: option.id,
+            captureBindingId: configuredSource.captureBindingId,
+            captureTarget: configuredSource.captureTarget,
+            cursorMode: configuredSource.cursorMode,
+            captureAudioEnabled: configuredSource.captureAudioEnabled,
+            captureAudioMode: configuredSource.captureAudioMode,
+            captureAudioApplicationPath: configuredSource.captureAudioApplicationPath,
+          }
+          : current);
+      }
+      if (unsupportedWindowAudioRequested && reconnectSource?.kind === 'window') {
+        const runtimeId = toRuntimeSource(reconnectSource).id;
+        setSourceStatus(runtimeId, { state: 'warning', message: WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE });
+        setActionError(WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE);
+      }
+      setCaptureOptions(null);
+      setCaptureKind(null);
+      setCaptureTargetSourceId(null);
+      setCaptureAudioMode('off');
+      setCaptureAudioApplications(null);
+      setSelectedCaptureAudioApplication(null);
+      return;
+    }
     setWorking(true);
     setActionError('');
     let stream: MediaStream | null = null;
+    let audioUnavailable = unsupportedWindowAudioRequested;
+    let audioWarning = unsupportedWindowAudioRequested
+      ? `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`
+      : '';
     try {
-      const requestedSystemAudio = captureMode !== 'audio' && includeSystemAudio;
-      const captureAudio = captureMode === 'audio' || (requestedSystemAudio && displayCaptureSystemAudio);
+      const displayLoopback = pickerKind === 'audio' || (selectedAudioMode === 'system' && api.platform === 'win32');
+      const captureAudio = pickerKind === 'audio' || displayLoopback;
       // Start the media request in the picker click handler so Chromium keeps
       // the user's gesture while main validates and grants the chosen source.
       const mediaRequest = navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: captureMode === 'audio' ? 1 : project.output.frameRate, max: captureMode === 'audio' ? 1 : project.output.frameRate }, cursor: captureCursorMode } as MediaTrackConstraints,
+        video: { frameRate: { ideal: pickerKind === 'audio' ? 1 : project.output.frameRate, max: pickerKind === 'audio' ? 1 : project.output.frameRate }, cursor: captureCursorMode } as MediaTrackConstraints,
         audio: captureAudio,
       });
       void mediaRequest.catch(() => undefined);
@@ -708,14 +1067,19 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       stream = await mediaRequest;
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      const audioUnavailable = captureMode !== 'audio' && captureAudio && stream.getAudioTracks().length === 0;
+      if (pickerKind !== 'audio' && !displayLoopback && stream.getAudioTracks().length > 0) {
+        const unexpectedAudioTracks = stream.getAudioTracks();
+        const videoTracks = stream.getVideoTracks();
+        unexpectedAudioTracks.forEach((track) => track.stop());
+        stream = new MediaStream(videoTracks);
+      }
       let source: StreamSource;
-      if (captureMode === 'audio') {
+      if (pickerKind === 'audio') {
         const audioTracks = retainDesktopAudioTracks(stream);
         if (audioTracks.length === 0) throw new Error('The system did not provide a desktop audio track.');
         stream = new MediaStream(audioTracks);
         const reconnectSource = captureTargetSourceId
-      ? findSourceByOrigin(captureTargetSourceId, 'desktop-audio')
+          ? findSourceByOrigin(captureTargetSourceId, 'desktop-audio')
           : null;
         if (captureTargetSourceId && !reconnectSource) throw new Error('The desktop audio source is no longer available.');
         source = reconnectSource
@@ -724,22 +1088,70 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       } else if (captureTargetSourceId) {
         const reconnectSource = findSourceByOrigin(captureTargetSourceId);
         if (!reconnectSource) throw new Error('The capture source is no longer available.');
-        source = { ...bindDesktopCaptureSource(reconnectSource, option, captureCursorMode), captureAudioEnabled: requestedSystemAudio };
+        source = {
+          ...bindDesktopCaptureSource(reconnectSource, option, captureCursorMode),
+          captureAudioEnabled: selectedAudioMode !== 'off',
+          captureAudioMode: selectedAudioMode === 'off' ? undefined : selectedAudioMode,
+          captureAudioApplicationPath: selectedAudioMode === 'application' ? selectedApplication?.path : undefined,
+        };
       } else {
         const kind = option.kind === 'screen' ? 'display' : 'window';
-        source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode, captureAudioEnabled: requestedSystemAudio });
+        source = createSource(kind, project.output, option.name, {
+          captureId: option.id,
+          captureTarget: captureTargetForOption(option),
+          cursorMode: captureCursorMode,
+          captureAudioEnabled: selectedAudioMode !== 'off',
+          captureAudioMode: selectedAudioMode === 'off' ? undefined : selectedAudioMode,
+          captureAudioApplicationPath: selectedAudioMode === 'application' ? selectedApplication?.path : undefined,
+        });
       }
-      await attachRuntime(source, stream);
+      if (pickerKind !== 'audio') {
+        const liveVideoTracks = stream.getVideoTracks().filter((track) => track.readyState === 'live');
+        if (liveVideoTracks.length === 0) throw new Error('The selected capture did not provide a live video track.');
+        audioUnavailable ||= selectedAudioMode === 'system' && displayLoopback && stream.getAudioTracks().length === 0;
+        if (selectedAudioMode === 'application' || (selectedAudioMode === 'system' && api.platform === 'darwin')) {
+          try {
+            await startNativeAudioRuntime(source, selectedAudioMode, selectedApplication ?? undefined, stream);
+            stream = null;
+          } catch (error) {
+            if (isCaptureOperationCancelled(error)) throw error;
+            audioUnavailable = true;
+            audioWarning = `Capture audio could not be started: ${friendlyError(error)}. Video capture is still active.`;
+          }
+        }
+      }
+      if (stream) {
+        await attachRuntime(source, stream);
+        stream = null;
+      }
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       if (captureTargetSourceId) {
-        updateSource(getOriginSourceId(source), (current) => ({ ...current, captureId: option.id, ...(source.kind === 'display' || source.kind === 'window' ? { cursorMode: source.cursorMode, captureAudioEnabled: source.captureAudioEnabled } : {}) }));
+        updateSource(getOriginSourceId(source), (current) => ({ ...current, captureId: option.id, ...(source.kind === 'display' || source.kind === 'window' ? {
+          captureBindingId: source.captureBindingId,
+          captureTarget: source.captureTarget,
+          cursorMode: source.cursorMode,
+          captureAudioEnabled: source.captureAudioEnabled,
+          captureAudioMode: source.captureAudioMode,
+          captureAudioApplicationPath: source.captureAudioApplicationPath,
+        } : {}) }));
+        if (source.kind === 'display' || source.kind === 'window') {
+          desktopRestoreAttempts.current.delete(toRuntimeSource(source).id);
+        }
       } else {
         addToActiveScene(source);
       }
-      if (audioUnavailable) setActionError('System audio was not provided. Video capture is still active.');
+      if (audioUnavailable) {
+        const runtimeId = toRuntimeSource(source).id;
+        const message = audioWarning || 'System audio was not provided. Video capture is still active.';
+        setSourceStatus(runtimeId, { state: 'warning', message });
+        setActionError(message);
+      }
       setCaptureOptions(null);
       setCaptureKind(null);
       setCaptureTargetSourceId(null);
+      setCaptureAudioMode('off');
+      setCaptureAudioApplications(null);
+      setSelectedCaptureAudioApplication(null);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not start capture: ${friendlyError(error)}`);
@@ -804,7 +1216,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       addToActiveScene(source);
       setInputDevicePicker(null);
-      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+      if (audioError) reportCameraAudioFailure(toRuntimeSource(source).id, audioError);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not start ${kind === 'camera' ? 'camera' : 'microphone'}: ${friendlyError(error)}`);
@@ -815,6 +1227,11 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     if ((source.kind !== 'camera' && source.kind !== 'microphone') || working) return;
     const generation = captureSessionGeneration.current;
     const kind = source.kind;
+    if (!isVisibleInDraft(source)) {
+      const label = inputDeviceOptions[kind].find((option) => option.deviceId === deviceId)?.label ?? source.name;
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, name: label, deviceId }));
+      return;
+    }
     setWorking(true);
     setActionError('');
     let stream: MediaStream | null = null;
@@ -837,7 +1254,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
         if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
         if (audioDevices) setInputDeviceOptions((current) => ({ ...current, microphone: audioDevices }));
       }
-      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+      if (kind === 'camera' && audioError) reportCameraAudioFailure(toRuntimeSource(nextSource).id, audioError);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not switch ${kind === 'camera' ? 'camera' : 'microphone'}: ${friendlyError(error)}`);
@@ -849,6 +1266,10 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     settings: Pick<StreamSource, 'captureAudioEnabled' | 'audioDeviceId'>,
   ) => {
     if (source.kind !== 'camera' || working) return;
+    if (!isVisibleInDraft(source)) {
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
+      return;
+    }
     const nextSource = { ...source, ...settings };
     const runtimeId = toRuntimeSource(source).id;
     const currentStream = runtimes.current.get(runtimeId);
@@ -885,7 +1306,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       await attachRuntime(nextSource, nextStream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
-      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+      if (audioError) reportCameraAudioFailure(toRuntimeSource(nextSource).id, audioError);
     } catch (error) {
       nextStream.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Camera audio settings could not be changed: ${friendlyError(error)}`);
@@ -895,16 +1316,41 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const toggleDesktopCaptureAudio = async (source: StreamSource, enabled: boolean) => {
     if ((source.kind !== 'display' && source.kind !== 'window') || working) return;
     if (enabled) {
-      await openCapturePicker(source.kind === 'display' ? 'screen' : 'window', getOriginSourceId(source), true);
+      if (source.kind === 'window') {
+        if (await stripUnsupportedWindowAudio(source)) return;
+        const runtimeId = toRuntimeSource(source).id;
+        const hasLiveVideo = runtimes.current.get(runtimeId)?.getVideoTracks()
+          .some((track) => track.readyState === 'live') ?? false;
+        const message = hasLiveVideo
+          ? `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`
+          : WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE;
+        setSourceStatus(runtimeId, { state: 'warning', message });
+        setActionError(message);
+        return;
+      }
+      await openCapturePicker(
+        'screen',
+        getOriginSourceId(source),
+        supportsApplicationAudio ? 'application' : 'off',
+      );
+      return;
+    }
+    if (!isVisibleInDraft(source)) {
+      updateSource(getOriginSourceId(source), (current) => ({
+        ...current,
+        captureAudioEnabled: false,
+        captureAudioMode: undefined,
+        captureAudioApplicationPath: undefined,
+      }));
       return;
     }
     const generation = captureSessionGeneration.current;
     const runtimeId = toRuntimeSource(source).id;
     const currentStream = runtimes.current.get(runtimeId);
     const videoTracks = currentStream?.getVideoTracks().map((track) => track.clone()) ?? [];
-    const nextSource = { ...source, captureAudioEnabled: false };
+    const nextSource = { ...source, captureAudioEnabled: false, captureAudioMode: undefined, captureAudioApplicationPath: undefined };
     if (videoTracks.length === 0) {
-      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false }));
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false, captureAudioMode: undefined, captureAudioApplicationPath: undefined }));
       return;
     }
     setWorking(true);
@@ -912,7 +1358,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     try {
       await attachRuntime(nextSource, nextStream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false }));
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false, captureAudioMode: undefined, captureAudioApplicationPath: undefined }));
     } catch (error) {
       nextStream.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`System audio could not be disabled: ${friendlyError(error)}`);
@@ -924,6 +1370,10 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     settings: Pick<StreamSource, 'cameraResolution' | 'cameraFrameRate'>,
   ) => {
     if (source.kind !== 'camera' || working) return;
+    if (!isVisibleInDraft(source)) {
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
+      return;
+    }
     const nextSource = { ...source, ...settings };
     const runtimeId = toRuntimeSource(source).id;
     if (!runtimes.current.has(runtimeId)) {
@@ -943,7 +1393,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       await attachRuntime(nextSource, stream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
-      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+      if (audioError) reportCameraAudioFailure(toRuntimeSource(nextSource).id, audioError);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not change camera settings: ${friendlyError(error)}`);
@@ -1031,57 +1481,46 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   }, []);
 
   useEffect(() => () => {
+    captureSessionGeneration.current += 1;
+    manualCaptureRevision.current += 1;
+    captureAudioApplicationRequest.current += 1;
+    desktopRestoreAttempts.current.clear();
+    restoreBlockedProject.current = null;
+    inputRestoreAttempts.current.clear();
+    inputRestoreInFlight.current.clear();
+    browserAudioInFlight.current.clear();
+    mediaElementConnectionOwners.current.clear();
     for (const stream of runtimes.current.values()) stream.getTracks().forEach((track) => track.stop());
     runtimes.current.clear();
+    runtimeSources.current.clear();
     for (const [sourceId, input] of applicationAudioInputs.current) {
       void api.stopApplicationAudioCapture(sourceId).catch(() => undefined);
       input.close();
     }
     applicationAudioInputs.current.clear();
     applicationAudioSessions.current.clear();
-    void mixer.current?.close();
+    pendingBrowserFrames.current.clear();
+    const previousMixer = mixer.current;
+    mixer.current = null;
+    void previousMixer?.close();
   }, [api]);
+
+  const browserSessions = useBrowserSessions({
+    api,
+    sources: allSources,
+    activeSourceIds,
+    playbackSourceIds: params.retainedSourceIds ?? programSourceIds,
+    defaultViewport: {
+      width: project?.output.baseWidth ?? 1920,
+      height: project?.output.baseHeight ?? 1080,
+    },
+    onError: setActionError,
+    onSourceStatus: setSourceStatus,
+  });
 
   const activeBrowserSources = allSources.filter((source) => activeSourceIds.has(source.id) && source.kind === 'browser');
-  const browserSourceSignature = JSON.stringify([...new Map(activeBrowserSources.filter((source) => source.url)
-    .map((source) => [source.id, {
-      id: source.id,
-      url: source.url!,
-      width: source.browserViewportWidth ?? project?.output.baseWidth ?? 1920,
-      height: source.browserViewportHeight ?? project?.output.baseHeight ?? 1080,
-    }] as const)).values()]);
   const browserAudioSignature = JSON.stringify(activeBrowserSources
     .map((source) => ({ id: source.id, enabled: source.browserAudioEnabled === true, url: source.url ?? '' })));
-
-  useEffect(() => {
-    const desired = new Map<string, BrowserSourceConfig>((JSON.parse(browserSourceSignature) as BrowserSourceConfig[]).map((source) => [source.id, source]));
-    for (const [id, existing] of browserConfigs.current) {
-      const next = desired.get(id);
-      if (!next || next.url !== existing.url || next.width !== existing.width || next.height !== existing.height) {
-        void api.closeBrowserSource(id).catch(() => undefined);
-        pendingBrowserFrames.current.delete(id);
-      }
-    }
-    for (const [id, source] of desired) {
-      const existing = browserConfigs.current.get(id);
-      if (existing && existing.url === source.url && existing.width === source.width && existing.height === source.height) continue;
-      setSourceStatus(id, { state: 'starting' });
-      void api.createBrowserSource(id, source.url, source.width, source.height).then(() => {
-        const current = browserConfigs.current.get(id);
-        if (current?.url === source.url && current.width === source.width && current.height === source.height) setSourceStatus(id, { state: 'ready' });
-        else void api.closeBrowserSource(id).catch(() => undefined);
-      }, (error) => {
-        setSourceStatus(id, { state: 'unavailable', message: friendlyError(error) });
-      });
-    }
-    browserConfigs.current = desired;
-  }, [api, browserSourceSignature, setSourceStatus]);
-
-  useEffect(() => () => {
-    for (const id of browserConfigs.current.keys()) void api.closeBrowserSource(id).catch(() => undefined);
-    browserConfigs.current.clear();
-    pendingBrowserFrames.current.clear();
-  }, [api]);
 
   useEffect(() => api.onApplicationAudioFrame((sourceId, frame) => {
     const input = applicationAudioInputs.current.get(sourceId);
@@ -1090,9 +1529,37 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       input.node.port.postMessage(frame, [frame]);
       return;
     }
+    const source = runtimeSources.current.get(sourceId);
+    const runtime = runtimes.current.get(sourceId);
+    const liveVideoTracks = runtime?.getVideoTracks().filter((track) => track.readyState === 'live') ?? [];
+    nativeAudioStartupFailures.current.set(input, frame.error);
+    if ((source?.kind === 'display' || source?.kind === 'window') && liveVideoTracks.length > 0) {
+      const generation = captureSessionGeneration.current;
+      runtimes.current.delete(sourceId);
+      mixer.current?.remove(sourceId);
+      runtime?.getAudioTracks().forEach((track) => track.stop());
+      applicationAudioInputs.current.delete(sourceId);
+      applicationAudioSessions.current.delete(sourceId);
+      input.close();
+      void api.stopApplicationAudioCapture(sourceId).catch(() => undefined);
+      const videoOnlyStream = new MediaStream(liveVideoTracks);
+      if (generation !== captureSessionGeneration.current) {
+        videoOnlyStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      void attachRuntime(source, videoOnlyStream).then(() => {
+        if (generation !== captureSessionGeneration.current || runtimes.current.get(sourceId) !== videoOnlyStream) return;
+        const message = `Capture audio stopped: ${frame.error}. Video capture is still active.`;
+        setSourceStatus(sourceId, { state: 'warning', message });
+        setActionError(message);
+      }).catch(() => {
+        videoOnlyStream.getTracks().forEach((track) => track.stop());
+      });
+      return;
+    }
     stopRuntimeRaw(sourceId, false);
     setSourceStatus(sourceId, { state: 'unavailable', message: frame.error });
-  }), [api, setSourceStatus, stopRuntimeRaw]);
+  }), [api, attachRuntime, setActionError, setSourceStatus, stopRuntimeRaw]);
 
   useEffect(() => {
     const enabledBrowserSources = JSON.parse(browserAudioSignature) as Array<{ id: string; enabled: boolean }>;
@@ -1142,7 +1609,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     const routeIds = new Set([...allSources.map((source) => source.id), ...(mixer.current?.sourceIds() ?? [])]);
     for (const source of allSources) runtimeSources.current.set(source.id, source);
     for (const runtimeId of routeIds) void applyCommittedAudioSettings(runtimeId);
-  }, [allSources, applyCommittedAudioSettings, programProject, programSourceIds]);
+  }, [allSources, applyCommittedAudioSettings, programProject, programSourceIds, programSourceOriginIds]);
 
   useEffect(() => {
     const currentOwnerIds = new Set(allSources.map((source) => source.id));
@@ -1156,10 +1623,11 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     }
     for (const runtimeId of previouslyOwnedRuntimeIds.current) {
       if (currentOwnerIds.has(runtimeId) || retainedIds.has(runtimeId)) continue;
+      releaseRuntimeOwnership(runtimeId);
       if (runtimes.current.has(runtimeId) || mixer.current?.sourceIds().includes(runtimeId)) stopRuntimeRaw(runtimeId);
       previouslyOwnedRuntimeIds.current.delete(runtimeId);
     }
-  }, [allSources, params.retainedSourceIds, programProject, programSourceIds, stopRuntimeRaw]);
+  }, [allSources, params.retainedSourceIds, programProject, programSourceIds, releaseRuntimeOwnership, stopRuntimeRaw]);
 
   const inputRestoreSignature = JSON.stringify(allSources
     .filter((source) => activeSourceIds.has(source.id) && (source.kind === 'camera' || source.kind === 'microphone'))
@@ -1174,35 +1642,41 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       if (!source || runtimes.current.has(source.id)) continue;
       const baseAttemptKey = `${source.id}:${source.deviceId ?? 'default'}`;
       const generation = captureSessionGeneration.current;
-      const inFlightKey = `${baseAttemptKey}:${generation}`;
+      const ownershipEpoch = runtimeOwnershipEpochs.current.get(source.id) ?? 0;
+      const isCurrentOwner = () => (runtimeOwnershipEpochs.current.get(source.id) ?? 0) === ownershipEpoch;
+      const inFlightKey = `${baseAttemptKey}:${generation}:${ownershipEpoch}`;
       const attemptKey = `${baseAttemptKey}:${inputDeviceRevision}`;
       if (inputRestoreAttempts.current.has(attemptKey) || inputRestoreInFlight.current.has(inFlightKey)) continue;
       inputRestoreAttempts.current.add(attemptKey);
       inputRestoreInFlight.current.add(inFlightKey);
       setSourceStatus(source.id, { state: 'starting' });
       void getInputCaptureStream(candidate.kind, candidate.deviceId || undefined, source, candidate.captureAudioEnabled, candidate.audioDeviceId || undefined).then(async ({ stream, audioError }) => {
-        if (generation !== captureSessionGeneration.current) {
+        if (generation !== captureSessionGeneration.current || !isCurrentOwner()) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
-        if (runtimes.current.has(source.id) || !activeSourceIdsRef.current.has(source.id)) {
+        if (runtimes.current.has(source.id) || !activeSourceIdsRef.current.has(source.id)
+          || !allSourcesRef.current.some((candidateSource) => candidateSource.id === source.id)) {
           stream.getTracks().forEach((track) => track.stop());
           clearSourceStatus(source.id);
           return;
         }
         await attachRuntime(source, stream);
-        if (generation !== captureSessionGeneration.current) return;
-        if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+        if (generation !== captureSessionGeneration.current || !isCurrentOwner()) {
+          if (runtimes.current.get(source.id) === stream) stopRuntimeRaw(source.id);
+          return;
+        }
+      if (audioError) reportCameraAudioFailure(source.id, audioError);
         const devices = await listInputDevices(candidate.kind).catch(() => null);
-        if (generation !== captureSessionGeneration.current) return;
+        if (generation !== captureSessionGeneration.current || !isCurrentOwner()) return;
         if (devices) setInputDeviceOptions((current) => ({ ...current, [candidate.kind]: devices }));
         if (candidate.kind === 'camera') {
           const audioDevices = await listInputDevices('microphone').catch(() => null);
-          if (generation !== captureSessionGeneration.current) return;
+          if (generation !== captureSessionGeneration.current || !isCurrentOwner()) return;
           if (audioDevices) setInputDeviceOptions((current) => ({ ...current, microphone: audioDevices }));
         }
       }).catch((error) => {
-        if (generation !== captureSessionGeneration.current) return;
+        if (generation !== captureSessionGeneration.current || !isCurrentOwner()) return;
         if (!activeSourceIdsRef.current.has(source.id)
           || !allSourcesRef.current.some((candidateSource) => candidateSource.id === source.id)) {
           clearSourceStatus(source.id);
@@ -1215,24 +1689,235 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
         }).catch(() => undefined);
       }).finally(() => inputRestoreInFlight.current.delete(inFlightKey));
     }
-  }, [activeSourceIdsRef, allSources, allSourcesRef, attachRuntime, clearSourceStatus, inputDeviceRevision, inputRestoreSignature, projectRef, setActionError, setSourceStatus, runtimeRevision]);
+  }, [activeSourceIdsRef, allSources, allSourcesRef, attachRuntime, clearSourceStatus, inputDeviceRevision, inputRestoreSignature, projectRef, reportCameraAudioFailure, setActionError, setSourceStatus, stopRuntimeRaw, runtimeOwnershipEpochs, runtimeRevision]);
+
+  const restoreDesktopCapture = useCallback(async (source: RuntimeSource, reason: DesktopRestoreReason = 'startup') => {
+    if ((source.kind !== 'display' && source.kind !== 'window') || captureKind !== null) return;
+    const originId = getOriginSourceId(source);
+    const unsupportedWindowAudioRequested = hasWindowCaptureAudioIntent(source);
+    const signature = JSON.stringify([
+      source.kind,
+      source.captureTarget ?? null,
+      source.name,
+      captureAudioModeForSource(source, api.platform),
+      source.captureAudioApplicationPath ?? null,
+      unsupportedWindowAudioRequested,
+    ]);
+    const ownershipEpoch = runtimeOwnershipEpochs.current.get(source.id) ?? 0;
+    const previous = desktopRestoreAttempts.current.get(source.id);
+    const sameOwnership = previous?.ownershipEpoch === ownershipEpoch;
+    const attempts = previous?.signature === signature && sameOwnership ? previous.attempts : 0;
+    const maximumAttempts = reason === 'track-ended' ? 2 : 1;
+    if ((previous?.signature === signature && sameOwnership && previous.inFlight) || attempts >= maximumAttempts) return;
+
+    desktopRestoreAttempts.current.set(source.id, { signature, attempts: attempts + 1, inFlight: true, ownershipEpoch });
+    const captureGeneration = captureSessionGeneration.current;
+    const manualRevision = manualCaptureRevision.current;
+    const isCurrent = () => captureGeneration === captureSessionGeneration.current
+      && manualRevision === manualCaptureRevision.current
+      && captureKind === null
+      && (runtimeOwnershipEpochs.current.get(source.id) ?? 0) === ownershipEpoch
+      && allSourcesRef.current.some((candidate) => candidate.id === source.id)
+      && activeSourceIdsRef.current.has(source.id);
+    if (!isCurrent()) {
+      const record = desktopRestoreAttempts.current.get(source.id);
+      if (record?.signature === signature && record.ownershipEpoch === ownershipEpoch) {
+        desktopRestoreAttempts.current.set(source.id, { ...record, attempts, inFlight: false });
+      }
+      return;
+    }
+
+    let releaseLock!: () => void;
+    const currentLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+    const previousLock = desktopRestoreQueue.current;
+    const queuedLock = previousLock.catch(() => undefined).then(() => currentLock);
+    desktopRestoreQueue.current = queuedLock;
+    await previousLock.catch(() => undefined);
+
+    let stream: MediaStream | null = null;
+    let runtimeId: string | null = null;
+    try {
+      if (!isCurrent()) throw new CaptureOperationCancelled();
+
+      setSourceStatus(source.id, { state: 'starting' });
+      const kind = source.kind === 'display' ? 'screen' : 'window';
+      const option = await api.resolveDesktopCapture(
+        kind,
+        source.captureId,
+        source.captureTarget,
+        source.captureTarget ? undefined : source.name,
+      );
+      if (!isCurrent()) throw new CaptureOperationCancelled();
+      if (!option) throw new Error('The saved capture target could not be matched safely. Reconnect Capture to choose it.');
+
+      const audioMode = captureAudioModeForSource(source, api.platform);
+      const includeDisplayAudio = audioMode === 'system' && api.platform === 'win32';
+      const frameRate = projectRef.current?.output.frameRate ?? 30;
+      const cursorMode = source.cursorMode ?? 'motion';
+      await api.prepareDesktopCapture(option.id, includeDisplayAudio, 'automatic-restore');
+      if (!isCurrent()) throw new CaptureOperationCancelled();
+
+      const requestStream = async (withAudio: boolean) => navigator.mediaDevices.getUserMedia(
+        desktopRestoreConstraints(option.id, frameRate, cursorMode, withAudio),
+      );
+      let audioUnavailable = unsupportedWindowAudioRequested;
+      let audioWarning = unsupportedWindowAudioRequested
+        ? `${WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE} Video capture is still active.`
+        : '';
+      try {
+        stream = await requestStream(includeDisplayAudio);
+      } catch (error) {
+        if (!includeDisplayAudio) throw error;
+        await api.prepareDesktopCapture(option.id, false, 'automatic-restore');
+        if (!isCurrent()) throw new CaptureOperationCancelled();
+        stream = await requestStream(false);
+        audioUnavailable = true;
+        audioWarning = 'System audio was not restored. Window video capture is still active.';
+      }
+      if (!isCurrent()) throw new CaptureOperationCancelled();
+      if (source.kind === 'window' && stream.getAudioTracks().length > 0) {
+        const unexpectedAudioTracks = stream.getAudioTracks();
+        const videoTracks = stream.getVideoTracks();
+        unexpectedAudioTracks.forEach((track) => track.stop());
+        stream = new MediaStream(videoTracks);
+      }
+      const liveVideoTracks = stream.getVideoTracks().filter((track) => track.readyState === 'live');
+      if (liveVideoTracks.length === 0) throw new Error('The selected window did not provide a live video track.');
+      audioUnavailable ||= includeDisplayAudio && stream.getAudioTracks().length === 0;
+      if (audioUnavailable && !audioWarning) audioWarning = 'System audio was not restored. Window video capture is still active.';
+
+      const reboundSource = bindDesktopCaptureSource(source, option, cursorMode, 'automatic-restore');
+      runtimeId = preserveDesktopCaptureRuntime(source, reboundSource);
+      if ((audioMode === 'application' && supportsApplicationAudioCapture(api.platform))
+        || (audioMode === 'system' && api.platform === 'darwin')) {
+        try {
+          let application: AudioApplicationOption | undefined;
+          if (audioMode === 'application') {
+            const applications = await api.listAudioApplications();
+            if (!isCurrent()) throw new CaptureOperationCancelled();
+            application = uniqueAudioApplicationForPath(applications, source.captureAudioApplicationPath, api.platform) ?? undefined;
+            if (!application) {
+              audioUnavailable = true;
+              audioWarning = 'The saved application is unavailable or matches multiple running instances. Video capture is still active.';
+            }
+          }
+          if (audioMode === 'system' || application) {
+            await startNativeAudioRuntime(reboundSource, audioMode, application, stream);
+            if (!isCurrent()) throw new CaptureOperationCancelled();
+            if (!runtimes.current.get(runtimeId)?.getVideoTracks().some((track) => track.readyState === 'live')) {
+              throw new Error('The selected window did not provide a live video track.');
+            }
+            stream = null;
+          }
+        } catch (error) {
+          if (isCaptureOperationCancelled(error) || !isCurrent()) throw new CaptureOperationCancelled();
+          audioUnavailable = true;
+          audioWarning = `${audioMode === 'application' ? 'Application' : 'System'} audio could not be restored: ${friendlyError(error)}. Video capture is still active.`;
+        }
+      } else if (audioMode !== 'off' && !includeDisplayAudio) {
+        audioUnavailable = true;
+        audioWarning = `${audioMode === 'application' ? 'Application' : 'System'} audio is not supported on this platform. Video capture is still active.`;
+      }
+      if (stream) {
+        if (!hasLiveVideoTrack(stream)) throw new Error('The selected window did not provide a live video track.');
+        if (!isCurrent()) throw new CaptureOperationCancelled();
+        await attachRuntime(reboundSource, stream);
+        if (!isCurrent()) throw new CaptureOperationCancelled();
+        stream = null;
+      }
+      if (!isCurrent()) throw new CaptureOperationCancelled();
+      const draftStillOwnsRequestedRuntime = projectRef.current?.scenes
+        .flatMap((scene) => flattenSourceNodes(scene.sources))
+        .some((candidate) => getOriginSourceId(candidate) === originId
+          && candidate.kind === source.kind
+          && getSourceRuntimeId(candidate) === source.id) ?? false;
+      if (draftStillOwnsRequestedRuntime) {
+        updateSource(originId, (current) => getOriginSourceId(current) === originId
+          && current.kind === source.kind
+          && getSourceRuntimeId(current) === source.id
+          ? {
+            ...current,
+            captureId: option.id,
+            captureTarget: reboundSource.captureTarget,
+            cursorMode: reboundSource.cursorMode,
+          }
+          : current);
+      }
+      if (audioUnavailable) {
+        setSourceStatus(runtimeId, { state: 'warning', message: audioWarning });
+        setActionError(audioWarning);
+      }
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (!isCaptureOperationCancelled(error) && isCurrent()) {
+        const message = error instanceof Error ? error.message : friendlyError(error);
+        setSourceStatus(source.id, { state: 'unavailable', message });
+        setActionError(`${source.name} could not be restored. Use Reconnect Capture to choose it.`);
+      } else if (captureGeneration === captureSessionGeneration.current
+        && (runtimeOwnershipEpochs.current.get(source.id) ?? 0) === ownershipEpoch) {
+        clearSourceStatus(source.id);
+      }
+    } finally {
+      const record = desktopRestoreAttempts.current.get(source.id);
+      if (record?.signature === signature && record.ownershipEpoch === ownershipEpoch) {
+        desktopRestoreAttempts.current.set(source.id, { ...record, inFlight: false });
+      }
+      releaseLock();
+      if (desktopRestoreQueue.current === queuedLock) desktopRestoreQueue.current = Promise.resolve();
+      if (runtimeId && stream) stopRuntimeRaw(runtimeId, false);
+    }
+  }, [activeSourceIdsRef, allSourcesRef, api, attachRuntime, captureKind, clearSourceStatus, projectRef, setActionError, setSourceStatus, startNativeAudioRuntime, stopRuntimeRaw, updateSource]);
+
+  desktopRestoreRef.current = (source) => { void restoreDesktopCapture(source, 'track-ended'); };
+
+  useEffect(() => {
+    for (const source of allSources) {
+      if (source.kind === 'window') void stripUnsupportedWindowAudio(source);
+    }
+  }, [allSources, runtimeRevision, stripUnsupportedWindowAudio]);
+
+  const desktopRestoreSignature = JSON.stringify(allSources
+    .filter((source) => activeSourceIds.has(source.id) && (source.kind === 'display' || source.kind === 'window'))
+    .map((source) => ({
+      id: source.id,
+      kind: source.kind,
+      captureId: source.captureId ?? '',
+      captureTarget: source.captureTarget ?? null,
+      name: source.name,
+      captureAudioMode: captureAudioModeForSource(source, api.platform),
+      captureAudioApplicationPath: source.captureAudioApplicationPath ?? '',
+    })));
+
+  useEffect(() => {
+    if (captureKind !== null || (restoreBlockedProject.current && projectRef.current === restoreBlockedProject.current)) return;
+    for (const source of allSources) {
+      if ((source.kind !== 'display' && source.kind !== 'window') || !activeSourceIdsRef.current.has(source.id)) continue;
+      const stream = runtimes.current.get(source.id);
+      if (stream?.getVideoTracks().some((track) => track.readyState === 'live')) continue;
+      void restoreDesktopCapture(source, 'startup');
+    }
+  }, [activeSourceIdsRef, allSources, captureKind, desktopRestoreSignature, projectRef, restoreDesktopCapture, runtimeRevision]);
 
   const runtimesSnapshot = useMemo(() => new Map(runtimes.current), [runtimeRevision]);
 
   const resetForWorkspaceChange = () => {
     captureSessionGeneration.current += 1;
+    manualCaptureRevision.current += 1;
+    captureAudioApplicationRequest.current += 1;
+    desktopRestoreAttempts.current.clear();
+    runtimeOwnershipEpochs.current.clear();
     restoreBlockedProject.current = projectRef.current;
     inputRestoreAttempts.current.clear();
     inputRestoreInFlight.current.clear();
     browserAudioInFlight.current.clear();
+    mediaElementConnectionOwners.current.clear();
     const runtimeIds = new Set([
       ...runtimes.current.keys(),
       ...applicationAudioInputs.current.keys(),
       ...(mixer.current?.sourceIds() ?? []),
     ]);
     for (const runtimeId of runtimeIds) stopRuntimeRaw(runtimeId);
-    for (const id of browserConfigs.current.keys()) void api.closeBrowserSource(id).catch(() => undefined);
-    browserConfigs.current.clear();
+    browserSessions.reset();
     pendingBrowserFrames.current.clear();
     runtimeSources.current.clear();
     previouslyOwnedRuntimeIds.current.clear();
@@ -1242,6 +1927,10 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     setCaptureOptions(null);
     setCaptureKind(null);
     setCaptureTargetSourceId(null);
+    setCaptureAudioMode('off');
+    setCaptureAudioApplications(null);
+    setCaptureAudioApplicationLoading(false);
+    setSelectedCaptureAudioApplication(null);
     setApplicationAudioOptions(null);
     setApplicationAudioTargetSourceId(null);
     setInputDevicePicker(null);
@@ -1256,7 +1945,10 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     startApplicationAudioRuntime, startSystemAudioRuntime, clearNoiseSuppressionPreference, resetForWorkspaceChange,
     audioSettings, audioOutputDevices, audioSettingsError, updateMonitoringDevice, refreshAudioOutputDevices,
     captureOptions, captureKind, captureTargetSourceId, setCaptureOptions, setCaptureKind, setCaptureTargetSourceId,
-    includeSystemAudio, setIncludeSystemAudio, captureCursorMode, setCaptureCursorMode, openCapturePicker, addDesktopCapture,
+    supportsSystemAudio, supportsApplicationAudio, captureAudioMode, setCaptureAudioMode,
+    captureAudioApplications, captureAudioApplicationLoading, selectedCaptureAudioApplication,
+    onLoadCaptureAudioApplications, onSelectCaptureAudioApplication,
+    captureCursorMode, setCaptureCursorMode, openCapturePicker, addDesktopCapture,
     applicationAudioOptions, applicationAudioTargetSourceId, setApplicationAudioOptions, setApplicationAudioTargetSourceId,
     openApplicationAudioPicker, addSystemAudioCapture, chooseAudioApplication,
     inputDevicePicker, inputDeviceOptions, cameraAudioEnabled, setCameraAudioEnabled, cameraAudioDeviceId, setCameraAudioDeviceId,

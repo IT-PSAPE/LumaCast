@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasComposition, hitTestSource } from '../../../../apps/stream/renderer/canvas-composition';
 import { createDefaultProject, type SourceKind, type StreamScene } from '../../../../apps/stream/shared/desktop-api';
 import { getSourceRuntimeId } from '../../../../apps/stream/renderer/source-runtime';
+import { navigateSlidePlayback, resetSlidePlaybackStore, seedSlidePlaybackFromProgram } from '../../../../apps/stream/renderer/slideshow';
 
 // Only the drawing calls the composition makes; cast to CanvasRenderingContext2D at the getContext mock boundary.
 interface FakeContext {
@@ -76,6 +77,7 @@ describe('CanvasComposition Scene sources', () => {
   afterEach(() => {
     cleanup();
     frames = [];
+    resetSlidePlaybackStore();
     vi.restoreAllMocks();
   });
 
@@ -259,6 +261,54 @@ describe('CanvasComposition Scene sources', () => {
 
     const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
     expect(contexts.get(canvas)?.fillText).toHaveBeenCalledWith('Image unavailable', 140, 112, 188);
+  });
+
+  it.each(['slideshow', 'presentation'] as const)('shares the live page between Preview and Program for a matching %s resource', (kind) => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    const pages = ['first', 'second'].map((assetId) => ({ assetId, assetExtension: 'png', name: assetId }));
+    const programSource = source('shared-slides', kind, { x: 0, y: 0, width: 1920, height: 1080 }, {
+      ...(kind === 'slideshow' ? { slideshowImages: pages, slideshowAutoAdvance: false } : { presentationSlides: pages }),
+      slideIndex: 0,
+    });
+    const previewSource = { ...programSource, slideIndex: 1 };
+    const programScene = { ...project.scenes[0]!, sources: [programSource] };
+    const previewScene = { ...programScene, sources: [previewSource] };
+    const images = pages.map(() => ({ complete: true, naturalWidth: 1920, naturalHeight: 1080, dataset: {} }) as HTMLImageElement);
+    const resourceId = getSourceRuntimeId(programSource);
+    expect(getSourceRuntimeId(previewSource)).toBe(resourceId);
+    seedSlidePlaybackFromProgram(programSource);
+    const imageElements = new Map(pages.map((page, index) => [`${resourceId}:${page.assetId}`, images[index]!]));
+    render(<>
+      <CanvasComposition project={project} scene={previewScene} videoElements={new Map()} imageElements={imageElements} />
+      <CanvasComposition project={project} scene={programScene} videoElements={new Map()} imageElements={imageElements} />
+    </>);
+    act(() => { const pending = frames; frames = []; pending.forEach((frame) => frame(0)); });
+    const canvases = document.querySelectorAll<HTMLCanvasElement>('.composition-canvas');
+    expect(contexts.get(canvases[0]!)?.drawImage.mock.calls[0]?.[0]).toBe(images[0]);
+    expect(contexts.get(canvases[1]!)?.drawImage.mock.calls[0]?.[0]).toBe(images[0]);
+    act(() => {
+      navigateSlidePlayback(previewSource, 'next');
+      const pending = frames;
+      frames = [];
+      pending.forEach((frame) => frame(100));
+    });
+    expect(contexts.get(canvases[0]!)?.drawImage.mock.calls.at(-1)?.[0]).toBe(images[1]);
+    expect(contexts.get(canvases[1]!)?.drawImage.mock.calls.at(-1)?.[0]).toBe(images[1]);
+    expect(programSource.slideIndex).toBe(0);
+    expect(previewSource.slideIndex).toBe(1);
+  });
+
+  it('shows a presentation placeholder when its current page is unavailable', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push(source('missing-presentation', 'presentation', { x: 40, y: 30, width: 200, height: 100 }, {
+      presentationSlides: [{ assetId: 'missing', assetExtension: 'png', name: 'Slide 1' }],
+    }));
+    render(<CanvasComposition project={project} scene={project.scenes[0]!} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => frames.shift()?.(0));
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    expect(contexts.get(canvas)?.fillText).toHaveBeenCalledWith('Presentation unavailable', 140, 112, 188);
   });
 
   it('draws an unavailable-asset tile for a video source before its media element is available', () => {

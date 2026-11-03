@@ -348,13 +348,13 @@ export function serializeAppMenus(menus: MenubarMenu[], platform: StreamPlatform
 
 function collectActions(entries: MenuEntry[], actions: Map<string, () => void>): void {
   for (const entry of entries) {
-    if ('separator' in entry || 'heading' in entry) continue;
+    if ('separator' in entry || 'heading' in entry || entry.disabled) continue;
     if (entry.onSelect) actions.set(entry.id, entry.onSelect);
     if (entry.children) collectActions(entry.children, actions);
   }
 }
 
-/** Flattens every actionable item's `id -> onSelect` across all menus, for dispatching `stream:menu-action`/hamburger-menu selections by id. */
+/** Maps enabled menu actions for native/hamburger dispatch; disabled submenus stay unavailable. */
 export function collectMenuActions(menus: MenubarMenu[]): Map<string, () => void> {
   const actions = new Map<string, () => void>();
   for (const menu of menus) collectActions(menu.entries, actions);

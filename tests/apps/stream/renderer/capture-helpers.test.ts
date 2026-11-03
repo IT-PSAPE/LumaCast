@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { audioInputCaptureConstraints, explicitAudioInputDevices, getInputCaptureStream, pairedCameraAudioDeviceId } from '../../../../apps/stream/renderer/features/capture/helpers';
+import { audioInputCaptureConstraints, combineCaptureStreams, explicitAudioInputDevices, getInputCaptureStream, pairedCameraAudioDeviceId } from '../../../../apps/stream/renderer/features/capture/helpers';
 
 const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
 afterEach(() => {
@@ -77,5 +77,32 @@ describe('camera audio input selection', () => {
     expect(result.stream).toBe(videoStream);
     expect(result.audioError).toBeInstanceOf(Error);
     expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('combined capture streams', () => {
+  it('combines the selected video capture with only audio tracks from the related audio stream', () => {
+    const originalMediaStream = globalThis.MediaStream;
+    class FakeMediaStream {
+      constructor(private readonly tracks: MediaStreamTrack[]) {}
+      getTracks() { return this.tracks; }
+      getVideoTracks() { return this.tracks.filter((track) => track.kind === 'video'); }
+      getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
+    }
+    Object.defineProperty(globalThis, 'MediaStream', { configurable: true, value: FakeMediaStream });
+    try {
+      const video = { kind: 'video' } as MediaStreamTrack;
+      const audio = { kind: 'audio' } as MediaStreamTrack;
+      const unrelatedVideo = { kind: 'video' } as MediaStreamTrack;
+      const videoStream = new FakeMediaStream([video]) as unknown as MediaStream;
+      const audioStream = new FakeMediaStream([audio, unrelatedVideo]) as unknown as MediaStream;
+
+      const combined = combineCaptureStreams(videoStream, audioStream);
+
+      expect(combined.getTracks()).toEqual([video, audio]);
+      expect(combineCaptureStreams(videoStream)).toBe(videoStream);
+    } finally {
+      Object.defineProperty(globalThis, 'MediaStream', { configurable: true, value: originalMediaStream });
+    }
   });
 });

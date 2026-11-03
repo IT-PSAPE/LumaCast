@@ -4,10 +4,11 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
   type ReactNode, type SetStateAction,
 } from 'react';
-import { Layers2, Plus, Trash2, X } from 'lucide-react';
+import { Clapperboard, Layers2, Plus, Trash2 } from 'lucide-react';
 import { Badge, Modal, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
 import { moveSelectedIds, useMultiSelection, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
 import { reorderSelectionOnDrop } from '../scene-order';
+import { DockHeader } from './dock-header';
 import type { StreamPlatform } from '../../shared/platform-capabilities';
 import type { StreamScene } from '../../shared/desktop-api';
 import './scenes-dock.css';
@@ -415,18 +416,18 @@ export function ScenesDock({
   return (
     <Panel density="compact" className="dock scenes-dock" style={style}>
       {resizer}
-      <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>Scenes</Panel.HeaderTitle>
-        <Panel.HeaderActions>
-          <ReacstButton.Icon variant="ghost" size="sm" label="Add scene" onClick={onAddScene}><Plus /></ReacstButton.Icon>
-          {selectionCount > 1 && <ReacstButton.Icon variant="ghost" size="sm" label={`Delete ${selectionCount} selected scenes`} tooltip={`Delete ${selectionCount} selected scenes`} onClick={() => {
+      <DockHeader
+        title="Scenes"
+        icon={<Clapperboard />}
+        onHide={onHide}
+        actions={<>
+          <ReacstButton.Icon className="stream-dock-header__action" variant="ghost" size="md" label="Add scene" onClick={onAddScene}><Plus /></ReacstButton.Icon>
+          {selectionCount > 1 && <ReacstButton.Icon className="stream-dock-header__action" variant="ghost" size="md" label={`Delete ${selectionCount} selected scenes`} tooltip={`Delete ${selectionCount} selected scenes`} onClick={() => {
             const firstSelected = scenes.find((scene) => selection.selectedIds.has(scene.id));
             if (firstSelected) requestRemove(firstSelected);
           }}><Trash2 /></ReacstButton.Icon>}
-
-          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Scenes" onClick={onHide}><X /></ReacstButton.Icon>
-        </Panel.HeaderActions>
-      </Panel.Header>
+        </>}
+      />
       <div className="scene-list" onKeyDown={handleSelectionKeys}>
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;

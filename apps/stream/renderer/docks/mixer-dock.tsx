@@ -1,10 +1,11 @@
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX, X } from 'lucide-react';
+import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX } from 'lucide-react';
 import { Badge, EmptyState, Meter, PointContextMenu, Panel, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { sourceIcon } from '../source-ui';
 import { METER_FLOOR_DB, METER_ZONES, linearToDb, updatePeakHold, type MeterZoneTone, type PeakHoldState } from '../audio-meter-model';
 import { AdvancedAudioDialog } from '../dialogs/advanced-audio-dialog';
 import { buildMixerMenu, parseMixerLayout, MIXER_LAYOUT_STORAGE_KEY, type MixerLayout } from './mixer-menu';
+import { DockHeader } from './dock-header';
 import { AUDIO_TRACKS, type AudioMonitoring, type AudioTrack, type StreamSource } from '../../shared/desktop-api';
 import './mixer-dock.css';
 
@@ -152,11 +153,15 @@ export function MixerDock({
     channelMenu.show({ clientX: rect.left, clientY: rect.bottom, preventDefault: () => event.preventDefault() });
   };
 
-  const titleMenuEntries = buildMixerMenu({
-    layout,
-    onToggleLayout: toggleLayout,
-    onOpenAdvancedAudio: () => setAdvancedAudioOpen(true),
-  });
+  const titleMenuEntries: MenuEntry[] = [
+    ...buildMixerMenu({
+      layout,
+      onToggleLayout: toggleLayout,
+      onOpenAdvancedAudio: () => setAdvancedAudioOpen(true),
+    }),
+    { separator: true },
+    { id: 'dock.hide', label: 'Hide Audio Mixer', onSelect: onHide },
+  ];
 
   const activeChannelSource = meteredSources.find((source) => source.id === activeChannelId) ?? null;
   const channelMenuEntries = activeChannelSource ? buildChannelMenu(activeChannelSource, {
@@ -184,19 +189,15 @@ export function MixerDock({
   return (
     <Panel density="compact" className="dock mixer-dock" style={style}>
       {resizer}
-      <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>
-          Audio Mixer
-          {staged && <span className="mixer-stage-badge" title="Mixer changes are staged until this scene transitions to Program"><Badge size="sm" tone="brand" shape="box">STAGED</Badge></span>}
-        </Panel.HeaderTitle>
-        <Panel.HeaderActions>
-          <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>
-            <MoreHorizontal size={16} />
-          </button>
-
-          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Audio Mixer" onClick={onHide}><X /></ReacstButton.Icon>
-        </Panel.HeaderActions>
-      </Panel.Header>
+      <DockHeader
+        title="Audio Mixer"
+        icon={<AudioLines />}
+        titleSuffix={staged ? <span className="mixer-stage-badge" title="Mixer changes are staged until this scene transitions to Program"><Badge size="sm" tone="brand" shape="box">STAGED</Badge></span> : undefined}
+        onHide={onHide}
+        menuTrigger={<button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer actions" aria-haspopup="menu" aria-expanded={titleMenu.open} onClick={openTitleMenu}>
+          <MoreHorizontal size={16} />
+        </button>}
+      />
       {meteredSources.length === 0
         ? (
           <EmptyState.Root>
@@ -292,7 +293,7 @@ export function MixerDock({
         open={titleMenu.open}
         position={titleMenu.position}
         entries={titleMenuEntries}
-        label="Audio Mixer options"
+        label="Audio Mixer actions"
         onClose={titleMenu.close}
       />
       <PointContextMenu

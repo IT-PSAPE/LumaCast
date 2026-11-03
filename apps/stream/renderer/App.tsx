@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar, TooltipProvider } from '@lumacast/ui';
-import { Clapperboard, ExternalLink, Radio, Settings } from 'lucide-react';
+import { Clapperboard, ExternalLink, MousePointer2, Radio, Settings } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
+import { SlideControls } from './slide-controls';
+import { isSlideSource, navigateSlidePlayback, resetSlidePlaybackStore } from './slideshow';
+import { resolveSlideControlSource, slideControlSources } from './slide-control-sources';
+import { BrowserInteractionOverlay } from './browser-interaction';
+import { captureAudioModeForSource } from '../shared/capture-audio';
 import type { SceneTransitionType } from './scene-transition';
 import { TitleBar } from './chrome/title-bar';
 import { buildAppMenus } from './chrome/app-menu';
@@ -26,7 +31,7 @@ import { fitPreviewSize } from './preview-layout';
 import { multiviewTileCapacityFor } from './multiview-window';
 import { ActionNotifications } from './action-notifications';
 import { SceneThumbnail } from './docks/scene-thumbnail';
-import { getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject, toRuntimeSource } from './source-runtime';
+import { getOriginSourceId, getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject, toRuntimeSource } from './source-runtime';
 import { projectRuntimeMap, projectRuntimeRecord } from './runtime-projection';
 import { mergeSourceStatuses, type SourceStatus } from './source-availability';
 import { formatElapsed } from './format-elapsed';
@@ -85,11 +90,24 @@ export function App() {
     setActionFeedback((current) => ({ message, sequence: current.sequence + 1 }));
   }, []);
   const [working, setWorking] = useState(false);
+  const [providerOperationCount, setProviderOperationCount] = useState(0);
+  const providerOperations = useRef(new Set<symbol>());
+  const beginProviderOperation = useCallback(() => {
+    const operation = Symbol();
+    providerOperations.current.add(operation);
+    setProviderOperationCount(providerOperations.current.size);
+    return () => {
+      if (providerOperations.current.delete(operation)) setProviderOperationCount(providerOperations.current.size);
+    };
+  }, []);
   const [clockNow, setClockNow] = useState(Date.now());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
   const [ndiDialog, setNdiDialog] = useState<'input' | 'output' | null>(null);
+  const [slideTargetSessionId, setSlideTargetSessionId] = useState<string | null>(null);
+  const [browserInteract, setBrowserInteract] = useState(false);
+  const browserInteractionButtonRef = useRef<HTMLButtonElement>(null);
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 });
 
   const monitorStageRef = useRef<HTMLDivElement>(null);
@@ -129,6 +147,9 @@ export function App() {
     onWorkspaceChanging: () => {
       capture.resetForWorkspaceChange();
       program.resetForWorkspaceChange();
+      resetSlidePlaybackStore();
+      setSlideTargetSessionId(null);
+      setBrowserInteract(false);
       setResourceStatuses({});
       setVisibleThumbnailSceneIds(new Set());
       sources.resetForWorkspaceChange();
@@ -144,10 +165,27 @@ export function App() {
   const runtimeDraftProject = useMemo(() => project ? toRuntimeProject(project) : null, [project]);
   const runtimeProgramProject = useMemo(() => program.programProject ? toRuntimeProject(program.programProject) : null, [program.programProject]);
   const runtimeOutgoingProject = useMemo(() => program.outgoingProject ? toRuntimeProject(program.outgoingProject) : null, [program.outgoingProject]);
+  const draftOriginIds = useMemo(() => project && activeScene
+    ? getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]) : new Set<string>(), [project, activeScene?.id]);
+  const programOriginIds = useMemo(() => program.programProject && liveScene
+    ? getVisibleSourceIdsForScenes(program.programProject.scenes, [liveScene.id]) : new Set<string>(), [program.programProject, liveScene?.id]);
+  const outgoingOriginIds = useMemo(() => program.outgoingProject && program.outgoingScene
+    ? getVisibleSourceIdsForScenes(program.outgoingProject.scenes, [program.outgoingScene.id]) : new Set<string>(), [program.outgoingProject, program.outgoingScene?.id]);
   const runtimeSources = useMemo(() => mergeRuntimeSources({
     draftScenes: runtimeDraftProject?.scenes ?? [], programScenes: runtimeProgramProject?.scenes ?? [], outgoingScenes: runtimeOutgoingProject?.scenes,
-  }), [runtimeDraftProject?.scenes, runtimeProgramProject?.scenes, runtimeOutgoingProject?.scenes]);
+    draftSourceIds: draftOriginIds, programSourceIds: programOriginIds, outgoingSourceIds: outgoingOriginIds,
+  }), [runtimeDraftProject?.scenes, runtimeProgramProject?.scenes, runtimeOutgoingProject?.scenes, draftOriginIds, programOriginIds, outgoingOriginIds]);
   const editorRuntimeSources = useMemo(() => runtimeDraftProject?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)) ?? [], [runtimeDraftProject]);
+  const referencedSourceIds = useMemo(() => new Set([
+    ...editorRuntimeSources,
+    ...(runtimeProgramProject?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)) ?? []),
+    ...(runtimeOutgoingProject?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)) ?? []),
+  ].map((source) => source.id)), [editorRuntimeSources, runtimeProgramProject, runtimeOutgoingProject]);
+  const visibleDraftSourceIds = useMemo(() => project
+    ? getVisibleSourceIdsForScenes(project.scenes, project.scenes.map((scene) => scene.id))
+    : new Set<string>(), [project?.scenes]);
+  const visibleEditorRuntimeSources = useMemo(() => editorRuntimeSources.filter((source) => visibleDraftSourceIds.has(getOriginSourceId(source))),
+    [editorRuntimeSources, visibleDraftSourceIds]);
   const runtimeSourcesRef = useRef(runtimeSources);
   runtimeSourcesRef.current = runtimeSources;
   useEffect(() => {
@@ -166,6 +204,15 @@ export function App() {
     }
     return ids;
   }, [programSourceIds, runtimeOutgoingProject, program.outgoingScene?.id]);
+  const slideshowPlaybackSources = useMemo(() => {
+    const visibleSources = (snapshot: typeof program.programProject, sceneId: string | undefined) => {
+      if (!snapshot || !sceneId) return [];
+      const ids = getVisibleSourceIdsForScenes(snapshot.scenes, [sceneId]);
+      return snapshot.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)).filter((source) => ids.has(source.id) && isSlideSource(source))
+        .map((source) => toRuntimeSource(source));
+    };
+    return [...visibleSources(program.outgoingProject, program.outgoingScene?.id), ...visibleSources(program.programProject, liveScene?.id)];
+  }, [program.programProject, program.outgoingProject, liveScene?.id, program.outgoingScene?.id]);
   const reportResourceStatus = useCallback((sourceId: string, status: SourceStatus) => {
     setResourceStatuses((current) => current[sourceId]?.state === status.state && current[sourceId]?.message === status.message
       ? current : { ...current, [sourceId]: status });
@@ -207,7 +254,7 @@ export function App() {
     api, project: runtimeDraftProject, projectRef: runtimeProjectRef,
     allSources: runtimeSources, allSourcesRef: runtimeSourcesRef,
     liveScene: runtimeProgramProject?.scenes.find((scene) => scene.id === liveScene?.id) ?? null,
-    programProject: runtimeProgramProject, programSourceIds, retainedSourceIds, activeSourceIds, activeSourceIdsRef,
+    programProject: runtimeProgramProject, programSourceIds, programSourceOriginIds: programOriginIds, retainedSourceIds, activeSourceIds, activeSourceIdsRef,
     setActionError, working, setWorking, displayCaptureSystemAudio, imageElements,
     closeSourceMenu: () => sources.setSourceMenuOpen(false),
     addToActiveScene: (source) => sources.addToActiveScene(source),
@@ -224,21 +271,21 @@ export function App() {
   const ndi = useNdi({ api: api.ndi, sources: runtimeSources, activeIds: ndiActiveIds, capture,
     programCanvas: programCanvasRef, project: program.programProject, onError: setActionError });
   const editorRuntimes = useRef(capture.runtimes.current);
-  editorRuntimes.current = projectRuntimeMap(editorRuntimeSources, capture.runtimes.current);
+  editorRuntimes.current = projectRuntimeMap(visibleEditorRuntimeSources, capture.runtimes.current);
   const editorApplicationAudioInputs = useRef(capture.applicationAudioInputs.current);
-  editorApplicationAudioInputs.current = projectRuntimeMap(editorRuntimeSources, capture.applicationAudioInputs.current);
+  editorApplicationAudioInputs.current = projectRuntimeMap(visibleEditorRuntimeSources, capture.applicationAudioInputs.current);
   const editorApplicationAudioSessions = useRef(capture.applicationAudioSessions.current);
-  editorApplicationAudioSessions.current = projectRuntimeMap(editorRuntimeSources, capture.applicationAudioSessions.current);
+  editorApplicationAudioSessions.current = projectRuntimeMap(visibleEditorRuntimeSources, capture.applicationAudioSessions.current);
   const editorVideoElements = useRef(videoElements.current);
-  editorVideoElements.current = projectRuntimeMap(editorRuntimeSources, videoElements.current);
+  editorVideoElements.current = projectRuntimeMap(visibleEditorRuntimeSources, videoElements.current);
   const editorImageElements = useRef(imageElements.current);
-  editorImageElements.current = projectRuntimeMap(editorRuntimeSources, imageElements.current);
+  editorImageElements.current = projectRuntimeMap(visibleEditorRuntimeSources, imageElements.current);
   const editorMediaElements = useRef(mediaElements.current);
-  editorMediaElements.current = projectRuntimeMap(editorRuntimeSources, mediaElements.current);
-  const editorMeterLevels = projectRuntimeRecord(editorRuntimeSources, capture.meterLevels);
-  const editorPlaybackStates = projectRuntimeRecord(editorRuntimeSources, capture.mediaPlaybackStates);
+  editorMediaElements.current = projectRuntimeMap(visibleEditorRuntimeSources, mediaElements.current);
+  const editorMeterLevels = projectRuntimeRecord(visibleEditorRuntimeSources, capture.meterLevels);
+  const editorPlaybackStates = projectRuntimeRecord(visibleEditorRuntimeSources, capture.mediaPlaybackStates);
   const ndiSourceStatuses = Object.fromEntries(Object.entries(ndi.sourceErrors).map(([id, message]) => [id, { state: 'unavailable' as const, message }]));
-  const editorSourceStatuses = projectRuntimeRecord(editorRuntimeSources, mergeSourceStatuses(editorRuntimeSources, capture.sourceStatuses, { ...resourceStatuses, ...ndiSourceStatuses }));
+  const editorSourceStatuses = projectRuntimeRecord(visibleEditorRuntimeSources, mergeSourceStatuses(visibleEditorRuntimeSources, capture.sourceStatuses, { ...resourceStatuses, ...ndiSourceStatuses }));
 
   const sources = useSources({
     api, project, projectRef, allSources, activeScene, liveScene, setProjectValue, setActionError, working, setWorking,
@@ -248,6 +295,16 @@ export function App() {
     startApplicationAudioRuntime: capture.startApplicationAudioRuntime, startSystemAudioRuntime: capture.startSystemAudioRuntime,
     clearNoiseSuppressionPreference: capture.clearNoiseSuppressionPreference,
   });
+  const availableSlideSources = useMemo(() => slideControlSources(project, program.programProject, program.programSceneId),
+    [project, program.programProject, program.programSceneId]);
+  const slideControlSource = resolveSlideControlSource(availableSlideSources, slideTargetSessionId);
+  useEffect(() => {
+    if (slideControlSource) setSlideTargetSessionId(getSourceRuntimeId(slideControlSource));
+  }, [slideControlSource]);
+  useEffect(() => {
+    setBrowserInteract(false);
+  }, [sources.selectedSourceId, project?.activeSceneId]);
+  useEffect(() => () => resetSlidePlaybackStore(), []);
 
   const scenes = useScenes({
     project, setProjectValue, setActionError, working, setWorking, selectSource: sources.selectSource,
@@ -269,6 +326,13 @@ export function App() {
 
   const recording = useRecording({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
   const streaming = useStreaming({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError });
+  const startSelectedDestinations = () => {
+    if (providerOperations.current.size > 0) {
+      setActionError('Finish connecting or creating destinations before starting.');
+      return;
+    }
+    streaming.startSelectedDestinations();
+  };
   const replayBuffer = useReplayBuffer({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
 
   const runtimeStats = useRuntimeStats({ api });
@@ -301,7 +365,7 @@ export function App() {
     sourceClipboardAvailable: sources.sourceClipboardAvailable, chooseScene: scenes.chooseScene,
     startRecording: recording.startRecording, stopRecording: recording.stopRecording, isRecording: recording.isActive,
     isActivelyRecording: recording.isActivelyRecording,
-    stopStreaming: streaming.stopStreaming, isStreaming: streaming.isActive, openStreamDialog: streaming.openStreamDialog,
+    stopStreaming: streaming.stopStreaming, isStreaming: streaming.isActive, openStreamDialog: startSelectedDestinations,
     startReplayBuffer: replayBuffer.startReplayBuffer, stopReplayBuffer: replayBuffer.stopReplayBuffer, saveReplay: replayBuffer.saveReplay,
     isReplayBufferActive: replayBuffer.isActive,
     openSettings: openSettingsDialog,
@@ -367,6 +431,15 @@ export function App() {
     && selectedSourceFrames.length === 1
     && isSourceTransformableInTree(activeScene.sources, selectedSourceFrames[0]!.source.id)
     && canResizeSourceTree(selectedSourceFrames[0]!.source);
+  const stageSnapGuides = sources.snapGuides.map((guide) => {
+    const rect = outputRectFromCanvasRect(guide.axis === 'x'
+      ? { x: guide.position, y: 0, width: 0, height: project.output.baseHeight }
+      : { x: 0, y: guide.position, width: project.output.baseWidth, height: 0 },
+    { width: project.output.baseWidth, height: project.output.baseHeight }, project.output);
+    return <span key={`${guide.axis}:${guide.position}`} className={`source-snap-guide source-snap-guide--${guide.axis}`} aria-hidden="true"
+      style={{ left: `${rect.x / project.output.width * 100}%`, top: `${rect.y / project.output.height * 100}%`,
+        ...(guide.axis === 'x' ? { height: `${rect.height / project.output.height * 100}%` } : { width: `${rect.width / project.output.width * 100}%` }) }} />;
+  });
   const previewScene = activeScene;
   const runtimePreviewScene = runtimeDraftProject!.scenes.find((scene) => scene.id === activeScene.id)!;
   const runtimeProgramScene = runtimeProgramProject!.scenes.find((scene) => scene.id === liveScene.id)!;
@@ -377,21 +450,24 @@ export function App() {
   const activeSceneVisibleSourceIds = getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]);
   const activeSceneLeafSources = allSources.filter((source) => activeSceneVisibleSourceIds.has(source.id)
     && source.kind !== 'group' && source.kind !== 'scene');
-  // Every audio-capable leaf source across every scene, for Advanced Audio
-  // Properties — mirrors the predicate that actually gets a source wired into
-  // the mixer (see attachRuntime/connectMediaElement in use-capture.ts):
-  // microphone, desktop-audio and application-audio always qualify; media
-  // sources (video or audio) always get an audio element attached; browser
-  // sources only qualify with their own audio-capture toggle on. Camera
-  // capture always requests `audio: false` (see cameraCaptureConstraints), so
-  // cameras are excluded even though they look similar to a microphone in the
-  // Sources list.
-  const allAudioSources = allSources.filter((source) => source.kind === 'microphone'
+  // Include enabled audio on visual capture sources in Advanced Audio Properties.
+  const allAudioSources = allSources.filter((source) => visibleDraftSourceIds.has(source.id) && (source.kind === 'microphone'
     || source.kind === 'desktop-audio'
     || source.kind === 'application-audio'
     || source.kind === 'media'
-    || (source.kind === 'browser' && source.browserAudioEnabled === true));
+    || (source.kind === 'camera' && source.captureAudioEnabled === true)
+    || ((source.kind === 'display' || source.kind === 'window') && captureAudioModeForSource(source, platform) !== 'off')
+    || (source.kind === 'ndi' && source.captureAudioEnabled !== false)
+    || (source.kind === 'browser' && source.browserAudioEnabled === true)));
   const selectedSource = sources.selectedSource;
+  const browserInteractionSourceId = selectedSource?.kind === 'browser' && activeSceneVisibleSourceIds.has(selectedSource.id)
+    ? getSourceRuntimeId(selectedSource, { width: project.output.baseWidth, height: project.output.baseHeight }) : null;
+  const browserInteractionControl = browserInteractionSourceId && <ReacstButton.Icon ref={browserInteractionButtonRef} variant="ghost" size="xs"
+    label="Interact with browser" tooltip="Interact with browser · Esc to exit" pressed={browserInteract} onClick={() => setBrowserInteract((value) => !value)}><MousePointer2 /></ReacstButton.Icon>;
+  const exitBrowserInteraction = () => {
+    setBrowserInteract(false);
+    browserInteractionButtonRef.current?.focus();
+  };
   const selectedFilters = { ...DEFAULT_SOURCE_FILTERS, ...selectedSource?.filters };
   const selectedTextStyle = selectedSource?.kind === 'text' ? selectedSource.textStyle ?? createDefaultTextStyle() : null;
   const selectedCrop = { ...DEFAULT_SOURCE_CROP, ...selectedSource?.crop };
@@ -415,7 +491,7 @@ export function App() {
           setNdiDialog(null);
         }} />}
       <ActionNotifications message={actionFeedback.message} sequence={actionFeedback.sequence} />
-      <RuntimeVideoBank sources={runtimeSources} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} programSourceIds={programSourceIds} playbackSourceIds={retainedSourceIds} onSourceStatus={reportResourceStatus} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
+      <RuntimeVideoBank key={workspace.activeCollectionId} sources={runtimeSources} referencedSourceIds={referencedSourceIds} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} programSourceIds={programSourceIds} playbackSourceIds={retainedSourceIds} slideshowPlaybackSources={slideshowPlaybackSources} onSourceStatus={reportResourceStatus} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
       {multiviewWindowOpen && <div className="multiview-offscreen" aria-hidden="true">
         {project.scenes.slice(0, multiviewTileCapacityFor(project.scenes.length)).map((scene) => <CanvasComposition
           key={scene.id}
@@ -432,6 +508,8 @@ export function App() {
         />)}
       </div>}
       <TitleBar platform={platform} menuMode={platform === 'darwin' ? 'native' : 'hamburger'} title="LumaStream" menus={appMenus}>
+        <ReacstButton variant="ghost" size="sm" pressed={project.studioMode} disabled={scenes.transition !== null} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
+        <ReacstButton.Icon variant="ghost" size="sm" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
         <ReacstButton.Icon variant="ghost" size="sm" label="Open settings" tooltip="Settings" onClick={openSettings}><Settings /></ReacstButton.Icon>
       </TitleBar>
 
@@ -442,7 +520,10 @@ export function App() {
         setProjectValue={setProjectValue}
         platform={platform}
         streamServiceSettings={streaming.streamServiceSettings}
-        onSaveStreamServiceSettings={streaming.setStreamServiceSettings}
+        streamDestinationsLocked={streaming.isActive() || providerOperationCount > 0}
+        onSaveStreamServiceSettings={(next) => {
+          if (!streaming.isActive() && providerOperations.current.size === 0) streaming.setStreamServiceSettings(next);
+        }}
         onRemuxRecording={() => void recording.remuxRecording()}
         audio={{
           monitorDeviceSelectionSupported,
@@ -503,17 +584,25 @@ export function App() {
           />
           <div ref={monitorStageRef} className={`monitor-stage ${project.studioMode ? 'studio' : ''}`}>
             {project.studioMode && <div key="preview-panel" className="stage-panel">
-              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><ReacstButton.Icon variant="ghost" size="xs" label="Open preview projector" tooltip="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink /></ReacstButton.Icon></div>
+              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b>{browserInteractionControl}<ReacstButton.Icon variant="ghost" size="xs" label="Open preview projector" tooltip="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink /></ReacstButton.Icon></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => sources.handleStagePointerDown(event, previewScene)} onPointerMove={sources.handleStagePointerMove} onPointerUp={sources.handleStagePointerUp} onPointerCancel={sources.handleStagePointerUp}>
                 <CanvasComposition ref={previewCanvasRef} project={runtimeDraftProject!} scene={runtimePreviewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
-                {selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>)}
+                {stageSnapGuides}
+                {browserInteract && <BrowserInteractionOverlay scene={runtimePreviewScene} output={project.output} selectedSourceId={browserInteractionSourceId}
+                  imageElements={imageElements.current} sendBrowserSourceInput={api.sendBrowserSourceInput} onExit={exitBrowserInteraction}
+                  onError={(error) => setActionError(`Browser interaction failed: ${friendlyError(error)}`)} />}
+                {selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} title={`Drag to resize · Shift: preserve aspect · ${platform === 'darwin' ? '⌘' : 'Ctrl'}: crop · Alt: ignore snapping`} />)}</div>)}
               </div>
             </div>}
             <div key="program-panel" className="stage-panel program-panel">
-              <div className="stage-label"><span><StatusDot tone="error" />PROGRAM</span><b>{liveScene.name}</b></div>
+              <div className="stage-label"><span><StatusDot tone="error" />PROGRAM</span><b>{liveScene.name}</b>{!project.studioMode && browserInteractionControl}</div>
               <div className="stage-surface" style={programPreviewSize} onPointerDown={!project.studioMode ? (event) => sources.handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode ? sources.handleStagePointerMove : undefined} onPointerUp={!project.studioMode ? sources.handleStagePointerUp : undefined} onPointerCancel={!project.studioMode ? sources.handleStagePointerUp : undefined}>
                 <CanvasComposition ref={programCanvasRef} project={runtimeProgramProject!} scene={runtimeProgramScene} outgoingProject={runtimeOutgoingProject ?? undefined} outgoingScene={runtimeOutgoingScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={scenes.transition} onTransitionEnd={scenes.finishTransition} />
-                {!project.studioMode && selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>)}
+                {!project.studioMode && stageSnapGuides}
+                {!project.studioMode && browserInteract && <BrowserInteractionOverlay scene={runtimeProgramScene} output={project.output} selectedSourceId={browserInteractionSourceId}
+                  imageElements={imageElements.current} sendBrowserSourceInput={api.sendBrowserSourceInput} onExit={exitBrowserInteraction}
+                  onError={(error) => setActionError(`Browser interaction failed: ${friendlyError(error)}`)} />}
+                {!project.studioMode && selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} title={`Drag to resize · Shift: preserve aspect · ${platform === 'darwin' ? '⌘' : 'Ctrl'}: crop · Alt: ignore snapping`} />)}</div>)}
               </div>
             </div>
           </div>
@@ -530,11 +619,13 @@ export function App() {
               {project.studioMode && <ReacstButton variant="success" size="sm" aria-label="Transition scene" title="Transition scene" disabled={!program.canTransition(project.activeSceneId)} onClick={() => scenes.transitionScene()}>Transition <Clapperboard size={13} /></ReacstButton>}
             </Toolbar.Group>
             <Toolbar.Spacer />
-            <Toolbar.Group label="Program">
-              <ReacstButton size="sm" pressed={project.studioMode} disabled={scenes.transition !== null} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
-              <ReacstButton.Icon variant="ghost" size="sm" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
-            </Toolbar.Group>
-            <span className="shrink-0 rounded-hairline bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
+            {availableSlideSources.length > 0 && <Toolbar.Group label="Slide source">
+              <Select size="sm" className="w-40" label="Slide source" labelPlacement="hidden" placeholder="Choose slides" value={slideControlSource ? getSourceRuntimeId(slideControlSource) : ''} onValueChange={setSlideTargetSessionId}
+                options={availableSlideSources.map((source) => ({ value: getSourceRuntimeId(source), label: source.name }))} />
+            </Toolbar.Group>}
+            <SlideControls source={slideControlSource} onNavigate={(action) => {
+              if (slideControlSource) navigateSlidePlayback(slideControlSource, action);
+            }} />
           </Toolbar>
         </section>
 
@@ -625,6 +716,7 @@ export function App() {
             onAddMicrophone: () => void capture.openInputDevicePicker('microphone'),
             onAddMedia: (kind) => void sources.addMedia(kind),
             onAddSlideshow: () => void sources.addSlideshow(),
+            onAddPresentation: () => void sources.addPresentation(),
             onOpenBrowserDialog: () => { sources.setSourceMenuOpen(false); sources.setBrowserDialogOpen(true); },
             onAddText: sources.addText,
             onAddColor: sources.addColor,
@@ -643,7 +735,8 @@ export function App() {
             runtimesSnapshot: editorRuntimes.current,
             mediaElements: editorMediaElements.current,
             mediaPlaybackStates: editorPlaybackStates,
-            playbackInProgram: sources.selectedSource !== null && programSourceIds.has(getSourceRuntimeId(sources.selectedSource)),
+            playbackInProgram: sources.selectedSource !== null && visibleDraftSourceIds.has(sources.selectedSource.id)
+              && programSourceIds.has(getSourceRuntimeId(sources.selectedSource)),
             textStyle: selectedTextStyle,
             filters: selectedFilters,
             crop: selectedCrop,
@@ -701,8 +794,12 @@ export function App() {
           resizer={workbench.resizerForDock('youtube')}
           onHide={() => workbench.toggleDock('youtube')}
           settings={streaming.streamServiceSettings}
-          onChange={streaming.setStreamServiceSettings}
+          onChange={(next) => {
+            if (!streaming.isActive()) streaming.setStreamServiceSettings((current) => ({ ...next, zoom: current.zoom }));
+          }}
           status={streaming.outputStatuses.youtube ?? { state: 'stopped' }}
+          selectionLocked={streaming.isActive()}
+          onOperationStart={beginProviderOperation}
           activeOutputs={streaming.activeOutputIds.map((id) => ({ id, status: streaming.outputStatuses[id] ?? { state: 'connecting' } }))}
           streamingStartedAt={streaming.outputStartedAt.youtube ?? null}
           now={clockNow}
@@ -720,18 +817,28 @@ export function App() {
           resizer={workbench.resizerForDock('zoom')}
           onHide={() => workbench.toggleDock('zoom')}
           settings={streaming.streamServiceSettings}
-          onChange={streaming.setStreamServiceSettings}
+          onChange={(next) => {
+            if (!streaming.isActive()) streaming.setStreamServiceSettings((current) => ({ ...current, zoom: next.zoom }));
+          }}
           status={streaming.outputStatuses.zoom ?? { state: 'stopped' }}
+          selectionLocked={streaming.isActive()}
+          onOperationStart={beginProviderOperation}
+          streamingStartedAt={streaming.outputStartedAt.zoom ?? null}
+          now={clockNow}
           onGoLive={() => streaming.goLiveForService('zoom')}
           onStopStreaming={() => streaming.stopStreaming('zoom')}
         />}
 
         {visibleDockIds.includes('controls') && <ControlsDock
-          ndiControl={<ReacstButton size="sm" onClick={() => setNdiDialog('output')}>NDI output{ndi.sending ? ' · Active' : ''}</ReacstButton>}
+          ndiSending={ndi.sending}
+          ndiStarting={ndi.starting}
+          ndiStopping={ndi.stopping}
+          onOpenNdiOutput={() => setNdiDialog('output')}
           style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'controls') ?? undefined, opacity: workbench.dockDragOpacity('controls'), borderRight: lastDockId === 'controls' ? 0 : undefined }}
           resizer={workbench.resizerForDock('controls')}
           onHide={() => workbench.toggleDock('controls')}
           working={working}
+          streamingStartDisabled={providerOperationCount > 0}
           streamOutputs={Object.entries(streaming.outputStatuses)
             .filter(([, status]) => status.state !== 'stopped')
             .map(([id, status]) => ({
@@ -740,7 +847,7 @@ export function App() {
               status,
               duration: formatElapsed(streaming.outputStartedAt[id] === undefined ? 0 : clockNow - streaming.outputStartedAt[id], 'full'),
             }))}
-          onGoLive={streaming.openStreamDialog}
+          onGoLive={startSelectedDestinations}
           onStopStreaming={(outputId) => streaming.stopStreaming(outputId)}
           recordingFinalizing={recording.recordingFinalizing}
           recordingStartedAt={recording.recordingStartedAt}
@@ -846,9 +953,11 @@ export function App() {
         project={project}
         setProjectValue={setProjectValue}
         platform={platform}
-        working={working}
+        working={working || streaming.isActive() || providerOperationCount > 0}
         settings={streaming.streamServiceSettings}
-        onChangeSettings={streaming.setStreamServiceSettings}
+        onChangeSettings={(next) => {
+          if (!streaming.isActive()) streaming.setStreamServiceSettings(next);
+        }}
         videoEncoderOptions={videoEncoderOptions}
         systemVideoEncoder={systemVideoEncoder}
         onSubmit={streaming.goLive}
@@ -861,9 +970,15 @@ export function App() {
         captureTargetSourceId={capture.captureTargetSourceId}
         runtimesSnapshot={editorRuntimes.current}
         working={working}
-        displayCaptureSystemAudio={displayCaptureSystemAudio}
-        includeSystemAudio={capture.includeSystemAudio}
-        setIncludeSystemAudio={capture.setIncludeSystemAudio}
+        supportsSystemAudio={capture.supportsSystemAudio}
+        supportsApplicationAudio={capture.supportsApplicationAudio}
+        captureAudioMode={capture.captureAudioMode}
+        setCaptureAudioMode={capture.setCaptureAudioMode}
+        captureAudioApplications={capture.captureAudioApplications}
+        captureAudioApplicationLoading={capture.captureAudioApplicationLoading}
+        selectedCaptureAudioApplication={capture.selectedCaptureAudioApplication}
+        onLoadCaptureAudioApplications={capture.onLoadCaptureAudioApplications}
+        onSelectCaptureAudioApplication={capture.onSelectCaptureAudioApplication}
         captureCursorMode={capture.captureCursorMode}
         setCaptureCursorMode={capture.setCaptureCursorMode}
         onSelect={(option) => void capture.addDesktopCapture(option)}
@@ -905,6 +1020,9 @@ export function App() {
           <div className="settings-token-row"><dt>Stretch Source to Screen</dt><dd>{primaryShortcutLabel(platform, 'S')}</dd></div>
           <div className="settings-token-row"><dt>Center Source</dt><dd>{primaryShortcutLabel(platform, 'D')}</dd></div>
           <div className="settings-token-row"><dt>Reset Transform</dt><dd>{primaryShortcutLabel(platform, 'R')}</dd></div>
+          <div className="settings-token-row"><dt>Preserve Aspect Ratio</dt><dd>Shift + resize handle</dd></div>
+          <div className="settings-token-row"><dt>Crop Source</dt><dd>{platform === 'darwin' ? '⌘' : 'Ctrl'} + resize handle</dd></div>
+          <div className="settings-token-row"><dt>Ignore Snapping</dt><dd>Alt + drag</dd></div>
           <div className="settings-token-row"><dt>Move Source</dt><dd>Arrow keys (Shift = 10px)</dd></div>
           <div className="settings-token-row"><dt>Rename Scene</dt><dd>F2</dd></div>
           <div className="settings-token-row"><dt>Remove Scene</dt><dd>Delete</dd></div>

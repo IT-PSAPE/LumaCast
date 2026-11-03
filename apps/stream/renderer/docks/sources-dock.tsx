@@ -4,18 +4,19 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SetStateAction,
 } from 'react';
 import {
-  ChevronDown, ChevronRight, CircleAlert, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon,
-  Layers2, LoaderCircle, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
+  ChevronDown, ChevronRight, CircleAlert, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon, Images,
+  Layers, Layers2, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Presentation, TriangleAlert, Type, Webcam, X,
 } from 'lucide-react';
-import { EmptyState, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { EmptyState, Modal, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { moveSelectedIds, moveSelectionToGap, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
 import { AnchoredPopover } from '../anchored-popover';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
 import { SourceProperties, type SourcePropertiesProps } from './source-properties';
 import { fallbackSourceMoveSteps, reorderSourceSiblingsOnDrop } from '../source-order';
+import { DockHeader } from './dock-header';
 import { primaryShortcutLabel, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
 import type { MediaKind, StreamScene, StreamSource } from '../../shared/desktop-api';
-import { sourceAvailabilityDescription, sourceAvailabilityLabel, type SourceStatus } from '../source-availability';
+import { sourceAvailabilityDescription, type SourceStatus } from '../source-availability';
 import './sources-dock.css';
 
 const RENAME_MIN_LENGTH = 1;
@@ -160,6 +161,7 @@ export interface SourcesDockProps {
     onAddMicrophone: () => void;
     onAddMedia: (kind: MediaKind) => void;
     onAddSlideshow: () => void;
+    onAddPresentation: () => void;
     onOpenBrowserDialog: () => void;
     onAddText: () => void;
     onAddColor: () => void;
@@ -234,9 +236,8 @@ export function SourcesDock({
     : (selectedSource && orderedVisibleIds.includes(selectedSource.id) ? selectedSource.id : (orderedVisibleIds[0] ?? null));
   const contextLocation = contextSourceId ? locateSource(sources, contextSourceId) : null;
 
-  // The properties panel only ever opens via an explicit action (the dock's
-  // options button, a row double-click, or the context menu's
-  // Properties/Filters items — see `showSourceProperties`/`showSourceFilters`).
+  // Properties only open via an explicit action (a row double-click or a
+  // menu's Properties/Filters item — see `showSourceProperties`/`showSourceFilters`).
   // Selecting a different source than the one it was opened for closes it, so
   // re-selecting that original source later doesn't silently reopen it.
   const selectedSourceId = selectedSource?.id ?? null;
@@ -529,7 +530,6 @@ export function SourcesDock({
       const collapsed = collapsedGroupIds.includes(source.id);
       const isLastDisplayed = displayIndex === rows.length - 1;
       const sourceStatus = sourceStatuses?.[source.id];
-      const statusLabel = sourceStatus ? sourceAvailabilityLabel(sourceStatus) : null;
       const statusDescription = sourceStatus ? sourceAvailabilityDescription(source.name, sourceStatus) : null;
       return <div className="source-tree-node" key={source.id}>
         <div
@@ -556,9 +556,6 @@ export function SourcesDock({
             event.stopPropagation();
             setCollapsedGroupIds((current) => collapsed ? current.filter((id) => id !== source.id) : [...current, source.id]);
           }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button> : null}
-          <ReacstButton.Icon variant="ghost" size="xs" label={`Visible ${source.name}`} tooltip={source.visible ? 'Hide source' : 'Show source'} pressed={source.visible} onClick={(event) => { event.stopPropagation(); onUpdateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
-            {source.visible ? <Eye /> : <EyeOff />}
-          </ReacstButton.Icon>
           <span className={`source-type-icon ${source.kind}`}>{sourceIcon(source.kind, source.mediaKind)}</span>
           {renamingId === source.id
             ? <input
@@ -578,17 +575,21 @@ export function SourcesDock({
                 }}
               />
             : <span className="source-label" onDoubleClick={(event) => { event.stopPropagation(); beginRename(source); }}>{source.name}</span>}
-          {statusLabel && sourceStatus && <span
-            className={`source-availability source-availability--${sourceStatus.state}`}
-            title={statusDescription ?? undefined}
-          >
-            {sourceStatus.state === 'starting'
-              ? <LoaderCircle aria-hidden="true" />
-              : <CircleAlert aria-hidden="true" />}
-            <span>{statusLabel}</span>
-          </span>}
           {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
-          <span className="source-actions"><ReacstButton.Icon variant="ghost" size="xs" label={`Lock ${source.name}`} tooltip={source.locked ? 'Unlock source' : 'Lock source'} pressed={!!source.locked} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock /> : <LockOpen />}</ReacstButton.Icon></span>
+          {statusDescription && sourceStatus && (sourceStatus.state === 'warning' || sourceStatus.state === 'unavailable') && <span
+            className={`source-availability source-availability--${sourceStatus.state}`}
+            role="img"
+            aria-label={statusDescription}
+            title={statusDescription}
+          >
+            {sourceStatus.state === 'warning' ? <TriangleAlert aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
+          </span>}
+          <span className="source-actions">
+            <ReacstButton.Icon variant="ghost" size="xs" label={`Visible ${source.name}`} tooltip={source.visible ? 'Hide source' : 'Show source'} pressed={source.visible} onClick={(event) => { event.stopPropagation(); onUpdateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
+              {source.visible ? <Eye /> : <EyeOff />}
+            </ReacstButton.Icon>
+            <ReacstButton.Icon variant="ghost" size="xs" label={`Lock ${source.name}`} tooltip={source.locked ? 'Unlock source' : 'Lock source'} pressed={!!source.locked} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock /> : <LockOpen />}</ReacstButton.Icon>
+          </span>
         </div>
         {isGroup && !collapsed && <div className="source-children" role="group">{renderSourceRows(source.children ?? [], depth + 1, source.id)}</div>}
       </div>;
@@ -598,16 +599,17 @@ export function SourcesDock({
   return (
     <Panel density="compact" className="dock sources-dock" style={style}>
       {resizer}
-      <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>Sources</Panel.HeaderTitle>
-        <Panel.HeaderActions>
-          <button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button>
-          <button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button>
-
-          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Sources" onClick={onHide}><X /></ReacstButton.Icon>
-        </Panel.HeaderActions>
-      </Panel.Header>
+      <DockHeader
+        title="Sources"
+        icon={<Layers />}
+        onHide={onHide}
+        actions={<button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={16} /></button>}
+        menuTrigger={<button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => setSourceActionsMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>}
+      />
       <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
+        <button role="menuitem" disabled={!selectedSource} onClick={() => { setSourceActionsMenuOpen(false); if (selectedSource) showSourceProperties(selectedSource.id); }}>Properties</button>
+        <button role="menuitem" disabled={!selectedSource} onClick={() => { setSourceActionsMenuOpen(false); if (selectedSource) showSourceFilters(selectedSource.id); }}>Filters</button>
+        <div className="source-menu-separator" />
         <button role="menuitem" disabled={!selectedSource} onClick={() => sourceActions.onCopySource()}><Copy size={14} />Copy Source</button>
         <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>
         <div className="source-menu-separator" />
@@ -621,6 +623,8 @@ export function SourcesDock({
         <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onResetTransform(selectedSource)}><Move size={14} />Reset Transform</button>
         <div className="source-menu-separator" />
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onRemoveSelectedSource}><X size={14} />Delete Source</button>
+        <div className="source-menu-separator" />
+        <button role="menuitem" onClick={() => { setSourceActionsMenuOpen(false); onHide(); }}>Hide Sources</button>
       </AnchoredPopover>
       <div className="source-list" role="tree" aria-label="Sources" aria-multiselectable="true" onKeyDown={handleSelectionKeys}>
         {sources.length === 0 && (
@@ -650,7 +654,8 @@ export function SourcesDock({
         {addSourceMenu.onAddNdi && <button role="menuitem" onClick={addSourceMenu.onAddNdi}><Globe size={15} />NDI Source</button>}
         <div className="menu-label menu-label-separator">Media</div>
         <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('image')}><ImageIcon size={15} />Image</button>
-        <button role="menuitem" onClick={addSourceMenu.onAddSlideshow}><ImageIcon size={15} />Image Slideshow</button>
+        <button role="menuitem" onClick={addSourceMenu.onAddSlideshow}><Images size={15} />Image Slideshow</button>
+        <button role="menuitem" onClick={addSourceMenu.onAddPresentation}><Presentation size={15} />Presentation</button>
         <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('video')}><FileVideo size={15} />Media Source</button>
         <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('audio')}><FileAudio size={15} />Audio File</button>
         <button role="menuitem" onClick={addSourceMenu.onOpenBrowserDialog}><Globe size={15} />Browser Source</button>
@@ -662,12 +667,14 @@ export function SourcesDock({
           {addSourceMenu.referenceableScenes.map((scene) => <button key={scene.id} role="menuitem" onClick={() => addSourceMenu.onAddSceneReference(scene)}><PanelsTopLeft size={15} />{scene.name}</button>)}
         </>}
       </AnchoredPopover>
-      {propertiesOpen && selectedSource && <>
-        <div className="source-properties-bar">
-          <ReacstButton.Icon variant="ghost" size="xs" label="Close properties" onClick={() => setPropertiesOpenForId(null)}><X /></ReacstButton.Icon>
-        </div>
+      {propertiesOpen && selectedSource && <Modal
+        open
+        title="Source Properties"
+        className="source-properties-modal"
+        onClose={() => setPropertiesOpenForId(null)}
+      >
         <SourceProperties source={selectedSource} {...properties} />
-      </>}
+      </Modal>}
     </Panel>
   );
 }

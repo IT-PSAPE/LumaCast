@@ -1,6 +1,6 @@
 import type { StreamSource } from '../shared/desktop-api';
 
-export type SourceAvailabilityState = 'starting' | 'ready' | 'unavailable';
+export type SourceAvailabilityState = 'starting' | 'ready' | 'warning' | 'unavailable';
 
 export interface SourceStatus {
   state: SourceAvailabilityState;
@@ -8,9 +8,10 @@ export interface SourceStatus {
   message?: string;
 }
 
-/** Status text is intentionally explicit so availability never depends on color alone. */
+/** Shared status wording for tooltips and accessible descriptions. */
 export function sourceAvailabilityLabel(status: SourceStatus): string | null {
   if (status.state === 'starting') return 'Starting';
+  if (status.state === 'warning') return 'Warning';
   if (status.state === 'unavailable') return 'Unavailable';
   return null;
 }
@@ -23,7 +24,7 @@ export function sourceAvailabilityDescription(sourceName: string, status: Source
 
 /**
  * Merges resource decoding and capture readiness by runtime source ID.
- * Unavailable wins over starting, and starting wins over ready, so an already
+ * Unavailable wins over warnings and starting, and starting wins over ready, so an already
  * loaded asset cannot hide a capture failure or a persistent decode error.
  */
 export function mergeSourceStatuses(
@@ -31,7 +32,7 @@ export function mergeSourceStatuses(
   captureStatuses: Readonly<Record<string, SourceStatus>>,
   resourceStatuses: Readonly<Record<string, SourceStatus>>,
 ): Record<string, SourceStatus> {
-  const priority: Record<SourceAvailabilityState, number> = { ready: 0, starting: 1, unavailable: 2 };
+  const priority: Record<SourceAvailabilityState, number> = { ready: 0, starting: 1, warning: 2, unavailable: 3 };
   const merged: Record<string, SourceStatus> = {};
 
   for (const source of sources) {

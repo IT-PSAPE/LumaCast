@@ -469,4 +469,14 @@ describe('collectMenuActions', () => {
     const actions = collectMenuActions(buildAppMenus(makeContext()));
     expect(actions.has('edit.transform')).toBe(false);
   });
+
+  it('does not dispatch unavailable source edits when native text editing is enabled', () => {
+    const context = makeContext({ sourceSelected: false, clipboardAvailable: false, undoAvailable: false, redoAvailable: false });
+    const actions = collectMenuActions(buildAppMenus(context));
+
+    for (const id of ['edit.undo', 'edit.redo', 'edit.copy', 'edit.paste', 'edit.delete', 'edit.transform.fit']) {
+      expect(actions.has(id)).toBe(false);
+    }
+    expect(actions.get('file.settings')).toBeTypeOf('function');
+  });
 });

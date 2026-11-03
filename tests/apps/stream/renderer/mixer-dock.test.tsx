@@ -50,7 +50,7 @@ function renderDock(overrides: Partial<MixerDockProps> = {}) {
 }
 
 async function openTitleMenu() {
-  fireEvent.click(screen.getByRole('button', { name: 'Audio Mixer options' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Audio Mixer actions' }));
   await settle();
 }
 
@@ -80,14 +80,23 @@ describe('MixerDock', () => {
     expect(screen.getByText(/microphone or capture source/i)).toBeInTheDocument();
   });
 
-  it('opens the mixer options menu from the title-row button without calling onOpenSettings', async () => {
+  it('opens the mixer actions menu from the title-row button without calling onOpenSettings', async () => {
     const { onOpenSettings } = renderDock();
     await openTitleMenu();
 
-    expect(screen.getByRole('menu', { name: 'Audio Mixer options' })).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Audio Mixer actions' })).toBeInTheDocument();
     expect(screen.getByText('Advanced Audio Properties…')).toBeInTheDocument();
     expect(screen.getByText('Vertical Layout')).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Hide Audio Mixer' })).toBeInTheDocument();
     expect(onOpenSettings).not.toHaveBeenCalled();
+  });
+
+  it('hides the mixer from its existing actions menu', async () => {
+    const { onHide } = renderDock();
+    await openTitleMenu();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Audio Mixer' }));
+    await settle();
+    expect(onHide).toHaveBeenCalledOnce();
   });
 
   it('opens Advanced Audio Properties from the options menu', async () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { SourcesDock, type SourcesDockProps } from '../../../../apps/stream/renderer/docks/sources-dock';
 import type { StreamSource } from '../../../../apps/stream/shared/desktop-api';
 
@@ -13,6 +13,7 @@ vi.mock('../../../../apps/stream/renderer/docks/source-properties', () => ({
 }));
 
 afterEach(cleanup);
+afterEach(() => vi.unstubAllGlobals());
 
 // Base UI settles the popup's position/focus on an animation frame (mirrors
 // tests/packages/ui/src/menu-entries.test.tsx and scenes-dock.test.tsx).
@@ -64,6 +65,7 @@ function renderDock(overrides: Partial<SourcesDockProps> = {}) {
     onAddMicrophone: vi.fn(),
     onAddMedia: vi.fn(),
     onAddSlideshow: vi.fn(),
+    onAddPresentation: vi.fn(),
     onOpenBrowserDialog: vi.fn(),
     onAddText: vi.fn(),
     onAddColor: vi.fn(),
@@ -113,6 +115,19 @@ function mockRowRect(row: HTMLElement, top: number, height = 30) {
 }
 
 describe('SourcesDock', () => {
+  it('places status, visibility and lock after the source name, with lock furthest right', () => {
+    renderDock({ sourceStatuses: { 'src-2': { state: 'unavailable' } } });
+    const row = rowFor('Webcam');
+    const name = within(row).getByText('Webcam');
+    const status = within(row).getByRole('img');
+    const visible = within(row).getByRole('button', { name: 'Visible Webcam' });
+    const lock = within(row).getByRole('button', { name: 'Lock Webcam' });
+    expect(name.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(status.compareDocumentPosition(visible) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(visible.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lock.parentElement?.lastElementChild).toBe(lock);
+  });
+
   it('exposes multi-selection and hierarchy through tree accessibility state', () => {
     const group = makeSource('group-1', {
       name: 'Group',
@@ -130,7 +145,7 @@ describe('SourcesDock', () => {
     expect(rowFor('Child')).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('shows a text and icon status for unavailable sources, including audio', () => {
+  it('shows icon-only unavailable status with a tooltip and accessible description, including audio', () => {
     const microphone = makeSource('mic-1', { name: 'Room mic', kind: 'microphone' });
     renderDock({
       sources: [microphone],
@@ -138,13 +153,14 @@ describe('SourcesDock', () => {
     });
 
     const status = rowFor('Room mic').querySelector('.source-availability');
-    expect(status).toHaveTextContent('Unavailable');
+    expect(status?.textContent).toBe('');
+    expect(screen.getByRole('img', { name: 'Room mic: Unavailable — Device disconnected' })).toBe(status);
     expect(status).toHaveAttribute('title', 'Room mic: Unavailable — Device disconnected');
     expect(status?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
     expect(rowFor('Room mic')).toHaveAttribute('aria-description', 'Room mic: Unavailable — Device disconnected');
   });
 
-  it('shows startup status and omits ready status', () => {
+  it('reserves status icons for warnings and errors while retaining accessible startup status', () => {
     renderDock({
       sourceStatuses: {
         'src-1': { state: 'starting' },
@@ -152,8 +168,33 @@ describe('SourcesDock', () => {
       },
     });
 
-    expect(rowFor('Display Capture').querySelector('.source-availability')).toHaveTextContent('Starting');
+    expect(rowFor('Display Capture').querySelector('.source-availability')).toBeNull();
+    expect(rowFor('Display Capture')).toHaveAttribute('aria-description', 'Display Capture: Starting');
     expect(rowFor('Webcam').querySelector('.source-availability')).toBeNull();
+  });
+
+  it('shows a compact warning icon for partial capture failures', () => {
+    renderDock({ sourceStatuses: { 'src-2': { state: 'warning', message: 'Video is live; audio could not start.' } } });
+    const warning = screen.getByRole('img', { name: 'Webcam: Warning — Video is live; audio could not start.' });
+    expect(warning.textContent).toBe('');
+    expect(warning.querySelector('svg')).toHaveClass('lucide-triangle-alert');
+    expect(warning).toHaveAttribute('title', 'Webcam: Warning — Video is live; audio could not start.');
+  });
+
+  it('updates the status icon and description as a source recovers', () => {
+    const { rerender } = renderDock({
+      sourceStatuses: { 'src-1': { state: 'unavailable', message: 'Display disconnected' } },
+    });
+    expect(screen.getByRole('img', { name: 'Display Capture: Unavailable — Display disconnected' }).querySelector('svg')).toHaveClass('lucide-circle-alert');
+
+    rerender({ sourceStatuses: { 'src-1': { state: 'starting' } } });
+    expect(rowFor('Display Capture').querySelector('.source-availability')).toBeNull();
+    expect(rowFor('Display Capture')).toHaveAttribute('aria-description', 'Display Capture: Starting');
+    expect(screen.queryByTitle(/Display disconnected/)).toBeNull();
+
+    rerender({ sourceStatuses: { 'src-1': { state: 'ready' } } });
+    expect(rowFor('Display Capture').querySelector('.source-availability')).toBeNull();
+    expect(rowFor('Display Capture')).not.toHaveAttribute('aria-description');
   });
 
   it('right-click opens the menu and selects the row', async () => {
@@ -345,30 +386,52 @@ describe('SourcesDock', () => {
     expect(screen.queryByRole('button', { name: /Move source down/ })).toBeNull();
   });
 
-  describe('properties panel', () => {
-    it('selecting a row (selectedSource set) does not open the panel on its own', () => {
+  describe('properties dialog', () => {
+    it('selecting a row (selectedSource set) does not open the dialog on its own', () => {
       renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
       expect(screen.queryByTestId('source-properties-panel')).toBeNull();
     });
 
-    it('clicking the dock\'s options button opens the panel for the selected source', () => {
+    it('clicking the dock\'s options button only opens its actions menu', () => {
       renderDock({
         selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }),
         selectedSourceIds: ['src-2'],
       });
       fireEvent.click(screen.getByRole('button', { name: 'More source actions' }));
 
-      expect(screen.getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('double-clicking a row opens the panel', () => {
+    it('keeps Hide Sources in the existing source actions popover', async () => {
+      vi.stubGlobal('ResizeObserver', class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      });
+      const dock = renderDock();
+      fireEvent.click(screen.getByRole('button', { name: 'More source actions' }));
+      dock.rerender({ sourceActionsMenuOpen: true });
+      await settle();
+
+      expect(screen.getByRole('menu', { name: 'Source actions' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Hide Sources' }));
+
+      expect(dock.onHide).toHaveBeenCalledOnce();
+      expect(dock.setSourceActionsMenuOpen).toHaveBeenLastCalledWith(false);
+    });
+
+    it('double-clicking a row opens a dialog outside the sources dock', () => {
       renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
       fireEvent.doubleClick(rowFor('Webcam'));
 
       expect(screen.getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
+      const dialog = screen.getByRole('dialog', { name: 'Source Properties' });
+      expect(within(dialog).getByTestId('source-properties-panel')).toBeInTheDocument();
+      expect(dialog.closest('.sources-dock')).toBeNull();
+      expect(document.querySelector('.sources-dock .source-properties-bar')).toBeNull();
     });
 
-    it('choosing Properties from the row context menu opens the panel and calls onOpenSourceProperties', async () => {
+    it('choosing Properties from the row context menu opens the dialog and calls onOpenSourceProperties', async () => {
       const onOpenSourceProperties = vi.fn();
       renderDock({
         selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }),
@@ -380,10 +443,10 @@ describe('SourcesDock', () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Properties' }));
 
       expect(onOpenSourceProperties).toHaveBeenCalledWith('src-2');
-      expect(screen.getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
+      expect(within(screen.getByRole('dialog', { name: 'Source Properties' })).getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
     });
 
-    it('choosing Filters from the row context menu opens the panel and calls onOpenSourceFilters', async () => {
+    it('choosing Filters from the row context menu opens the dialog and calls onOpenSourceFilters', async () => {
       const onOpenSourceFilters = vi.fn();
       renderDock({
         selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }),
@@ -395,16 +458,36 @@ describe('SourcesDock', () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Filters' }));
 
       expect(onOpenSourceFilters).toHaveBeenCalledWith('src-2');
-      expect(screen.getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
+      expect(within(screen.getByRole('dialog', { name: 'Source Properties' })).getByTestId('source-properties-panel')).toHaveTextContent('Webcam');
     });
 
-    it('closes via the panel\'s close button', () => {
+    it('closes via the dialog\'s close button', () => {
       renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
       fireEvent.doubleClick(rowFor('Webcam'));
       expect(screen.getByTestId('source-properties-panel')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: 'Close properties' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
       expect(screen.queryByTestId('source-properties-panel')).toBeNull();
+    });
+
+    it('closes with Escape and restores focus to the source row', async () => {
+      renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
+      const row = rowFor('Webcam');
+      row.focus();
+      fireEvent.doubleClick(row);
+      await settle();
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+      await settle();
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(row).toHaveFocus();
+    });
+
+    it('closes when the selected source is removed', () => {
+      const { rerender } = renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
+      fireEvent.doubleClick(rowFor('Webcam'));
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      rerender({ sources: [], selectedSource: null, selectedSourceIds: [] });
+      expect(screen.queryByRole('dialog')).toBeNull();
     });
 
     it('closes when the selection moves to a different source, and does not reopen on reselecting the original one', () => {

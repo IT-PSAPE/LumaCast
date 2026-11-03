@@ -88,7 +88,10 @@ function toElectronItem(item: SerializedMenuItem, send: (id: string) => void): M
   const options: MenuItemConstructorOptions = { id: item.id, label: item.label };
   if (item.type === 'checkbox' || item.type === 'radio') options.type = item.type;
   if (item.checked !== undefined) options.checked = item.checked;
-  if (item.disabled) options.enabled = false;
+  // Source selection/history do not determine whether the focused text field
+  // can edit. Disabling these native items also disables their macOS shortcuts.
+  // The renderer separately ignores unavailable source actions.
+  if (item.disabled && !Object.hasOwn(NATIVE_EDIT_ACTIONS, item.id)) options.enabled = false;
   if (item.accelerator) options.accelerator = item.accelerator;
   if (item.registerAccelerator !== undefined) options.registerAccelerator = item.registerAccelerator;
 

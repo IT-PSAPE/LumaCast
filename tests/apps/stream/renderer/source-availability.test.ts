@@ -45,4 +45,11 @@ describe('mergeSourceStatuses', () => {
       [image.id]: { state: 'starting' },
     });
   });
+
+  it('keeps a nonfatal audio warning visible over ready video, and prioritizes a total failure', () => {
+    const window = source('window-runtime', 'window');
+    const warning = { state: 'warning' as const, message: 'Application audio is unavailable.' };
+    expect(mergeSourceStatuses([window], { [window.id]: warning }, { [window.id]: { state: 'ready' } })).toEqual({ [window.id]: warning });
+    expect(mergeSourceStatuses([window], { [window.id]: warning }, { [window.id]: { state: 'unavailable' } })).toEqual({ [window.id]: { state: 'unavailable' } });
+  });
 });

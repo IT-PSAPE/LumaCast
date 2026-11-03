@@ -1,10 +1,10 @@
-import { forwardRef, useCallback, useEffect, useRef } from 'react';
+import { forwardRef, useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { mediaAssetUrl, type SourceCrop, type StreamProject, type StreamScene, type StreamSource } from '../shared/desktop-api';
 import type { SourceStatus } from './source-availability';
 import { getOriginSourceId, getSourceRuntimeId, toRuntimeSource, type RuntimeSource } from './source-runtime';
 import { ChromaKeyProcessor } from './chroma-key';
-import { setMediaPlaybackActive, shouldShowMediaFrame } from './media-playback';
-import { currentSlideshowSlideIndex, forgetSlideshow, setSlideshowActive, slideshowImageElementKey } from './slideshow';
+import { pruneMediaPlaybackPositions, rememberMediaPlaybackPosition, restoreMediaPlaybackPosition, setMediaPlaybackActive, shouldShowMediaFrame, type MediaPlaybackPositionCache, type MediaPlaybackPositionRestore } from './media-playback';
+import { currentSourceSlideIndex, forgetUnusedSlidePlaybacks, isSlideSource, releaseSlidePlaybackConfig, seedSlidePlaybackFromProgram, setSlidePlaybackActive, slideshowImageElementKey, sourceSlideImages, syncSlidePlaybackConfig } from './slideshow';
 import type { SceneTransition } from './scene-transition';
 import { drawCameraColorBars, drawUnavailablePlaceholder } from './source-placeholders';
 import { drawTextSource } from './text-overlay';
@@ -113,11 +113,9 @@ function drawSources(
     } else if (source.kind === 'text') {
       rotateSourceContext(context, source);
       drawTextSource(context, source);
-    } else if (source.kind === 'image' || source.kind === 'browser' || source.kind === 'slideshow') {
-      const slideshowImages = source.kind === 'slideshow' ? source.slideshowImages ?? [] : [];
-      const slideIndex = source.kind === 'slideshow'
-        ? currentSlideshowSlideIndex(runtimeSourceId, slideshowImages.length, source.slideshowIntervalSeconds ?? 5, source.slideshowLoop ?? true)
-        : -1;
+    } else if (source.kind === 'image' || source.kind === 'browser' || isSlideSource(source)) {
+      const slideshowImages = sourceSlideImages(source);
+      const slideIndex = isSlideSource(source) ? currentSourceSlideIndex(source) : -1;
       const imageKey = slideshowImageElementKey(runtimeSourceId, slideshowImages, slideIndex);
       const image = images.get(imageKey);
       if (image?.complete && image.naturalWidth > 0) {
@@ -143,9 +141,9 @@ function drawSources(
       } else if (source.kind === 'browser' && (!image || image.dataset.sourceUnavailable === 'true')) {
         rotateSourceContext(context, source);
         drawUnavailablePlaceholder(context, x, y, boxWidth, boxHeight, 'Browser unavailable');
-      } else if (source.kind === 'slideshow' && (slideIndex < 0 || !image || image.dataset.sourceUnavailable === 'true')) {
+      } else if (isSlideSource(source) && (slideIndex < 0 || !image || image.dataset.sourceUnavailable === 'true')) {
         rotateSourceContext(context, source);
-        drawUnavailablePlaceholder(context, x, y, boxWidth, boxHeight, 'Image unavailable');
+        drawUnavailablePlaceholder(context, x, y, boxWidth, boxHeight, source.kind === 'presentation' ? 'Presentation unavailable' : 'Image unavailable');
       }
     } else {
       const video = videos.get(runtimeSourceId);
@@ -155,7 +153,8 @@ function drawSources(
         && (!isCaptureSource || hasLiveCaptureTrack)
         && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
         && video.videoWidth > 0 && video.videoHeight > 0;
-      const canDrawVideoFrame = hasVideoFrame && video && shouldShowMediaFrame(video.ended, source.showNothingWhenPlaybackEnds ?? true);
+      const ended = video?.ended === true || (source.kind === 'media' && video?.dataset.runtimeMediaEnded === 'true');
+      const canDrawVideoFrame = hasVideoFrame && video && shouldShowMediaFrame(ended, source.showNothingWhenPlaybackEnds ?? true);
       if (canDrawVideoFrame && video) {
         const crop = clampCrop(source.crop, video.videoWidth, video.videoHeight);
         const cropWidth = video.videoWidth - crop.left - crop.right;
@@ -324,7 +323,7 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
   return <canvas ref={setCanvas} className="composition-canvas" />;
 });
 
-export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, images, activeSourceIds, programSourceIds, playbackSourceIds, onMediaElement, onMediaPlaybackState, onBrowserElement, onSourceStatus }: {
+export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, images, activeSourceIds, programSourceIds, playbackSourceIds, slideshowPlaybackSources, referencedSourceIds, onMediaElement, onMediaPlaybackState, onBrowserElement, onSourceStatus }: {
   sources: Array<StreamSource | RuntimeSource>;
   runtimes: Map<string, MediaStream>;
   elements: Map<string, HTMLVideoElement>;
@@ -335,6 +334,10 @@ export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, i
   programSourceIds: Set<string>;
   /** Media and slideshow IDs allowed to advance (Program plus outgoing fade). */
   playbackSourceIds: Set<string>;
+  /** Visible committed Program and outgoing slideshow configurations, before resource deduplication. */
+  slideshowPlaybackSources?: Array<StreamSource | RuntimeSource>;
+  /** Runtime IDs referenced by any draft, Program, or outgoing graph, including hidden aliases. */
+  referencedSourceIds?: ReadonlySet<string>;
   onMediaElement: (source: RuntimeSource, element: HTMLMediaElement, programActive: boolean) => Promise<void>;
   onMediaPlaybackState: (sourceId: string, element: HTMLMediaElement | null) => void;
   onBrowserElement: (sourceId: string, element: HTMLImageElement) => void;
@@ -351,16 +354,28 @@ export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, i
     runtimeSources.set(runtimeSource.id, runtimeSource);
   }
   const sourceList = [...runtimeSources.values()];
+  const mediaPlaybackPositions = useRef<MediaPlaybackPositionCache>(new Map());
+  const graphSourceIds = referencedSourceIds ?? new Set(sourceList.map((source) => source.id));
   const includes = (ids: Set<string>, source: RuntimeSource) => ids.has(source.id);
+  const slideshowPlaybackVariants = new Map<string, RuntimeSource>();
+  for (const source of slideshowPlaybackSources ?? sourceList.filter((source) => includes(playbackSourceIds, source))) {
+    if (!isSlideSource(source)) continue;
+    const runtimeSource = 'originSourceId' in source ? source as RuntimeSource : toRuntimeSource(source);
+    slideshowPlaybackVariants.set(runtimeSource.id, runtimeSource);
+  }
+  useEffect(() => {
+    pruneMediaPlaybackPositions(mediaPlaybackPositions.current, graphSourceIds);
+    forgetUnusedSlidePlaybacks(graphSourceIds);
+  }, [sourceList, referencedSourceIds]);
   return <div className="video-staging" aria-hidden="true">
     {sourceList.filter((source) => source.kind === 'image').map((source) => <StageImage key={source.id} sourceId={source.id} assetId={source.assetId} assetExtension={source.assetExtension} elements={images} onSourceStatus={onSourceStatus} />)}
-    {sourceList.filter((source) => source.kind === 'slideshow').map((source) => <StageSlideshow key={source.id} source={source} elements={images} isPlaybackActive={includes(playbackSourceIds, source)} onSourceStatus={onSourceStatus} />)}
+    {sourceList.filter(isSlideSource).map((source) => <StageSlideshow key={source.id} source={source} elements={images} playbackSource={slideshowPlaybackVariants.get(source.id)} onSourceStatus={onSourceStatus} />)}
     {sourceList.filter((source) => source.kind === 'browser').map((source) => <StageBrowser key={source.id} source={source} elements={images} onBrowserElement={onBrowserElement} onSourceStatus={onSourceStatus} />)}
     {sourceList.filter((source) => ['display', 'window', 'camera', 'ndi'].includes(source.kind) || (source.kind === 'media' && source.mediaKind === 'video')).map((source) => (
-      <StageVideo key={source.id} source={source} stream={runtimes.get(source.id)} elements={elements} mediaElements={mediaElements} isActive={includes(activeSourceIds, source)} isPlaybackActive={includes(playbackSourceIds, source)} programActive={includes(programSourceIds, source)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} onSourceStatus={onSourceStatus} />
+      <StageVideo key={source.id} source={source} stream={runtimes.get(source.id)} elements={elements} mediaElements={mediaElements} mediaPlaybackPositions={mediaPlaybackPositions.current} isActive={includes(activeSourceIds, source)} isPlaybackActive={includes(playbackSourceIds, source)} programActive={includes(programSourceIds, source)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} onSourceStatus={onSourceStatus} />
     ))}
     {sourceList.filter((source) => source.kind === 'media' && source.mediaKind === 'audio').map((source) => (
-      <StageAudio key={source.id} source={source} mediaElements={mediaElements} isPlaybackActive={includes(playbackSourceIds, source)} programActive={includes(programSourceIds, source)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} onSourceStatus={onSourceStatus} />
+      <StageAudio key={source.id} source={source} mediaElements={mediaElements} mediaPlaybackPositions={mediaPlaybackPositions.current} isPlaybackActive={includes(playbackSourceIds, source)} programActive={includes(programSourceIds, source)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} onSourceStatus={onSourceStatus} />
     ))}
   </div>;
 }
@@ -416,6 +431,7 @@ function StageImage({ sourceId, assetId, assetExtension, elements, onSourceStatu
       return;
     }
     const image = new Image();
+    image.crossOrigin = 'anonymous';
     onSourceStatusRef.current?.(sourceId, { state: 'starting' });
     image.onload = () => {
       image.dataset.sourceUnavailable = 'false';
@@ -438,19 +454,21 @@ function StageImage({ sourceId, assetId, assetExtension, elements, onSourceStatu
     }
     return () => {
       if (elements.get(sourceId) === image) elements.delete(sourceId);
+      image.onload = null;
+      image.onerror = null;
       image.src = '';
     };
   }, [sourceId, assetId, assetExtension, elements]);
   return null;
 }
 
-function StageSlideshow({ source, elements, isPlaybackActive, onSourceStatus }: {
+function StageSlideshow({ source, elements, playbackSource, onSourceStatus }: {
   source: RuntimeSource;
   elements: Map<string, HTMLImageElement>;
-  isPlaybackActive: boolean;
+  playbackSource?: RuntimeSource;
   onSourceStatus?: (sourceId: string, status: SourceStatus) => void;
 }) {
-  const slideshowImages = source.slideshowImages ?? [];
+  const slideshowImages = sourceSlideImages(source);
   const slideStatuses = useRef(new Map<string, SourceStatus>());
   const reportSlideStatus = useCallback((slideSourceId: string, status: SourceStatus) => {
     slideStatuses.current.set(slideSourceId, status);
@@ -461,13 +479,18 @@ function StageSlideshow({ source, elements, isPlaybackActive, onSourceStatus }: 
       onSourceStatus?.(source.id, { state: 'ready' });
     } else onSourceStatus?.(source.id, { state: 'starting' });
   }, [onSourceStatus, slideshowImages.length, source.id]);
+  useLayoutEffect(() => {
+    syncSlidePlaybackConfig(source, 'preview');
+    if (playbackSource) seedSlidePlaybackFromProgram(playbackSource);
+    setSlidePlaybackActive(playbackSource ?? source, playbackSource !== undefined);
+  }, [source, playbackSource]);
   useEffect(() => {
-    setSlideshowActive(source.id, isPlaybackActive);
-  }, [source.id, isPlaybackActive]);
-  useEffect(() => {
-    if (slideshowImages.length === 0) onSourceStatus?.(source.id, { state: 'unavailable', message: 'No slideshow images are configured.' });
+    if (slideshowImages.length === 0) onSourceStatus?.(source.id, { state: 'unavailable', message: source.kind === 'presentation' ? 'No presentation slides are configured.' : 'No slideshow images are configured.' });
   }, [onSourceStatus, slideshowImages.length, source.id]);
-  useEffect(() => () => forgetSlideshow(source.id), [source.id]);
+  useEffect(() => () => {
+    setSlidePlaybackActive(source, false);
+    releaseSlidePlaybackConfig(source, 'preview');
+  }, [source.id]);
   return <>
     {slideshowImages.map((slide) => {
       const slideSourceId = `${source.id}:${slide.assetId}`;
@@ -476,11 +499,12 @@ function StageSlideshow({ source, elements, isPlaybackActive, onSourceStatus }: 
   </>;
 }
 
-function StageVideo({ source, stream, elements, mediaElements, isActive, isPlaybackActive, programActive, onMediaElement, onMediaPlaybackState, onSourceStatus }: {
+function StageVideo({ source, stream, elements, mediaElements, mediaPlaybackPositions, isActive, isPlaybackActive, programActive, onMediaElement, onMediaPlaybackState, onSourceStatus }: {
   source: RuntimeSource;
   stream?: MediaStream;
   elements: Map<string, HTMLVideoElement>;
   mediaElements: Map<string, HTMLMediaElement>;
+  mediaPlaybackPositions: MediaPlaybackPositionCache;
   isActive: boolean;
   isPlaybackActive: boolean;
   programActive: boolean;
@@ -493,12 +517,17 @@ function StageVideo({ source, stream, elements, mediaElements, isActive, isPlayb
   const onMediaPlaybackStateRef = useRef(onMediaPlaybackState);
   const onSourceStatusRef = useRef(onSourceStatus);
   const mediaRouteGeneration = useRef(0);
+  const mediaPlaybackGeneration = useRef(0);
+  const mediaPositionRestoreRef = useRef<MediaPlaybackPositionRestore>({ ready: Promise.resolve(), cancel: () => undefined });
   const programActiveRef = useRef(programActive);
+  const isPlaybackActiveRef = useRef(isPlaybackActive);
+  const manuallyPausedRef = useRef(false);
   onMediaElementRef.current = onMediaElement;
   onMediaPlaybackStateRef.current = onMediaPlaybackState;
   onSourceStatusRef.current = onSourceStatus;
   programActiveRef.current = programActive;
-  const restartPlaybackWhenActive = source.restartPlaybackWhenActive ?? true;
+  isPlaybackActiveRef.current = isPlaybackActive;
+  const restartPlaybackWhenActive = source.restartPlaybackWhenActive === true;
   const restartPlaybackWhenActiveRef = useRef(restartPlaybackWhenActive);
   restartPlaybackWhenActiveRef.current = restartPlaybackWhenActive;
   const ref = useCallback((element: HTMLVideoElement | null) => {
@@ -519,16 +548,37 @@ function StageVideo({ source, stream, elements, mediaElements, isActive, isPlayb
     const element = elementRef.current;
     if (!element) return;
     if (source.kind === 'media' && source.assetId) {
+      element.crossOrigin = 'anonymous';
       element.srcObject = null;
       element.src = mediaAssetUrl(source.assetId, source.assetExtension ?? 'mp4');
       element.muted = true;
-      return () => { element.pause(); element.muted = true; element.removeAttribute('src'); element.load(); };
+      const positionRestore = restoreMediaPlaybackPosition(mediaPlaybackPositions, source.id, element, source.restartPlaybackWhenActive !== true);
+      manuallyPausedRef.current = positionRestore.snapshot?.paused === true;
+      if (positionRestore.snapshot?.ended && source.restartPlaybackWhenActive !== true) {
+        element.dataset.runtimeMediaRestoringEnded = 'true';
+        element.dataset.runtimeMediaEnded = 'true';
+      } else {
+        delete element.dataset.runtimeMediaRestoringEnded;
+        delete element.dataset.runtimeMediaEnded;
+      }
+      mediaPositionRestoreRef.current = positionRestore;
+      return () => {
+        rememberMediaPlaybackPosition(
+          mediaPlaybackPositions,
+          source.id,
+          element,
+          isPlaybackActiveRef.current || manuallyPausedRef.current,
+          element.ended || element.dataset.runtimeMediaEnded === 'true',
+        );
+        positionRestore.cancel();
+        element.pause(); element.muted = true; element.removeAttribute('src'); element.load();
+      };
     }
     element.srcObject = stream ?? null;
     element.muted = true;
     if (stream) void element.play().catch(() => undefined);
     return () => { element.pause(); element.srcObject = null; };
-  }, [source.id, source.kind, source.assetId, source.assetExtension, stream]);
+  }, [source.id, source.kind, source.assetId, source.assetExtension, stream, mediaPlaybackPositions]);
   useEffect(() => {
     const element = elementRef.current;
     if (!element || source.kind !== 'media' || !source.assetId) return;
@@ -553,7 +603,24 @@ function StageVideo({ source, stream, elements, mediaElements, isActive, isPlayb
   useEffect(() => {
     const element = elementRef.current;
     if (!element || source.kind !== 'media' || !source.assetId) return;
-    setMediaPlaybackActive(element, isPlaybackActive, restartPlaybackWhenActiveRef.current);
+    const generation = ++mediaPlaybackGeneration.current;
+    if (!isPlaybackActive) {
+      setMediaPlaybackActive(element, false, restartPlaybackWhenActiveRef.current);
+    } else {
+      void mediaPositionRestoreRef.current.ready.then(() => {
+        if (elementRef.current === element && mediaPlaybackGeneration.current === generation && isPlaybackActiveRef.current) {
+          if (restartPlaybackWhenActiveRef.current) {
+            manuallyPausedRef.current = false;
+            delete element.dataset.runtimeMediaEnded;
+          }
+          const resumePlayback = !manuallyPausedRef.current && element.dataset.runtimeMediaEnded !== 'true';
+          setMediaPlaybackActive(element, true, restartPlaybackWhenActiveRef.current, resumePlayback);
+        }
+      });
+    }
+    return () => {
+      if (mediaPlaybackGeneration.current === generation) mediaPlaybackGeneration.current += 1;
+    };
   }, [source.id, source.kind, isPlaybackActive]);
   useEffect(() => {
     const element = elementRef.current;
@@ -571,8 +638,9 @@ function StageVideo({ source, stream, elements, mediaElements, isActive, isPlayb
           onSourceStatusRef.current?.(source.id, { state: 'ready' });
         }
         else onSourceStatusRef.current?.(source.id, { state: 'starting' });
-      } else if (!isActive) onSourceStatusRef.current?.(source.id, { state: 'starting' });
-      else if (!stream || !hasLiveVideoTrack(element)) onSourceStatusRef.current?.(source.id, { state: 'unavailable', message: 'No live video signal is available.' });
+      } else if (!isActive) onSourceStatusRef.current?.(source.id, { state: 'ready' });
+      else if (!stream) onSourceStatusRef.current?.(source.id, { state: 'starting' });
+      else if (!hasLiveVideoTrack(element)) onSourceStatusRef.current?.(source.id, { state: 'unavailable', message: 'No live video signal is available.' });
       else if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && element.videoWidth > 0) onSourceStatusRef.current?.(source.id, { state: 'ready' });
       else onSourceStatusRef.current?.(source.id, { state: 'starting' });
     };
@@ -596,20 +664,36 @@ function StageVideo({ source, stream, elements, mediaElements, isActive, isPlayb
   useEffect(() => {
     const element = elementRef.current;
     if (!element || source.kind !== 'media') return;
-    const updateState = () => onMediaPlaybackStateRef.current(source.id, element);
+    const updateState = (event?: Event) => {
+      if (event?.type === 'play') manuallyPausedRef.current = false;
+      else if (event?.type === 'pause' && isPlaybackActiveRef.current && !element.ended) manuallyPausedRef.current = true;
+      if (event?.type === 'play') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+        delete element.dataset.runtimeMediaEnded;
+      } else if (event?.type === 'seeking' && element.dataset.runtimeMediaRestoringEnded !== 'true') {
+        delete element.dataset.runtimeMediaEnded;
+      } else if (event?.type === 'seeked') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+      } else if (event?.type === 'ended') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+        element.dataset.runtimeMediaEnded = 'true';
+      }
+      onMediaPlaybackStateRef.current(source.id, element);
+    };
     updateState();
-    for (const eventName of ['play', 'pause', 'ended'] as const) element.addEventListener(eventName, updateState);
+    for (const eventName of ['play', 'pause', 'ended', 'seeking', 'seeked'] as const) element.addEventListener(eventName, updateState);
     return () => {
-      for (const eventName of ['play', 'pause', 'ended'] as const) element.removeEventListener(eventName, updateState);
+      for (const eventName of ['play', 'pause', 'ended', 'seeking', 'seeked'] as const) element.removeEventListener(eventName, updateState);
       onMediaPlaybackStateRef.current(source.id, null);
     };
   }, [source.id, source.kind]);
   return <video ref={ref} data-stage-source={getOriginSourceId(source)} data-stage-runtime-source={source.id} muted playsInline />;
 }
 
-function StageAudio({ source, mediaElements, isPlaybackActive, programActive, onMediaElement, onMediaPlaybackState, onSourceStatus }: {
+function StageAudio({ source, mediaElements, mediaPlaybackPositions, isPlaybackActive, programActive, onMediaElement, onMediaPlaybackState, onSourceStatus }: {
   source: RuntimeSource;
   mediaElements: Map<string, HTMLMediaElement>;
+  mediaPlaybackPositions: MediaPlaybackPositionCache;
   isPlaybackActive: boolean;
   programActive: boolean;
   onMediaElement: (source: RuntimeSource, element: HTMLMediaElement, programActive: boolean) => Promise<void>;
@@ -621,12 +705,17 @@ function StageAudio({ source, mediaElements, isPlaybackActive, programActive, on
   const onMediaPlaybackStateRef = useRef(onMediaPlaybackState);
   const onSourceStatusRef = useRef(onSourceStatus);
   const mediaRouteGeneration = useRef(0);
+  const mediaPlaybackGeneration = useRef(0);
+  const mediaPositionRestoreRef = useRef<MediaPlaybackPositionRestore>({ ready: Promise.resolve(), cancel: () => undefined });
   const programActiveRef = useRef(programActive);
+  const isPlaybackActiveRef = useRef(isPlaybackActive);
+  const manuallyPausedRef = useRef(false);
   onMediaElementRef.current = onMediaElement;
   onMediaPlaybackStateRef.current = onMediaPlaybackState;
   onSourceStatusRef.current = onSourceStatus;
   programActiveRef.current = programActive;
-  const restartPlaybackWhenActive = source.restartPlaybackWhenActive ?? true;
+  isPlaybackActiveRef.current = isPlaybackActive;
+  const restartPlaybackWhenActive = source.restartPlaybackWhenActive === true;
   const restartPlaybackWhenActiveRef = useRef(restartPlaybackWhenActive);
   restartPlaybackWhenActiveRef.current = restartPlaybackWhenActive;
   const ref = useCallback((element: HTMLAudioElement | null) => {
@@ -642,10 +731,31 @@ function StageAudio({ source, mediaElements, isPlaybackActive, programActive, on
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !source.assetId) return;
+    element.crossOrigin = 'anonymous';
     element.src = mediaAssetUrl(source.assetId, source.assetExtension ?? 'mp3');
     element.muted = true;
-    return () => { element.pause(); element.muted = true; element.removeAttribute('src'); element.load(); };
-  }, [source.id, source.assetId, source.assetExtension]);
+    const positionRestore = restoreMediaPlaybackPosition(mediaPlaybackPositions, source.id, element, source.restartPlaybackWhenActive !== true);
+    manuallyPausedRef.current = positionRestore.snapshot?.paused === true;
+    if (positionRestore.snapshot?.ended && source.restartPlaybackWhenActive !== true) {
+      element.dataset.runtimeMediaRestoringEnded = 'true';
+      element.dataset.runtimeMediaEnded = 'true';
+    } else {
+      delete element.dataset.runtimeMediaRestoringEnded;
+      delete element.dataset.runtimeMediaEnded;
+    }
+    mediaPositionRestoreRef.current = positionRestore;
+    return () => {
+      rememberMediaPlaybackPosition(
+        mediaPlaybackPositions,
+        source.id,
+        element,
+        isPlaybackActiveRef.current || manuallyPausedRef.current,
+        element.ended || element.dataset.runtimeMediaEnded === 'true',
+      );
+      positionRestore.cancel();
+      element.pause(); element.muted = true; element.removeAttribute('src'); element.load();
+    };
+  }, [source.id, source.assetId, source.assetExtension, mediaPlaybackPositions]);
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !source.assetId) return;
@@ -666,7 +776,25 @@ function StageAudio({ source, mediaElements, isPlaybackActive, programActive, on
   }, [source.assetId, source.loop]);
   useEffect(() => {
     const element = elementRef.current;
-    if (element && source.assetId) setMediaPlaybackActive(element, isPlaybackActive, restartPlaybackWhenActiveRef.current);
+    if (!element || !source.assetId) return;
+    const generation = ++mediaPlaybackGeneration.current;
+    if (!isPlaybackActive) {
+      setMediaPlaybackActive(element, false, restartPlaybackWhenActiveRef.current);
+    } else {
+      void mediaPositionRestoreRef.current.ready.then(() => {
+        if (elementRef.current === element && mediaPlaybackGeneration.current === generation && isPlaybackActiveRef.current) {
+          if (restartPlaybackWhenActiveRef.current) {
+            manuallyPausedRef.current = false;
+            delete element.dataset.runtimeMediaEnded;
+          }
+          const resumePlayback = !manuallyPausedRef.current && element.dataset.runtimeMediaEnded !== 'true';
+          setMediaPlaybackActive(element, true, restartPlaybackWhenActiveRef.current, resumePlayback);
+        }
+      });
+    }
+    return () => {
+      if (mediaPlaybackGeneration.current === generation) mediaPlaybackGeneration.current += 1;
+    };
   }, [source.id, source.assetId, isPlaybackActive]);
   useEffect(() => {
     const element = elementRef.current;
@@ -686,11 +814,26 @@ function StageAudio({ source, mediaElements, isPlaybackActive, programActive, on
   useEffect(() => {
     const element = elementRef.current;
     if (!element) return;
-    const updateState = () => onMediaPlaybackStateRef.current(source.id, element);
+    const updateState = (event?: Event) => {
+      if (event?.type === 'play') manuallyPausedRef.current = false;
+      else if (event?.type === 'pause' && isPlaybackActiveRef.current && !element.ended) manuallyPausedRef.current = true;
+      if (event?.type === 'play') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+        delete element.dataset.runtimeMediaEnded;
+      } else if (event?.type === 'seeking' && element.dataset.runtimeMediaRestoringEnded !== 'true') {
+        delete element.dataset.runtimeMediaEnded;
+      } else if (event?.type === 'seeked') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+      } else if (event?.type === 'ended') {
+        delete element.dataset.runtimeMediaRestoringEnded;
+        element.dataset.runtimeMediaEnded = 'true';
+      }
+      onMediaPlaybackStateRef.current(source.id, element);
+    };
     updateState();
-    for (const eventName of ['play', 'pause', 'ended'] as const) element.addEventListener(eventName, updateState);
+    for (const eventName of ['play', 'pause', 'ended', 'seeking', 'seeked'] as const) element.addEventListener(eventName, updateState);
     return () => {
-      for (const eventName of ['play', 'pause', 'ended'] as const) element.removeEventListener(eventName, updateState);
+      for (const eventName of ['play', 'pause', 'ended', 'seeking', 'seeked'] as const) element.removeEventListener(eventName, updateState);
       onMediaPlaybackStateRef.current(source.id, null);
     };
   }, [source.id]);

@@ -9,6 +9,15 @@ export interface InputDeviceOption {
   groupId?: string;
 }
 
+/** Combines a selected video capture with an optional audio-only capture. */
+export function combineCaptureStreams(videoStream: MediaStream, audioStream?: MediaStream | null): MediaStream {
+  if (!audioStream) return videoStream;
+  return new MediaStream([
+    ...videoStream.getTracks(),
+    ...audioStream.getAudioTracks(),
+  ]);
+}
+
 export interface BrowserSourceConfig {
   id: string;
   url: string;

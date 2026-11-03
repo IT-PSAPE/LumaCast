@@ -1,10 +1,14 @@
 import { useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { resolveSelection, type SelectionModifiers } from '@lumacast/selection';
 import { hitTestSource } from '../../canvas-composition';
-import { canvasPointFromOutputPoint } from '../../output-scaling';
-import { canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, sourceContainsPoint } from '../../source-transform';
+import { canvasPointFromOutputPoint, fitCanvasToOutput } from '../../output-scaling';
+import {
+  canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, snapResizePointerDelta, snapSourceTranslation,
+  sourceBounds, sourceBoundsForSelection, sourceContainsPoint, sourceCropFromPointer, sourceResizeHandlePosition,
+  type SourceBounds, type SourceSnapGuide, type SourceSnapTargets, type SourceSnapTolerance,
+} from '../../source-transform';
 import { duplicateSource } from '../../source-clipboard';
-import { currentSlideshowSlideIndex, slideshowImageElementKey } from '../../slideshow';
+import { currentSourceSlideIndex, slideshowImageElementKey, sourceSlideImages } from '../../slideshow';
 import { removeSourceVisibilityHotkeys } from '../../scene-hotkeys';
 import {
   canGroupSourceSiblings, computeGroupBoundingTransform, findSourceSiblingSelection, flattenSourceLeaves,
@@ -22,6 +26,8 @@ import { canResizeSourceTree, isSourceTransformableInTree, selectedSourceRoots, 
 
 export type SourceSelectionEvent = Pick<SelectionModifiers, 'shiftKey' | 'metaKey' | 'ctrlKey'> & { type?: string };
 
+const SNAP_TOLERANCE_CSS_PX = 6;
+
 interface SourceCanvasDrag {
   pointerId: number;
   sourceId: string;
@@ -37,8 +43,100 @@ interface SourceCanvasDrag {
   originWidth: number;
   originHeight: number;
   originRotation: number;
+  originCrop: SourceCrop;
+  cropSize: { width: number; height: number } | null;
+  originBounds: SourceBounds | null;
+  snapExcludedSourceIds: string[];
   originIsGroup: boolean;
   resizeHandle: string | null;
+  aspectLocked: boolean;
+  cropMode: boolean;
+}
+
+function sourceIdsAffectedBySelection(sources: readonly StreamSource[], selectedIds: readonly string[]): Set<string> {
+  const rootIds = new Set(selectedSourceRoots(sources, selectedIds).map((source) => source.id));
+  const affected = new Set<string>();
+  const visit = (nodes: readonly StreamSource[], selectedAncestor: boolean): boolean => {
+    let containsSelection = false;
+    for (const source of nodes) {
+      const selected = rootIds.has(source.id);
+      const childContainsSelection = source.kind === 'group'
+        ? visit(source.children ?? [], selectedAncestor || selected)
+        : false;
+      const isAffected = selectedAncestor || selected || childContainsSelection;
+      if (isAffected) affected.add(source.id);
+      containsSelection ||= selected || childContainsSelection;
+    }
+    return containsSelection;
+  };
+  visit(sources, false);
+  return affected;
+}
+
+function selectedMovableTransforms(
+  sources: readonly StreamSource[],
+  selectedIds: readonly string[],
+  movableIds: readonly string[],
+): StreamSource['transform'][] {
+  const roots = selectedSourceRoots(sources, selectedIds);
+  const movable = new Set(movableIds);
+  const transforms: StreamSource['transform'][] = [];
+  const visit = (source: StreamSource) => {
+    if (source.kind === 'group') {
+      for (const child of source.children ?? []) visit(child);
+    } else if (movable.has(source.id)) transforms.push(source.transform);
+  };
+  roots.forEach(visit);
+  return transforms;
+}
+
+function snapTargetsForScene(scene: StreamScene, excludedIds: ReadonlySet<string>, canvas: { width: number; height: number }): SourceSnapTargets {
+  const byId = new Map(flattenSourceNodes(scene.sources).map((source) => [source.id, source] as const));
+  const x = [0, canvas.width / 2, canvas.width];
+  const y = [0, canvas.height / 2, canvas.height];
+  for (const sourceId of sourceCanvasSelectionOrder(scene.sources)) {
+    if (excludedIds.has(sourceId)) continue;
+    const source = byId.get(sourceId);
+    if (!source) continue;
+    const bounds = sourceBounds(source.transform);
+    x.push(bounds.left, (bounds.left + bounds.right) / 2, bounds.right);
+    y.push(bounds.top, (bounds.top + bounds.bottom) / 2, bounds.bottom);
+  }
+  return {
+    x: [...new Set(x)].sort((left, right) => left - right),
+    y: [...new Set(y)].sort((top, bottom) => top - bottom),
+  };
+}
+
+function cropDimensionsForSource(
+  source: StreamSource,
+  videoElements: Map<string, HTMLVideoElement>,
+  imageElements: Map<string, HTMLImageElement>,
+): { width: number; height: number } | null {
+  let width = 0;
+  let height = 0;
+  if (source.kind === 'image' || source.kind === 'browser') {
+    const image = imageElements.get(source.id);
+    width = image?.naturalWidth ?? 0;
+    height = image?.naturalHeight ?? 0;
+  } else if (source.kind === 'slideshow' || source.kind === 'presentation') {
+    const slides = sourceSlideImages(source);
+    const index = currentSourceSlideIndex(source);
+    const image = imageElements.get(slideshowImageElementKey(source.id, slides, index));
+    width = image?.naturalWidth ?? 0;
+    height = image?.naturalHeight ?? 0;
+  } else if (source.kind === 'display' || source.kind === 'window' || source.kind === 'camera' || source.kind === 'ndi'
+    || (source.kind === 'media' && source.mediaKind === 'video')) {
+    const video = videoElements.get(source.id);
+    width = video?.videoWidth ?? 0;
+    height = video?.videoHeight ?? 0;
+  }
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0 ? { width, height } : null;
+}
+
+function sameSnapGuides(left: readonly SourceSnapGuide[], right: readonly SourceSnapGuide[]): boolean {
+  return left.length === right.length && left.every((guide, index) => guide.axis === right[index]?.axis
+    && guide.position === right[index]?.position);
 }
 
 export interface UseSourcesParams {
@@ -77,6 +175,7 @@ export interface UseSourcesResult {
   selectedSourceId: string | null;
   selectedSourceIds: string[];
   selectedSource: StreamSource | null;
+  snapGuides: SourceSnapGuide[];
   selectSource: (sourceId: string | null) => void;
   selectSourceRow: (event: SourceSelectionEvent, sourceId: string) => void;
   selectAllSources: () => void;
@@ -105,6 +204,7 @@ export interface UseSourcesResult {
   addColor: () => void;
   addMedia: (kind: MediaKind) => Promise<void>;
   addSlideshow: () => Promise<void>;
+  addPresentation: () => Promise<void>;
   addSlideshowImage: (sourceId: string) => Promise<void>;
   moveSlideshowImage: (sourceId: string, index: number, direction: -1 | 1) => void;
   removeSlideshowImage: (sourceId: string, index: number) => void;
@@ -166,6 +266,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [snapGuides, setSnapGuides] = useState<SourceSnapGuide[]>([]);
   const selectionAnchorId = useRef<string | null>(null);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
@@ -178,10 +279,15 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const sourceClipboardRef = useRef<StreamSource | null>(null);
   const dragging = useRef<SourceCanvasDrag | null>(null);
 
+  const publishSnapGuides = (guides: SourceSnapGuide[]) => {
+    setSnapGuides((current) => sameSnapGuides(current, guides) ? current : guides);
+  };
+
   const commitSelection = (ids: string[], primaryId: string | null, anchorId: string | null) => {
     setSelectedSourceIds(ids);
     setSelectedSourceId(primaryId && ids.includes(primaryId) ? primaryId : ids.at(-1) ?? null);
     selectionAnchorId.current = anchorId;
+    publishSnapGuides([]);
   };
 
   const selectSource = (sourceId: string | null) => {
@@ -273,7 +379,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
         mediaKind: asset.kind,
         ...(asset.kind !== 'image' ? {
           loop: false,
-          restartPlaybackWhenActive: true,
+          restartPlaybackWhenActive: false,
           showNothingWhenPlaybackEnds: true,
         } : {}),
         ...(asset.kind === 'audio' ? { transform: defaultTransform('media', project.output, 'audio') } : {}),
@@ -290,15 +396,33 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     setSourceMenuOpen(false);
     setActionError('');
     try {
-      const asset = await api.importMedia('image');
-      if (!asset) return;
+      const assets = await api.importSlideshowImages(100);
+      if (assets.length === 0) return;
       addToActiveScene(createSource('slideshow', project.output, 'Image Slideshow', {
-        slideshowImages: [{ assetId: asset.id, assetExtension: asset.extension, name: asset.name.slice(0, 120) }],
+        slideshowImages: assets.map((asset) => ({ assetId: asset.id, assetExtension: asset.extension, name: asset.name.slice(0, 120) })),
         slideshowIntervalSeconds: 5,
         slideshowLoop: true,
+        slideshowAutoAdvance: false,
       }));
     } catch (error) {
-      setActionError(`Could not import slideshow image: ${friendlyError(error)}`);
+      setActionError(`Could not import slideshow images: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
+  };
+
+  const addPresentation = async () => {
+    if (!project || working) return;
+    setWorking(true);
+    setSourceMenuOpen(false);
+    setActionError('');
+    try {
+      const presentation = await api.importPresentation();
+      if (!presentation) return;
+      addToActiveScene(createSource('presentation', project.output, presentation.name.slice(0, 120), {
+        presentationSlides: presentation.slides,
+        slideIndex: 0,
+      }));
+    } catch (error) {
+      setActionError(`Could not import presentation: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };
 
@@ -311,16 +435,20 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const addSlideshowImage = async (sourceId: string) => {
     if (working) return;
+    const source = allSources.find((item) => item.id === sourceId);
+    if (source?.kind !== 'slideshow') return;
+    const remaining = 100 - (source.slideshowImages?.length ?? 0);
+    if (remaining < 1) return;
     setWorking(true);
     setActionError('');
     try {
-      const asset = await api.importMedia('image');
-      if (!asset) return;
+      const assets = await api.importSlideshowImages(remaining);
+      if (assets.length === 0) return;
       updateSource(sourceId, (source) => source.kind === 'slideshow' && (source.slideshowImages?.length ?? 0) < 100
-        ? { ...source, slideshowImages: [...(source.slideshowImages ?? []), { assetId: asset.id, assetExtension: asset.extension, name: asset.name.slice(0, 120) }] }
+        ? { ...source, slideshowImages: [...(source.slideshowImages ?? []), ...assets.map((asset) => ({ assetId: asset.id, assetExtension: asset.extension, name: asset.name.slice(0, 120) }))] }
         : source);
     } catch (error) {
-      setActionError(`Could not import slideshow image: ${friendlyError(error)}`);
+      setActionError(`Could not import slideshow images: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };
 
@@ -329,13 +457,17 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     const target = index + direction;
     if (target < 0 || target >= source.slideshowImages.length) return source;
     const slideshowImages = [...source.slideshowImages];
+    const currentIndex = currentSourceSlideIndex(source);
     [slideshowImages[index], slideshowImages[target]] = [slideshowImages[target]!, slideshowImages[index]!];
-    return { ...source, slideshowImages };
+    const slideIndex = currentIndex === index ? target : currentIndex === target ? index : currentIndex;
+    return { ...source, slideshowImages, slideIndex };
   });
 
   const removeSlideshowImage = (sourceId: string, index: number) => updateSource(sourceId, (source) => {
     if (source.kind !== 'slideshow' || !source.slideshowImages || source.slideshowImages.length <= 1) return source;
-    return { ...source, slideshowImages: source.slideshowImages.filter((_, itemIndex) => itemIndex !== index) };
+    const currentIndex = currentSourceSlideIndex(source);
+    const slideshowImages = source.slideshowImages.filter((_, itemIndex) => itemIndex !== index);
+    return { ...source, slideshowImages, slideIndex: Math.min(slideshowImages.length - 1, currentIndex - (index < currentIndex ? 1 : 0)) };
   });
 
   const updateTextStyle = (sourceId: string, update: (style: StreamTextStyle) => StreamTextStyle) => updateSource(sourceId, (source) => source.kind === 'text'
@@ -360,11 +492,9 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const fitSource = (source: StreamSource) => {
     if (!project) return;
     const video = videoElements.current.get(source.id);
-    const slideshowImages = source.kind === 'slideshow' ? source.slideshowImages ?? [] : [];
-    const slideshowIndex = source.kind === 'slideshow'
-      ? currentSlideshowSlideIndex(source.id, slideshowImages.length, source.slideshowIntervalSeconds ?? 5, source.slideshowLoop ?? true)
-      : -1;
-    const imageKey = source.kind === 'slideshow'
+    const slideshowImages = sourceSlideImages(source);
+    const slideshowIndex = currentSourceSlideIndex(source);
+    const imageKey = source.kind === 'slideshow' || source.kind === 'presentation'
       ? slideshowImageElementKey(source.id, slideshowImages, slideshowIndex)
       : source.id;
     const image = imageElements.current.get(imageKey);
@@ -664,6 +794,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>, scene: StreamScene) => {
     if (event.button !== 0) return;
+    publishSnapGuides([]);
     const rect = event.currentTarget.getBoundingClientRect();
     const output = { width: project?.output.width ?? 1920, height: project?.output.height ?? 1080 };
     const canvas = { width: project?.output.baseWidth ?? 1920, height: project?.output.baseHeight ?? 1080 };
@@ -694,25 +825,27 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       return;
     }
 
-    const modifiers: SelectionModifiers = { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey };
     const currentSelected = selectedSourceIds;
     let nextSelected = currentSelected;
     let nextAnchor = selectionAnchorId.current;
-    const clickedAlreadySelected = currentSelected.includes(source.id);
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
-      const selectableIds = sourceRowOrder(scene.sources);
-      const next = resolveSelection(sourceCanvasSelectionOrder(scene.sources), currentSelected, selectionAnchorId.current, source.id, modifiers, selectableIds);
-      nextSelected = next.selectedIds;
-      nextAnchor = next.anchorId;
-      commitSelection(nextSelected, nextSelected.includes(source.id) ? source.id : null, nextAnchor);
-    } else if (!clickedAlreadySelected) {
-      nextSelected = [source.id];
-      nextAnchor = source.id;
-      commitSelection(nextSelected, source.id, nextAnchor);
-    } else {
-      // A plain press on any selected member starts a group drag without
-      // collapsing the selection. Make that member the active inspector target.
-      commitSelection(currentSelected, source.id, nextAnchor);
+    if (!resizeHandle) {
+      const modifiers: SelectionModifiers = { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey };
+      const clickedAlreadySelected = currentSelected.includes(source.id);
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
+        const selectableIds = sourceRowOrder(scene.sources);
+        const next = resolveSelection(sourceCanvasSelectionOrder(scene.sources), currentSelected, selectionAnchorId.current, source.id, modifiers, selectableIds);
+        nextSelected = next.selectedIds;
+        nextAnchor = next.anchorId;
+        commitSelection(nextSelected, nextSelected.includes(source.id) ? source.id : null, nextAnchor);
+      } else if (!clickedAlreadySelected) {
+        nextSelected = [source.id];
+        nextAnchor = source.id;
+        commitSelection(nextSelected, source.id, nextAnchor);
+      } else {
+        // A plain press on any selected member starts a group drag without
+        // collapsing the selection. Make that member the active inspector target.
+        commitSelection(currentSelected, source.id, nextAnchor);
+      }
     }
 
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
@@ -729,11 +862,19 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       dragging.current = null;
       return;
     }
+    const movableSourceIds = flatSources.filter((item) => isSourceTransformableInTree(scene.sources, item.id)).map((item) => item.id);
+    const affectedSnapIds = sourceIdsAffectedBySelection(scene.sources, canResize ? [source.id] : nextSelected);
+    const cropRequested = canResize && (api.platform === 'darwin' ? event.metaKey : event.ctrlKey);
+    const cropSize = cropRequested ? cropDimensionsForSource(source, videoElements.current, imageElements.current) : null;
+    const cropMode = cropRequested && cropSize !== null;
+    const movableTransforms = canResize
+      ? [source.transform]
+      : selectedMovableTransforms(scene.sources, nextSelected, movableSourceIds);
     dragging.current = {
       pointerId: event.pointerId,
       sourceId: source.id,
       sourceIds: nextSelected,
-      movableSourceIds: flatSources.filter((item) => isSourceTransformableInTree(scene.sources, item.id)).map((item) => item.id),
+      movableSourceIds,
       sceneId: scene.id,
       startX: x,
       startY: y,
@@ -744,8 +885,14 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       originWidth: source.transform.width,
       originHeight: source.transform.height,
       originRotation: source.transform.rotation ?? 0,
+      originCrop: { ...DEFAULT_SOURCE_CROP, ...source.crop },
+      cropSize,
+      originBounds: canResize ? sourceBounds(source.transform) : sourceBoundsForSelection(movableTransforms),
+      snapExcludedSourceIds: [...affectedSnapIds],
       originIsGroup: source.kind === 'group',
       resizeHandle: canResize ? resizeHandle : null,
+      aspectLocked: canResize && event.shiftKey && !cropMode,
+      cropMode,
     };
   };
 
@@ -761,9 +908,23 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     }, canvas, output);
     const dx = x - activeDrag.startX;
     const dy = y - activeDrag.startY;
+    const currentScene = projectRef.current?.scenes.find((scene) => scene.id === activeDrag.sceneId);
+    const excludedIds = new Set(activeDrag.snapExcludedSourceIds);
+    const snapTargets = currentScene ? snapTargetsForScene(currentScene, excludedIds, canvas) : { x: [], y: [] };
+    const viewport = fitCanvasToOutput(canvas, output);
+    const canvasDisplayWidth = rect.width * (viewport.width / output.width);
+    const canvasDisplayHeight = rect.height * (viewport.height / output.height);
+    const tolerance: SourceSnapTolerance = {
+      x: canvasDisplayWidth > 0 ? SNAP_TOLERANCE_CSS_PX * canvas.width / canvasDisplayWidth : 0,
+      y: canvasDisplayHeight > 0 ? SNAP_TOLERANCE_CSS_PX * canvas.height / canvasDisplayHeight : 0,
+    };
     if (!activeDrag.resizeHandle) {
-      const totalMoveX = Math.round(dx);
-      const totalMoveY = Math.round(dy);
+      const snap = !event.altKey && activeDrag.originBounds
+        ? snapSourceTranslation(activeDrag.originBounds, dx, dy, snapTargets, tolerance)
+        : { deltaX: dx, deltaY: dy, guides: [] };
+      publishSnapGuides(snap.guides);
+      const totalMoveX = Math.round(snap.deltaX);
+      const totalMoveY = Math.round(snap.deltaY);
       const moveX = totalMoveX - activeDrag.appliedMoveX;
       const moveY = totalMoveY - activeDrag.appliedMoveY;
       if (moveX === 0 && moveY === 0) return;
@@ -782,24 +943,52 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       });
       return;
     }
-    const resized = resizeSourceFromPointer({
+    const originTransform = {
       x: activeDrag.originX,
       y: activeDrag.originY,
       width: activeDrag.originWidth,
       height: activeDrag.originHeight,
       rotation: activeDrag.originIsGroup ? 0 : activeDrag.originRotation,
-    }, activeDrag.resizeHandle, dx, dy);
+    };
+    const resizeDelta = !event.altKey
+      ? snapResizePointerDelta(originTransform, activeDrag.resizeHandle, dx, dy, snapTargets, tolerance,
+        activeDrag.aspectLocked, activeDrag.cropMode ? 1 : 16)
+      : { deltaX: dx, deltaY: dy, guides: [] };
+    let cropResult = activeDrag.cropMode && activeDrag.cropSize
+      ? sourceCropFromPointer(originTransform, activeDrag.originCrop, activeDrag.cropSize, activeDrag.resizeHandle, resizeDelta.deltaX, resizeDelta.deltaY)
+      : null;
+    let guides = resizeDelta.guides;
+    if (cropResult && guides.length > 0) {
+      const handlePoint = sourceResizeHandlePosition(cropResult.transform, activeDrag.resizeHandle);
+      const aligned = guides.every((guide) => Math.abs(handlePoint[guide.axis] - guide.position)
+        <= tolerance[guide.axis] / SNAP_TOLERANCE_CSS_PX + 1e-6);
+      if (!aligned) {
+        cropResult = sourceCropFromPointer(originTransform, activeDrag.originCrop, activeDrag.cropSize!, activeDrag.resizeHandle, dx, dy);
+        guides = [];
+      }
+    }
+    publishSnapGuides(guides);
+    const resized = cropResult?.transform ?? resizeSourceFromPointer(
+      originTransform, activeDrag.resizeHandle, resizeDelta.deltaX, resizeDelta.deltaY, 16, activeDrag.aspectLocked,
+    );
     resized.rotation = activeDrag.originRotation;
     setProjectValue((current) => ({
       ...current,
       scenes: current.scenes.map((scene) => scene.id === activeDrag.sceneId
-        ? { ...scene, sources: mapSourceTreeById(scene.sources, activeDrag.sourceId, (source) => ({ ...source, transform: resized })) }
+        ? { ...scene, sources: mapSourceTreeById(scene.sources, activeDrag.sourceId, (source) => ({
+          ...source,
+          transform: resized,
+          ...(cropResult ? { crop: cropResult.crop } : {}),
+        })) }
         : scene),
     }));
   };
 
   const handleStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragging.current?.pointerId === event.pointerId) dragging.current = null;
+    if (dragging.current?.pointerId === event.pointerId) {
+      dragging.current = null;
+      publishSnapGuides([]);
+    }
   };
 
   const resetForWorkspaceChange = () => {
@@ -813,12 +1002,12 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   };
 
   return {
-    selectedSourceId, selectedSourceIds, selectedSource, selectSource, selectSourceRow, selectAllSources, clearSourceSelection,
+    selectedSourceId, selectedSourceIds, selectedSource, snapGuides, selectSource, selectSourceRow, selectAllSources, clearSourceSelection,
     collapsedGroupIds, setCollapsedGroupIds, canGroupSelectedSources,
     sourceMenuOpen, setSourceMenuOpen, sourceActionsMenuOpen, setSourceActionsMenuOpen,
     sourceMenuTriggerRef, sourceActionsTriggerRef, sourceClipboardAvailable,
     browserDialogOpen, setBrowserDialogOpen, browserUrl, setBrowserUrl, addBrowserSource,
-    addToActiveScene, addSceneReference, addText, addColor, addMedia, addSlideshow, addSlideshowImage,
+    addToActiveScene, addSceneReference, addText, addColor, addMedia, addSlideshow, addPresentation, addSlideshowImage,
     moveSlideshowImage, removeSlideshowImage,
     updateSource, updateTextStyle, toggleSourceLock, updateSourceTransform, fitSource, centerSource,
     resetSourceTransform, stretchSource, updateCaptureCursorMode, updateSourceSettings, updateSourceMonitoring,

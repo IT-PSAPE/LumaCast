@@ -77,6 +77,9 @@ button:disabled { cursor: default; opacity: .43; }
 .source-row:hover { background: var(--background-color-tertiary); }
 .source-row.selected { border-color: transparent; color: var(--text-color-primary); background: var(--background-color-tertiary); }
 .source-row.source-locked .source-label { color: var(--text-color-secondary); }
+.source-snap-guide { position: absolute; z-index: 3; pointer-events: none; background: var(--color-brand); }
+.source-snap-guide--x { width: 1px; }
+.source-snap-guide--y { height: 1px; }
 .selection-frame.locked { border-style: dashed; border-color: var(--border-color-primary); cursor: default; }
 .group-expand-button { width: 13px; height: 18px; display: grid; flex: 0 0 13px; place-items: center; padding: 0; color: var(--text-color-tertiary); background: transparent; }
 .group-expand-button { cursor: pointer; }.group-expand-button:hover { color: var(--text-color-primary); }
@@ -87,8 +90,7 @@ button:disabled { cursor: default; opacity: .43; }
 .source-label { min-width: 0; flex: 1; overflow: hidden; font-size: var(--text-label-xs); text-overflow: ellipsis; white-space: nowrap; }
 .source-level-mini { width: 30px; height: 4px; overflow: hidden; border-radius: var(--radius-hairline); background: var(--background-color-tertiary); }
 .source-level-mini i { height: 100%; display: block; background: linear-gradient(90deg, var(--color-success) 0 60%, var(--color-warning) 78%, var(--color-error)); transition: width .08s linear; }
-.source-actions { display: flex; opacity: 0; }
-.source-row:hover .source-actions, .source-row.selected .source-actions { opacity: 1; }
+.source-actions { display: flex; flex: 0 0 auto; gap: var(--space-1); }
 .source-actions button { width: 17px; height: 21px; display: grid; place-items: center; padding: 0; border-radius: var(--radius-control); color: var(--text-color-tertiary); background: transparent; cursor: pointer; }
 .source-actions button:hover:not(:disabled) { color: var(--text-color-primary); background: var(--background-color-tertiary); }
 .source-actions button:disabled { opacity: .25; }
@@ -104,7 +106,6 @@ button:disabled { cursor: default; opacity: .43; }
 .menu-label { padding: var(--space-1-5) var(--space-2) var(--space-1); color: var(--text-color-tertiary); font: 500 var(--text-sm)/1.4 var(--font-family-sans); letter-spacing: 0; text-transform: uppercase; }
 .menu-label-separator { margin-top: var(--space-1); border-top: 1px solid var(--border-color-primary); }
 .source-properties { padding: var(--space-1) var(--space-2) var(--space-2); border-top: 1px solid var(--border-color-secondary); background: var(--background-color-primary); }
-.sources-dock .source-properties { max-height: 62%; overflow: auto; }
 .property-heading { min-height: 25px; display: flex; align-items: center; justify-content: space-between; gap: var(--space-1); color: var(--text-color-secondary); font-size: var(--text-sm); }
 .property-heading > span { display: flex; align-items: center; gap: var(--space-1-5); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .mini-icon.danger:hover { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 15%, transparent); }
@@ -176,7 +177,7 @@ button:disabled { cursor: default; opacity: .43; }
 .capture-modal { width: min(740px, 94vw); max-height: min(680px, 90vh); }
 .capture-grid { min-height: 200px; display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: var(--space-3); overflow: auto; padding: var(--space-4) var(--space-4); }
 .capture-option { min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--border-color-primary); border-radius: var(--radius-container); color: var(--text-color-primary); background: var(--background-color-secondary); text-align: left; cursor: pointer; }
-.capture-option:hover:not(:disabled) { border-color: var(--color-brand); background: var(--background-color-tertiary); }.capture-option img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: cover; background: var(--color-black); }
+.capture-option:hover:not(:disabled) { border-color: var(--color-brand); background: var(--background-color-tertiary); }.capture-option img { width: 100%; display: block; aspect-ratio: 16 / 9; object-fit: contain; background: var(--color-black); }
 .capture-option-name { display: block; overflow: hidden; padding: var(--space-2); font-size: var(--text-label-xs); text-overflow: ellipsis; white-space: nowrap; }
 .capture-empty { grid-column: 1 / -1; display: grid; place-items: center; min-height: 150px; color: var(--text-color-tertiary); font-size: var(--text-label-xs); }
 .device-modal { width: min(430px, 94vw); }
