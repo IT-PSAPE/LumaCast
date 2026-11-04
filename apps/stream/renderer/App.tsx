@@ -3,6 +3,7 @@ import { Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar
 import { Clapperboard, ExternalLink, MousePointer2, Radio, Settings } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import { SlideControls } from './slide-controls';
+import { MediaControls } from './media-controls';
 import { isSlideSource, navigateSlidePlayback, resetSlidePlaybackStore } from './slideshow';
 import { resolveSlideControlSource, slideControlSources } from './slide-control-sources';
 import { BrowserInteractionOverlay } from './browser-interaction';
@@ -197,6 +198,9 @@ export function App() {
   runtimeProjectRef.current = runtimeDraftProject;
   const programSourceIds = useMemo(() => runtimeProgramProject && liveScene
     ? getVisibleSourceIdsForScenes(runtimeProgramProject.scenes, [liveScene.id]) : new Set<string>(), [runtimeProgramProject, liveScene?.id]);
+  const previewMediaSourceIds = useMemo(() => new Set(project?.studioMode
+    ? editorRuntimeSources.filter((source) => draftOriginIds.has(getOriginSourceId(source))).map((source) => source.id)
+    : []), [project?.studioMode, editorRuntimeSources, draftOriginIds]);
   const retainedSourceIds = useMemo(() => {
     const ids = new Set(programSourceIds);
     if (runtimeOutgoingProject && program.outgoingScene) {
@@ -618,6 +622,8 @@ export function App() {
               <NumberField size="sm" className="w-24" label="Transition duration in milliseconds" labelPlacement="hidden" suffix="ms" commitOn="change" min={50} max={5000} step={50} value={scenes.transitionMs} onValueChange={scenes.setTransitionMs} />
               {project.studioMode && <ReacstButton variant="success" size="sm" aria-label="Transition scene" title="Transition scene" disabled={!program.canTransition(project.activeSceneId)} onClick={() => scenes.transitionScene()}>Transition <Clapperboard size={13} /></ReacstButton>}
             </Toolbar.Group>
+            <MediaControls sources={runtimeSources} programSourceIds={programSourceIds} previewSourceIds={previewMediaSourceIds}
+              elements={mediaElements.current} playbackStates={capture.mediaPlaybackStates} resourceStatuses={resourceStatuses} onError={setActionError} />
             <Toolbar.Spacer />
             {availableSlideSources.length > 0 && <Toolbar.Group label="Slide source">
               <Select size="sm" className="w-40" label="Slide source" labelPlacement="hidden" placeholder="Choose slides" value={slideControlSource ? getSourceRuntimeId(slideControlSource) : ''} onValueChange={setSlideTargetSessionId}

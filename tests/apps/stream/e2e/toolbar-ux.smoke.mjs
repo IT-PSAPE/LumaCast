@@ -16,7 +16,7 @@ const electronBinary = streamRequire('electron');
 const electronVersion = streamRequire('electron/package.json').version;
 const outputRoot = path.resolve('output/playwright/toolbar-ux-review');
 const assetIds = Object.fromEntries(['pptx', 'slideshow', 'pdf'].map((family) => [family, [1, 2, 3].map(() => crypto.randomUUID())]));
-const sourceIds = Object.fromEntries(['pptx', 'slideshow', 'pdf', 'video', 'browser', 'group', 'backdrop', 'otherBackdrop'].map((name) => [name, crypto.randomUUID()]));
+const sourceIds = Object.fromEntries(['pptx', 'slideshow', 'pdf', 'video', 'audio', 'browser', 'group', 'backdrop', 'otherBackdrop'].map((name) => [name, crypto.randomUUID()]));
 const sceneIds = { program: crypto.randomUUID(), empty: crypto.randomUUID(), other: crypto.randomUUID() };
 
 async function listen(server) {
@@ -87,7 +87,7 @@ function source(id, name, kind, transform, extras = {}) {
   return { id, name, kind, visible: true, muted: true, volume: 1, transform, ...extras };
 }
 
-function projectFor(browserUrl, videoId) {
+function projectFor(browserUrl, videoId, audioId) {
   const images = (family) => assetIds[family].map((assetId, index) => ({ assetId, assetExtension: 'png', name: `Page ${index + 1}` }));
   const bounds = { x: 0, y: 0, width: 1920, height: 1080 };
   return {
@@ -116,7 +116,10 @@ function projectFor(browserUrl, videoId) {
         ] }),
       ] },
       { id: sceneIds.empty, name: 'Empty Preview', sources: [] },
-      { id: sceneIds.other, name: 'Other Preview', sources: [source(sourceIds.otherBackdrop, 'Other Backdrop', 'color', bounds, { color: '#524468' })] },
+      { id: sceneIds.other, name: 'Other Preview', sources: [
+        source(sourceIds.otherBackdrop, 'Other Backdrop', 'color', bounds, { color: '#524468' }),
+        source(sourceIds.audio, 'Audio Cue', 'media', bounds, { assetId: audioId, assetExtension: 'wav', mediaKind: 'audio', loop: true }),
+      ] },
     ],
   };
 }
@@ -161,6 +164,8 @@ async function layout(page, width, runRoot) {
       studio: bounds(studio), projector: bounds(projector), settings: bounds(settings),
       inHeader: [studio, projector, settings].every((element) => !!element.closest('header')),
       toolbar: bounds(toolbar), counter: bounds(counter), toolbarText: toolbar.innerText,
+      media: bounds(toolbar.querySelector('[aria-label="Media playback"]')),
+      slidePicker: bounds(toolbar.querySelector('[aria-label="Slide source"][role="group"]')),
       titleBarActions: document.querySelector('header [data-slot=end]')?.innerText ?? '',
     };
   });
@@ -168,6 +173,7 @@ async function layout(page, width, runRoot) {
   assert.ok(geometry.studio.right <= geometry.projector.left && geometry.projector.right <= geometry.settings.left, 'Title-bar actions overlap or have the wrong order.');
   assert.ok(geometry.settings.right <= width && geometry.studio.top >= 0 && geometry.settings.bottom <= 40, 'Title-bar actions exceed their bounds.');
   assert.ok(geometry.counter.right <= geometry.toolbar.right && geometry.counter.right >= geometry.toolbar.right - 20, 'Slide controls are not at the far right of the toolbar.');
+  assert.ok(geometry.media.left >= geometry.toolbar.left && geometry.media.right <= geometry.slidePicker.left, 'Media controls are not on the left of the slide controls.');
   assert.ok(!/\d+\s*%/.test(geometry.toolbarText), 'The percentage indicator remains in the toolbar.');
   await page.screenshot({ path: path.join(runRoot, `toolbar-${width}.png`) });
   return geometry;
@@ -194,7 +200,23 @@ async function main() {
     ? await fs.readFile(process.env.LUMASTREAM_TOOLBAR_VIDEO_FIXTURE)
     : await makeVideo(runRoot);
   await fs.writeFile(path.join(media, `${videoId}.webm`), videoBytes);
-  await fs.writeFile(path.join(runRoot, 'app-data/LumaStream/scene-collection.json'), JSON.stringify(projectFor(browserUrl, videoId)));
+  const audioId = crypto.randomUUID();
+  // One second of silent, mono, 16-bit PCM keeps the fixture independent of audio devices.
+  const audio = Buffer.alloc(44 + 48000 * 2);
+  audio.write('RIFF', 0);
+  audio.writeUInt32LE(audio.length - 8, 4);
+  audio.write('WAVEfmt ', 8);
+  audio.writeUInt32LE(16, 16);
+  audio.writeUInt16LE(1, 20);
+  audio.writeUInt16LE(1, 22);
+  audio.writeUInt32LE(48000, 24);
+  audio.writeUInt32LE(96000, 28);
+  audio.writeUInt16LE(2, 32);
+  audio.writeUInt16LE(16, 34);
+  audio.write('data', 36);
+  audio.writeUInt32LE(audio.length - 44, 40);
+  await fs.writeFile(path.join(media, `${audioId}.wav`), audio);
+  await fs.writeFile(path.join(runRoot, 'app-data/LumaStream/scene-collection.json'), JSON.stringify(projectFor(browserUrl, videoId, audioId)));
   const bootstrap = path.join(runRoot, 'bootstrap.cjs');
   await fs.writeFile(bootstrap, `const {app}=require('electron');app.setPath('appData',${JSON.stringify(path.join(runRoot, 'app-data'))});require(${JSON.stringify(path.resolve('apps/stream/out/main/index.js'))});`);
   const app = await electron.launch({ executablePath: electronBinary, args: [`--remote-debugging-port=${await freePort()}`, '--autoplay-policy=no-user-gesture-required', bootstrap], env: environment(), timeout: 30000 });
@@ -248,19 +270,38 @@ async function main() {
     measurements.wide = await layout(page, 1560, runRoot);
     measurements.narrow = await layout(page, 1100, runRoot);
     checks.push('Studio Mode/projector sit beside Settings; slide controls align at the far right at 1560px and 1100px without overlap or percentage indicator');
+    const mediaControls = page.getByRole('group', { name: 'Media playback', exact: true });
+    const video = page.locator(`video[data-stage-source="${sourceIds.video}"]`);
+    await expect(mediaControls.getByRole('combobox')).toContainText('Grouped Video · Program');
+    await mediaControls.getByRole('button', { name: 'Pause media', exact: true }).click();
+    await expect.poll(() => video.evaluate((element) => element.paused)).toBe(true);
+    await mediaControls.getByRole('button', { name: 'Restart media', exact: true }).click();
+    await expect.poll(() => video.evaluate((element) => element.paused)).toBe(false);
+    await mediaControls.getByRole('button', { name: 'Stop media', exact: true }).click();
+    await expect.poll(() => video.evaluate((element) => element.paused && element.currentTime === 0)).toBe(true);
+    await mediaControls.getByRole('button', { name: 'Play media', exact: true }).click();
+    await expect.poll(() => video.evaluate((element) => element.paused)).toBe(false);
+    checks.push('Left toolbar plays, pauses, restarts, and stops the grouped Program video');
 
     await page.getByRole('button', { name: 'Empty Preview', exact: true }).click();
+    await expect(mediaControls.getByRole('combobox')).toContainText('Grouped Video · Program');
     await expect(page.getByRole('group', { name: 'Slides', exact: true })).toHaveAttribute('title', 'Program PPTX');
     await page.getByRole('button', { name: 'Next slide', exact: true }).click();
     await expectPage(page, 3);
     await expect.poll(() => sampleProgram(page)).toEqual([49, 96, 214]);
     await page.screenshot({ path: path.join(runRoot, 'empty-preview-live-target.png') });
     await page.getByRole('button', { name: 'Other Preview', exact: true }).click();
+    await mediaControls.getByRole('combobox').click();
+    await page.getByRole('option', { name: 'Audio Cue · Preview', exact: true }).click();
+    await expect(mediaControls.getByText('Starts in Program')).toBeVisible();
+    await expect(mediaControls.getByRole('button', { name: 'Play media', exact: true })).toBeDisabled();
+    await expect.poll(() => video.evaluate((element) => element.paused)).toBe(false);
     await page.getByRole('treeitem').filter({ hasText: 'Other Backdrop' }).click();
     await expect(page.getByRole('group', { name: 'Slides', exact: true })).toHaveAttribute('title', 'Program PPTX');
     await page.getByRole('button', { name: 'Previous slide', exact: true }).click();
     await expectPage(page, 2);
     await page.getByRole('button', { name: 'Program Scene', exact: true }).click();
+    await expect(mediaControls.getByRole('combobox')).toContainText('Grouped Video · Program');
     await page.getByRole('treeitem').filter({ hasText: 'Image Slideshow' }).click();
     await expect(page.getByRole('group', { name: 'Slides', exact: true })).toHaveAttribute('title', 'Program PPTX');
     checks.push('Explicit Program PPTX target persists through Empty Preview, another Preview scene, and unrelated source-row selection; arrows still change Program pixels');
@@ -295,7 +336,6 @@ async function main() {
     await chooseSlides(page, 'Grouped PDF');
     await page.getByRole('button', { name: 'Next slide', exact: true }).click();
     await expectPage(page, 2);
-    const video = page.locator(`video[data-stage-source="${sourceIds.video}"]`);
     await page.getByRole('treeitem').filter({ hasText: 'Grouped Video' }).click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Properties', exact: true }).click();
     const videoProperties = page.getByRole('dialog', { name: 'Source Properties', exact: true });
@@ -330,6 +370,14 @@ async function main() {
     await expect.poll(() => video.evaluate((element, position) => element.readyState >= 2 && element.paused && !element.seeking && Math.abs(element.currentTime - position) <= 0.25, measurements.pausedVideo.currentTime)).toBe(true);
     measurements.restoredAgainPausedVideo = await video.evaluate((element) => ({ currentTime: element.currentTime, paused: element.paused, ended: element.ended }));
     checks.push('Properties Pause survives two group hide/unhide DOM-player evictions at the same position within 0.25 seconds');
+    await page.getByRole('button', { name: 'Other Preview', exact: true }).click();
+    const audioElement = page.locator(`audio[data-stage-source="${sourceIds.audio}"]`);
+    await expect(mediaControls.getByRole('combobox')).toContainText('Audio Cue · Program');
+    await mediaControls.getByRole('button', { name: 'Stop media', exact: true }).click();
+    await expect.poll(() => audioElement.evaluate((element) => element.paused && element.currentTime === 0)).toBe(true);
+    await page.getByRole('button', { name: 'Empty Preview', exact: true }).click();
+    await expect(mediaControls).toHaveCount(0);
+    checks.push('Preview audio stays idle, gains transport in Program, and leaves the toolbar when out of scope');
     assert.deepEqual(rendererErrors, []);
     const summary = { passed: true, electronVersion, runRoot, renderer: await page.locator('script[type=module]').getAttribute('src'), checks, measurements, rendererErrors };
     await fs.writeFile(path.join(runRoot, 'summary.json'), JSON.stringify(summary, null, 2));

@@ -105,6 +105,9 @@ Scene thumbnails show the composed scene and a vertical input-activity meter.
 In Studio Mode, source and Mixer edits stay in Preview until Transition commits
 them to Program, including edits to the same scene already on air. Captures stay
 live, while Preview-only video, audio, and slideshow timers wait for Program.
+The left side of the monitor toolbar shows playback controls for visible audio
+and video sources in Preview or Program. Select a source to play, pause, restart,
+or stop it in Program.
 Matching video, audio, slideshow, presentation, and browser resources share one
 session across scenes and keep their state when transitioning away and back.
 **Reset when entering Program** is off by default and never resets a resource

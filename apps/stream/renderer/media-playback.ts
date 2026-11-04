@@ -1,4 +1,29 @@
+import { friendlyError } from './features/shared/friendly-error';
+
 const elementActivity = new WeakMap<object, boolean>();
+
+export type MediaPlaybackCommand = 'toggle' | 'restart' | 'stop';
+
+export async function runMediaPlaybackCommand(
+  element: HTMLMediaElement,
+  command: MediaPlaybackCommand,
+  onError: (message: string) => void,
+): Promise<void> {
+  try {
+    if (command === 'stop') {
+      element.pause();
+      element.currentTime = 0;
+    } else if (command === 'toggle' && !element.paused) {
+      element.pause();
+    } else {
+      if (command === 'restart') element.currentTime = 0;
+      await element.play();
+    }
+  } catch (error) {
+    const operation = command === 'toggle' ? 'play' : command;
+    onError(`Media could not ${operation}: ${friendlyError(error)}`);
+  }
+}
 
 export interface MediaPlaybackSnapshot {
   currentTime: number;

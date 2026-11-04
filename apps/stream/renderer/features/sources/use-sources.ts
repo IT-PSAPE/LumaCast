@@ -1,6 +1,7 @@
 import { useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { resolveSelection, type SelectionModifiers } from '@lumacast/selection';
 import { hitTestSource } from '../../canvas-composition';
+import { runMediaPlaybackCommand, type MediaPlaybackCommand } from '../../media-playback';
 import { canvasPointFromOutputPoint, fitCanvasToOutput } from '../../output-scaling';
 import {
   canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, snapResizePointerDelta, snapSourceTranslation,
@@ -608,28 +609,16 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     updateSource(sourceId, (current) => ({ ...current, audioFilters: nextFilters }));
   };
 
-  const toggleMediaPlayback = (sourceId: string) => {
+  const controlMediaPlayback = (sourceId: string, command: MediaPlaybackCommand) => {
     const element = mediaElements.current.get(sourceId);
     if (!element) return;
-    if (!isCurrentSourceProgram(sourceId)) { element.pause(); return; }
-    if (element.paused) void element.play().catch((error) => setActionError(`Media could not play: ${friendlyError(error)}`));
-    else element.pause();
+    if (command !== 'stop' && !isCurrentSourceProgram(sourceId)) { element.pause(); return; }
+    void runMediaPlaybackCommand(element, command, setActionError);
   };
 
-  const restartMediaPlayback = (sourceId: string) => {
-    const element = mediaElements.current.get(sourceId);
-    if (!element) return;
-    if (!isCurrentSourceProgram(sourceId)) { element.pause(); return; }
-    element.currentTime = 0;
-    void element.play().catch((error) => setActionError(`Media could not restart: ${friendlyError(error)}`));
-  };
-
-  const stopMediaPlayback = (sourceId: string) => {
-    const element = mediaElements.current.get(sourceId);
-    if (!element) return;
-    element.pause();
-    element.currentTime = 0;
-  };
+  const toggleMediaPlayback = (sourceId: string) => controlMediaPlayback(sourceId, 'toggle');
+  const restartMediaPlayback = (sourceId: string) => controlMediaPlayback(sourceId, 'restart');
+  const stopMediaPlayback = (sourceId: string) => controlMediaPlayback(sourceId, 'stop');
 
   const removeSelectedSource = () => {
     if (selectedSourceIds.length === 0 || !activeScene) return;
