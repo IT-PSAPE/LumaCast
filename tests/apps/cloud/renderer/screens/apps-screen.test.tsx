@@ -11,8 +11,10 @@ import {
 import { createMockApi } from "../../../../../apps/cloud/renderer/mock-api";
 import { useSuite } from "../../../../../apps/cloud/renderer/hooks/use-suite";
 import { AppsScreen } from "../../../../../apps/cloud/renderer/screens/apps-screen";
+import { useManagedActionOwner } from "../../../../../apps/cloud/renderer/hooks/use-cloud-actions";
 import type { CloudDesktopAPI } from "../../../../../apps/cloud/shared/desktop-api";
 import type { OperationSnapshot } from "../../../../../apps/cloud/shared/desktop-api";
+import type { SuiteOverview } from "../../../../../apps/cloud/shared/desktop-api";
 import type { SuiteAppId } from "@lumacast/suite";
 
 afterEach(() => {
@@ -22,6 +24,7 @@ afterEach(() => {
 
 function Harness({ api }: { api: CloudDesktopAPI }) {
   const { overview, operations, refresh } = useSuite(api);
+  const actions = useManagedActionOwner(api, operations);
   if (!overview) return null;
   return (
     <AppsScreen
@@ -29,8 +32,14 @@ function Harness({ api }: { api: CloudDesktopAPI }) {
       operations={operations}
       api={api}
       refresh={refresh}
+      actions={actions}
     />
   );
+}
+
+function StaticApps({ api, overview, operations }: { api: CloudDesktopAPI; overview: SuiteOverview; operations: OperationSnapshot[] }) {
+  const actions = useManagedActionOwner(api, operations);
+  return <AppsScreen api={api} overview={overview} operations={operations} actions={actions} refresh={async () => { await api.refresh(); }} />;
 }
 
 function completedOperation(
@@ -174,13 +183,10 @@ describe("AppsScreen", () => {
       progress: { transferred: 5, total: 10, percent: 50, bytesPerSecond: 1 },
     };
     render(
-      <AppsScreen
+      <StaticApps
         overview={overview}
         operations={[busyOperation]}
         api={api}
-        refresh={async () => {
-          await api.refresh();
-        }}
       />,
     );
 

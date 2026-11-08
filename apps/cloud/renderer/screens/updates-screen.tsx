@@ -1,9 +1,11 @@
-import { useState } from "react";
 import { EmptyState, ListRow, ReacstButton, Title, Toolbar } from "@lumacast/ui";
 import { suiteApp, type SuiteAppId } from "@lumacast/suite";
 import type { CloudDesktopAPI, SuiteOverview } from "../../shared/desktop-api";
 import { PermissionDialog } from "../components/permission-dialog";
 import { formatRelativeTime } from "../presentation";
+import { ActionErrors } from "../components/action-errors";
+import type { ManagedActionOwner } from "../hooks/use-cloud-actions";
+import { useManagedActions } from "../hooks/use-managed-actions";
 
 const SELF_UPDATE_LISTED_STATUSES = new Set([
   "available",
@@ -14,13 +16,11 @@ const SELF_UPDATE_LISTED_STATUSES = new Set([
 interface UpdatesScreenProps {
   overview: SuiteOverview;
   api: CloudDesktopAPI;
+  actions: ManagedActionOwner;
 }
 
-export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
-  const [pending, setPending] = useState<{
-    app: SuiteAppId;
-    run: () => void;
-  } | null>(null);
+export function UpdatesScreen({ overview, api, actions }: UpdatesScreenProps) {
+  const managed = useManagedActions(api, overview, actions);
 
   const updatable = overview.apps.filter(
     (state) => state.status === "update-available",
@@ -30,23 +30,12 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
   );
   const total = updatable.length + (cloudListed ? 1 : 0);
 
-  function requestAction(app: SuiteAppId, run: () => void): void {
-    const granted = overview.settings.grants.some((grant) => grant.app === app);
-    if (granted) {
-      run();
-      return;
-    }
-    setPending({ app, run });
-  }
-
   function updateApp(app: SuiteAppId): void {
-    requestAction(app, () => {
-      void api.install(app);
-    });
+    managed.request({ kind: "install", app });
   }
 
   function updateAll(): void {
-    updatable.forEach((state) => updateApp(state.app));
+    updatable.forEach((state) => managed.request({ kind: "install", app: state.app }, true));
     if (cloudListed && overview.selfUpdate.status === "available")
       void api.installSelfUpdate();
   }
@@ -65,6 +54,7 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
           ) : null}
         </Toolbar.End>
       </Toolbar>
+      <ActionErrors failures={managed.failures} onRetry={managed.retry} onDismiss={managed.dismiss} isBusy={(failure) => actions.busyApps.has(failure.action.action.app)} />
 
       {total === 0 ? (
         <EmptyState.Root>
@@ -111,6 +101,7 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
                 <ListRow.Actions>
                   <ReacstButton
                     variant="tinted"
+                    disabled={!managed.ready || actions.busyApps.has(state.app)}
                     onClick={() => updateApp(state.app)}
                   >
                     Update
@@ -123,15 +114,13 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
       )}
 
       <PermissionDialog
-        open={pending !== null}
-        descriptor={pending ? suiteApp(pending.app) : null}
+        open={managed.pending !== null}
+        descriptor={managed.pending ? suiteApp(managed.pending.action.app) : null}
+        busy={managed.allowing}
         onAllow={() => {
-          if (!pending) return;
-          const { app, run } = pending;
-          void api.grant(app).then(() => run());
-          setPending(null);
+          if (managed.pending) managed.allow(managed.pending);
         }}
-        onNotNow={() => setPending(null)}
+        onNotNow={() => { if (managed.pending) managed.notNow(managed.pending); }}
       />
     </div>
   );

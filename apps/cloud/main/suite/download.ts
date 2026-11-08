@@ -4,9 +4,9 @@
 // half-written or corrupted download can never masquerade as a real install
 // artifact.
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, type WriteStream } from 'node:fs';
 import { mkdir, rename, stat, unlink } from 'node:fs/promises';
-import { once } from 'node:events';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import type { OperationProgress } from '../../shared/desktop-api';
 
@@ -58,38 +58,58 @@ async function sha512Base64OfFile(filePath: string): Promise<string> {
   return hash.digest('base64');
 }
 
-/** Normalizes a fetch Response body (web ReadableStream or async iterable) to one shape. */
-function bodyChunks(body: unknown): AsyncIterable<Uint8Array> {
-  if (body && typeof (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] === 'function') {
-    return body as AsyncIterable<Uint8Array>;
-  }
-  const reader = (body as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }).getReader();
+/** Own the fetch reader explicitly, including a read pending when the disk fails. */
+function openBody(body: unknown) {
+  const reader = typeof (body as ReadableStream<Uint8Array>).getReader === 'function'
+    ? (body as ReadableStream<Uint8Array>).getReader()
+    : null;
+  const iterator = reader ? null : (body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator]();
+  let done = false;
+  let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | null = null;
+  let closing: Promise<void> | null = null;
+  const close = (reason?: unknown): Promise<void> => {
+    if (!closing) {
+      closing = (async () => {
+        try {
+          if (!done) {
+            if (reader) await reader.cancel(reason);
+            else await iterator?.return?.();
+          }
+        } catch {
+          // Cleanup must not replace a useful HTTP, source, disk or abort error.
+        } finally {
+          if (reader) {
+            await pendingRead?.catch(() => {});
+            try { reader.releaseLock(); } catch { /* Preserve the initiating failure. */ }
+          }
+        }
+      })();
+    }
+    return closing;
+  };
   return {
-    [Symbol.asyncIterator]() {
-      return {
-        async next(): Promise<IteratorResult<Uint8Array>> {
-          const { done, value } = await reader.read();
-          if (done) return { done: true, value: undefined };
-          return { done: false, value: value! };
-        },
-      };
+    close,
+    async *chunks(signal: AbortSignal): AsyncGenerator<Uint8Array> {
+      // Pipeline aborts this signal for disk errors as well as user cancellation.
+      // Cancelling here settles a pending reader.read before iterator cleanup.
+      const abort = () => { void close(signal.reason); };
+      signal.addEventListener('abort', abort, { once: true });
+      try {
+        while (true) {
+          signal.throwIfAborted();
+          const result = reader
+            ? await (pendingRead = reader.read())
+            : await iterator!.next();
+          pendingRead = null;
+          if (result.done) { done = true; return; }
+          yield result.value;
+        }
+      } finally {
+        signal.removeEventListener('abort', abort);
+        await close(signal.reason);
+      }
     },
   };
-}
-
-async function writeChunk(stream: NodeJS.WritableStream, chunk: Buffer): Promise<void> {
-  if (!stream.write(chunk)) {
-    await once(stream, 'drain');
-  }
-}
-
-function endStream(stream: NodeJS.WritableStream & { end: (cb?: (error?: Error | null) => void) => unknown }): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.end((error?: Error | null) => {
-      if (error) reject(error);
-      else resolve();
-    });
-  });
 }
 
 export async function downloadArtifact(options: DownloadArtifactOptions): Promise<void> {
@@ -113,6 +133,9 @@ export async function downloadArtifact(options: DownloadArtifactOptions): Promis
 
   await mkdir(path.dirname(destination), { recursive: true });
   const partPath = `${destination}.part`;
+  let body: ReturnType<typeof openBody> | null = null;
+  let fileStream: WriteStream | null = null;
+  let writerClosed: Promise<void> | null = null;
 
   try {
     if (signal?.aborted) {
@@ -120,17 +143,15 @@ export async function downloadArtifact(options: DownloadArtifactOptions): Promis
     }
 
     const response = await fetchFn(url, { signal });
+    if (response.body) body = openBody(response.body);
     if (!response.ok || !response.body) {
       throw new Error(`Download failed: ${response.status} ${response.statusText}`);
     }
 
     const total = expectedSize > 0 ? expectedSize : Number(response.headers.get('content-length')) || null;
     const hash = createHash('sha512');
-    const fileStream = createWriteStream(partPath);
-    let streamError: Error | null = null;
-    fileStream.on('error', (error) => {
-      streamError = error;
-    });
+    fileStream = createWriteStream(partPath);
+    writerClosed = new Promise((resolve) => fileStream!.once('close', resolve));
 
     let transferred = 0;
     const samples: Array<{ time: number; bytes: number }> = [];
@@ -152,20 +173,23 @@ export async function downloadArtifact(options: DownloadArtifactOptions): Promis
       });
     };
 
-    for await (const chunk of bodyChunks(response.body)) {
-      if (signal?.aborted) throw new DOMException('The download was aborted', 'AbortError');
-      if (streamError) throw streamError;
-
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      hash.update(buffer);
-      transferred += buffer.length;
-      samples.push({ time: Date.now(), bytes: buffer.length });
-      await writeChunk(fileStream, buffer);
-      emitProgress(false);
-    }
-
-    if (streamError) throw streamError as Error;
-    await endStream(fileStream);
+    const responseBody = body!;
+    // Node supplies source options, though the current Node type declarations
+    // describe a zero-argument source. Keep the missing-context case explicit.
+    await pipeline(async function* (context?: { signal: AbortSignal }) {
+      if (!context) throw new Error('Download pipeline cancellation context is missing');
+      const readSignal = context.signal;
+      for await (const chunk of responseBody.chunks(readSignal)) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        hash.update(buffer);
+        transferred += buffer.length;
+        samples.push({ time: Date.now(), bytes: buffer.length });
+        yield buffer;
+        emitProgress(false);
+      }
+    }, fileStream, { signal });
+    await writerClosed;
+    signal?.throwIfAborted();
 
     const stats = await stat(partPath);
     if (stats.size !== expectedSize) {
@@ -177,9 +201,14 @@ export async function downloadArtifact(options: DownloadArtifactOptions): Promis
       throw new ChecksumMismatchError(expectedSha512, digest);
     }
 
+    signal?.throwIfAborted();
     await rename(partPath, destination);
     emitProgress(true);
   } catch (error) {
+    // destroy also waits for an in-flight asynchronous open before closing.
+    // In particular, unlinking first can miss a .part that has not opened yet.
+    fileStream?.destroy();
+    await Promise.all([body?.close(error), writerClosed]);
     await unlink(partPath).catch(() => {});
     throw error;
   }

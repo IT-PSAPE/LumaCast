@@ -47,6 +47,7 @@ interface AppCardProps {
   platform: HostPlatform;
   selected: boolean;
   selectionDisabled?: boolean;
+  actionPending?: boolean;
   onSelect: (modifiers: SelectionModifiers) => void;
   onToggleSelect: (modifiers: SelectionModifiers) => void;
   onPrimaryAction: (action: PrimaryActionKind) => void;
@@ -67,6 +68,7 @@ export function AppCard({
   platform,
   selected,
   selectionDisabled = false,
+  actionPending = false,
   onSelect,
   onToggleSelect,
   onPrimaryAction,
@@ -172,6 +174,7 @@ export function AppCard({
                 type="button"
                 aria-label="More actions"
                 aria-haspopup="menu"
+                disabled={actionPending}
                 className="shrink-0 rounded-control p-1.5 text-tertiary outline-hidden hover:bg-tertiary hover:text-primary"
                 onClick={(event) => {
                   event.stopPropagation();
@@ -240,7 +243,7 @@ export function AppCard({
           <ReacstButton
             variant="tinted"
             fullWidth
-            disabled={primary.action === "none"}
+            disabled={actionPending || primary.action === "none"}
             onClick={(event) => {
               event.stopPropagation();
               if (event.metaKey || event.ctrlKey || event.shiftKey) return;

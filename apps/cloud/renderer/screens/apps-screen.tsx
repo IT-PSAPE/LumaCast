@@ -25,6 +25,9 @@ import { PermissionDialog } from "../components/permission-dialog";
 import { UninstallDialog } from "../components/uninstall-dialog";
 import { VersionsDialog } from "../components/versions-dialog";
 import { activeOperationFor, formatRelativeTime } from "../presentation";
+import { ActionErrors } from "../components/action-errors";
+import type { ManagedActionOwner } from "../hooks/use-cloud-actions";
+import { useManagedActions } from "../hooks/use-managed-actions";
 
 type BulkActionKind = "install-update" | "uninstall";
 
@@ -101,6 +104,7 @@ interface AppsScreenProps {
   operations: OperationSnapshot[];
   api: CloudDesktopAPI;
   refresh: () => Promise<void>;
+  actions: ManagedActionOwner;
 }
 
 export function AppsScreen({
@@ -108,11 +112,8 @@ export function AppsScreen({
   operations,
   api,
   refresh,
+  actions,
 }: AppsScreenProps) {
-  const [pending, setPending] = useState<{
-    app: SuiteAppId;
-    run: () => void;
-  } | null>(null);
   const [versionsApp, setVersionsApp] = useState<SuiteAppId | null>(null);
   const [uninstallApp, setUninstallApp] = useState<SuiteAppId | null>(null);
   const [bulkReview, setBulkReview] = useState<BulkReview | null>(null);
@@ -120,6 +121,7 @@ export function AppsScreen({
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const bulkRunningRef = useRef(false);
+  const managed = useManagedActions(api, overview, actions, () => bulkRunningRef.current);
   const orderedAppIds = useMemo(
     () => overview.apps.map((state) => state.app),
     [overview.apps],
@@ -136,11 +138,13 @@ export function AppsScreen({
   const installUpdateIds = orderedAppIds.filter(
     (app) =>
       selection.selectedIds.has(app) &&
+      !actions.busyApps.has(app) &&
       isEligibleForBulkAction("install-update", app, overview, operations),
   );
   const uninstallIds = orderedAppIds.filter(
     (app) =>
       selection.selectedIds.has(app) &&
+      !actions.busyApps.has(app) &&
       isEligibleForBulkAction("uninstall", app, overview, operations),
   );
 
@@ -151,19 +155,8 @@ export function AppsScreen({
     ? (overview.apps.find((entry) => entry.app === uninstallApp) ?? null)
     : null;
 
-  function requestAction(app: SuiteAppId, run: () => void): void {
-    const granted = overview.settings.grants.some((grant) => grant.app === app);
-    if (granted) {
-      run();
-      return;
-    }
-    setPending({ app, run });
-  }
-
   function runInstall(app: SuiteAppId, version?: string): void {
-    requestAction(app, () => {
-      void api.install(app, version);
-    });
+    managed.request({ kind: "install", app, version });
   }
 
   function retainSelection(ids: SuiteAppId[]): void {
@@ -194,7 +187,7 @@ export function AppsScreen({
             api.operations(),
           ]);
           if (
-            !isEligibleForBulkAction(kind, app, freshOverview, freshOperations)
+            actions.isBusy(app) || !isEligibleForBulkAction(kind, app, freshOverview, freshOperations)
           ) {
             throw new Error(
               "It is busy or is no longer eligible for this action.",
@@ -217,12 +210,13 @@ export function AppsScreen({
             setRemoveBulkUserData(removeUserData);
             return;
           }
-          if (!granted) await api.grant(app);
-
-          const queued =
-            kind === "install-update"
+          const queued = await actions.admit(app, async () => {
+            if (!granted) await api.grant(app);
+            return kind === "install-update"
               ? await api.install(app)
               : await api.uninstall(app, { removeUserData });
+          });
+          if (!queued) throw new Error("The operation was not started.");
           const operation = await waitForOperation(api, queued);
           if (operation.status !== "done") {
             throw new Error(
@@ -283,6 +277,7 @@ export function AppsScreen({
   return (
     <div className="flex flex-col gap-6">
       <Title.h4>Apps</Title.h4>
+      <ActionErrors failures={managed.failures} onRetry={managed.retry} onDismiss={managed.dismiss} isBusy={(failure) => actions.busyApps.has(failure.action.action.app)} />
 
       <Toolbar label="Catalog" size="sm" className="px-0">
         <Toolbar.Start>
@@ -394,6 +389,7 @@ export function AppsScreen({
               platform={overview.host.platform}
               selected={selection.selectedIds.has(state.app)}
               selectionDisabled={bulkRunning}
+              actionPending={!managed.ready || bulkRunning || actions.busyApps.has(state.app)}
               onSelect={(modifiers) => selection.select(state.app, modifiers)}
               onToggleSelect={(modifiers) => {
                 const toggleModifiers: SelectionModifiers = modifiers.shiftKey
@@ -410,9 +406,7 @@ export function AppsScreen({
                     runInstall(state.app);
                     break;
                   case "open":
-                    requestAction(state.app, () => {
-                      void api.open(state.app);
-                    });
+                    managed.request({ kind: "open", app: state.app });
                     break;
                   case "self-check":
                     void api.checkForSelfUpdate();
@@ -426,9 +420,7 @@ export function AppsScreen({
                 }
               }}
               onOpen={() => {
-                requestAction(state.app, () => {
-                  void api.open(state.app);
-                });
+                managed.request({ kind: "open", app: state.app });
               }}
               onReveal={() => {
                 void api.reveal(state.app);
@@ -467,24 +459,19 @@ export function AppsScreen({
         onClose={() => setUninstallApp(null)}
         onConfirm={(removeUserData) => {
           const app = uninstallApp;
-          if (app)
-            requestAction(app, () => {
-              void api.uninstall(app, { removeUserData });
-            });
+          if (app) managed.request({ kind: "uninstall", app, removeUserData });
           setUninstallApp(null);
         }}
       />
 
       <PermissionDialog
-        open={pending !== null}
-        descriptor={pending ? suiteApp(pending.app) : null}
+        open={managed.pending !== null}
+        descriptor={managed.pending ? suiteApp(managed.pending.action.app) : null}
+        busy={managed.allowing}
         onAllow={() => {
-          if (!pending) return;
-          const { app, run } = pending;
-          void api.grant(app).then(() => run());
-          setPending(null);
+          if (managed.pending) managed.allow(managed.pending);
         }}
-        onNotNow={() => setPending(null)}
+        onNotNow={() => { if (managed.pending) managed.notNow(managed.pending); }}
       />
 
       <Modal

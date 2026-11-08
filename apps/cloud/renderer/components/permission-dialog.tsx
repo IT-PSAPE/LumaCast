@@ -6,6 +6,7 @@ interface PermissionDialogProps {
   descriptor: SuiteAppDescriptor | null;
   onAllow: () => void;
   onNotNow: () => void;
+  busy?: boolean;
 }
 
 const PERMITTED_ACTIONS = ["Install", "Update", "Downgrade", "Remove", "Open"];
@@ -15,6 +16,7 @@ export function PermissionDialog({
   descriptor,
   onAllow,
   onNotNow,
+  busy = false,
 }: PermissionDialogProps) {
   if (!descriptor) return null;
 
@@ -34,8 +36,8 @@ export function PermissionDialog({
         <ReacstButton variant="ghost" onClick={onNotNow}>
           Not now
         </ReacstButton>
-        <ReacstButton variant="tinted" onClick={onAllow}>
-          Allow
+        <ReacstButton variant="tinted" disabled={busy} onClick={onAllow}>
+          {busy ? "Allowing…" : "Allow"}
         </ReacstButton>
       </div>
     </Modal>

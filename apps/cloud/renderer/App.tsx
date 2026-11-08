@@ -6,14 +6,19 @@ import {
   Settings as SettingsIcon,
 } from "lucide-react";
 import {
+  Banner,
+  EmptyState,
   ListRow,
+  ReacstButton,
   Sidebar,
+  Spinner,
   StatusBar,
   StatusDot,
   WindowChrome,
   type StatusTone,
 } from "@lumacast/ui";
 import { useSuite } from "./hooks/use-suite";
+import { useManagedActionOwner } from "./hooks/use-cloud-actions";
 import { AppsScreen } from "./screens/apps-screen";
 import { UpdatesScreen } from "./screens/updates-screen";
 import { ActivityScreen } from "./screens/activity-screen";
@@ -75,7 +80,8 @@ const SELF_UPDATE_STATUS: Record<SelfUpdateStatus, SelfUpdateEntry> = {
 export function App() {
   useSystemTheme();
 
-  const { overview, operations, refresh, api } = useSuite();
+  const { overview, operations, loading, operationsLoading, refreshing, operationsError, error, retry, refresh, api } = useSuite();
+  const actions = useManagedActionOwner(api, operations);
   const [screen, setScreen] = useState<ScreenId>("apps");
 
   // The window has no native title bar, so the chrome (the only drag region)
@@ -92,7 +98,22 @@ export function App() {
     return (
       <div className="flex h-screen flex-col bg-primary">
         {chrome}
-        <div className="flex-1" />
+        <main className="flex min-h-0 flex-1" aria-busy={loading}>
+          {loading ? (
+            <EmptyState.Root role="status">
+              <EmptyState.Icon><Spinner /></EmptyState.Icon>
+              <EmptyState.Title>Loading apps…</EmptyState.Title>
+            </EmptyState.Root>
+          ) : (
+            <EmptyState.Root role="alert">
+              <EmptyState.Title>Could not load LumaCloud</EmptyState.Title>
+              <EmptyState.Description>{error?.message}</EmptyState.Description>
+              <EmptyState.Action>
+                <ReacstButton onClick={() => void retry()}>Retry</ReacstButton>
+              </EmptyState.Action>
+            </EmptyState.Root>
+          )}
+        </main>
       </div>
     );
   }
@@ -133,20 +154,41 @@ export function App() {
           </Sidebar.Nav>
         </Sidebar>
 
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-8" aria-busy={refreshing || (screen === "activity" && operationsLoading)}>
+          {error ? (
+            <Banner
+              tone="error"
+              className="mb-4"
+              action={<ReacstButton variant="ghost" onClick={() => void (error.source === "refresh" ? refresh() : retry())}>Retry</ReacstButton>}
+            >
+              {error.message}
+            </Banner>
+          ) : null}
           {screen === "apps" ? (
             <AppsScreen
               overview={overview}
               operations={operations}
               api={api}
               refresh={refresh}
+              actions={actions}
             />
           ) : null}
           {screen === "updates" ? (
-            <UpdatesScreen overview={overview} api={api} />
+            <UpdatesScreen overview={overview} api={api} actions={actions} />
           ) : null}
           {screen === "activity" ? (
-            <ActivityScreen operations={operations} />
+            operationsLoading && operations.length === 0 ? (
+              <EmptyState.Root role="status">
+                <EmptyState.Icon><Spinner /></EmptyState.Icon>
+                <EmptyState.Title>Loading activity…</EmptyState.Title>
+              </EmptyState.Root>
+            ) : operationsError && operations.length === 0 ? (
+              <EmptyState.Root>
+                <EmptyState.Title>Activity unavailable</EmptyState.Title>
+              </EmptyState.Root>
+            ) : (
+              <ActivityScreen operations={operations} />
+            )
           ) : null}
           {screen === "settings" ? (
             <SettingsScreen overview={overview} api={api} />
