@@ -22,9 +22,14 @@ Workspace packages are shared below apps and cannot import app code. Renderer
 imports use an explicit safe-package allow-list in
 `tool/check_electron_architecture.mjs`; Electron, Node, native, and persistence
 packages stay in main. Package dependencies are also default-deny and follow
-the direction table in that checker. Its TypeScript AST scan covers imports in
-template expressions as well as ordinary module syntax, and the fixture suite
-fails when a scenario has no source files.
+the direction table in that checker. Node builtins are denied in every renderer
+layer and every module of a renderer-approved package, including its internal
+workspace dependencies. Type-only imports remain dependency edges governed by
+the same ownership rules. The TypeScript AST scan covers `.ts`, `.tsx`, `.mts`,
+`.cts`, `.js`, `.jsx`, `.mjs`, and `.cjs`, including template/JSX expressions and
+CommonJS import-equals declarations and import-type queries. Imports naming emitted JavaScript resolve
+to their TypeScript sources before boundary checks. The fixture suite fails
+when a scenario has no source files.
 
 `@lumacast/selection` supplies domain-independent selection behavior to every
 app (ADR-0117). Pure string-ID transitions support controlled stores, while
@@ -46,6 +51,12 @@ parses static ES imports/exports (`.ts`, `.tsx`, `.mjs`, `.js`, and `.cjs` are
 all code) and applies an exact allow-list, currently empty. The legacy
 root tree `app/` is still checked so an in-flight migration keeps its
 coverage, but every app now lives under `apps/<app>/` (ADR-0043).
+
+All six apps pin Electron 44.10.2 and require macOS 13 or later. Smoke and
+integration launchers resolve the Electron package installed for the selected
+app and validate the executable's actual version before launching; they do not
+assume a hoisted or app-local `node_modules` layout. Native feature requirements remain separate:
+macOS application-audio capture, for example, requires macOS 14.2.
 
 ### LumaSoundboard
 
@@ -73,6 +84,14 @@ manifest. Valid version-1 manifests migrate atomically on load. Main validates
 settings and rejects duplicate shortcuts within a board; renderer validation
 also checks bounds against decoded duration. End-of-range playback stops or
 loops back to start. Playback position remains transient (ADR-0050).
+
+The app owns the current API session, canonical library snapshot, and one
+exclusive mutation slot. Sound-setting intents merge with the current snapshot
+when they acquire that slot. Each composed tile owns one audio resource keyed
+by sound identity, a range-write owner, and shortcut recording. Pointer previews
+and submitted range commands remain separate from saved playback bounds; rapid
+In/Out marks compose pending commands without changing playback before a save.
+API replacement, sound removal, and unmount retire pending work.
 
 Keyboard shortcuts are handled by a focused renderer window, for the active
 board only. Input editing, shortcut recording, composition, and repeated keydown
@@ -186,14 +205,23 @@ capture authorization boundary. Main validates the selected PID/path syntax;
 the native helper checks that live PID against the expected executable path.
 Both helpers emit 48 kHz stereo float PCM. macOS uses a tap-only aggregate so
 the physical output device's clock cannot change the captured PCM's playback
-rate. The scene stores the executable path, not
+rate. Its capture callback admits complete blocks to a fixed 96,000-byte queue;
+a nonblocking writer preserves FIFO order. Overflow or 250 ms without output
+progress while audio is pending ends capture with a diagnostic. Explicit stop
+aborts pending PCM and joins the writer after callbacks have quiesced. Kernel
+pipe buffering is separate from this application queue.
+The scene stores the executable path, not
 the PID, so process identity is transient. Standalone Application Audio requires
 a new live selection after restart; display capture restores combined app audio
 only when the saved path uniquely matches a live catalog entry. Main owns one
 capture child and transferred MessagePort
 per source, and stops the child when the source is stopped or its renderer
-connection closes. The trusted renderer feeds PCM frames into a bounded
-AudioWorklet queue, exposes its output as a MediaStream, and routes it through
+connection closes. Five consumption-based credits bound outstanding PCM to
+38,400 bytes across the renderer relay and worklet; only worklet consumption returns
+credit. Main uses one fixed packet-assembly buffer and stops pulling stdout
+when credit is exhausted. A 250 ms oldest-packet deadline fails a stalled
+consumer. The mixer resumes and confirms worklet activity before helper launch.
+The trusted renderer exposes the worklet output as a MediaStream and routes it through
 the existing mixer for source processing, monitoring, metering, and track
 routing (ADR-0106).
 
@@ -277,7 +305,17 @@ load, Stream creates Profile 1 from the active collection's saved output
 settings and output hotkeys. Saves
 are serialized and include both collection and profile IDs, so stale renderer
 saves cannot overwrite a newly selected profile. Collection switching flushes
-the current project before changing the active ID. Startup migrates the previous
+the current project before changing the active ID. The renderer queues each edit
+synchronously under its API session and collection/profile owner; a single
+250 ms autosave drain serializes revisions and retains failed writes for retry.
+Native close, application quit, Windows session-close, and renderer reload
+requests keep the renderer alive for a scoped flush acknowledgement, then drain
+accepted store operations before teardown. The renderer prevents DOM unload;
+main approves a persisted close/quit or reissues one reload of the app document. A save failure or a 10-second renderer timeout
+keeps the window open. Forced termination cannot recover unsent renderer state.
+Initial project-load failures retain window chrome and offer Retry; late load
+responses from replaced sessions or superseded requests are ignored.
+Startup migrates the previous
 single `scene-collection.json` file without deleting it. Switching profiles or
 collections is blocked during stream, recording, or replay output; a collection
 switch also stops capture tracks, clears mixer routes, and releases the previous
@@ -497,8 +535,15 @@ transfer lists drop the message payload ([Electron #34905](https://github.com/el
 The existing SDK bridge does not collect participant counts.
 YouTube's output lifecycle is independent of API-reported health and viewer
 metrics. The selected authorized broadcast ID scopes metrics; manual keys do
-not identify a video. Zoom's native sender-stop event fails and tears down its
-output session, while callbacks after explicit stop are ignored. NDI remains
+not identify a video. Zoom reserves its single output before credential lookup;
+shutdown cancels that attempt, and late results cannot replace a newer session
+or initialize output for a closed/replaced window. Zoom's native sender-stop
+event fails and tears down its output session, while callbacks after explicit
+stop are ignored. The native addon reserves its singleton for one Node-API
+environment until platform teardown completes. Its short ownership lock is
+never held across SDK calls. Environment cleanup closes event delivery before
+stopping the SDK; queued payloads are reclaimed even when JavaScript is gone.
+Audio accepts only complete interleaved PCM frames. NDI remains
 a local Program sender, with starting/stopping surfaced in both its dialog and
 Controls.
 
@@ -835,6 +880,11 @@ Each rule is also proven by a committed fixture scenario under
   through duplicated handles, and Linux DMA-BUF planes through an owner-only
   Unix socket. Native handles never enter renderer IPC. Only the workbench may
   publish scenes, and output-window acknowledgements must match its webContents.
+- A main-process decoder validates Chromium texture metadata and translates
+  Electron's platform-specific `handle` into the existing native export shape.
+  It accepts only full-size BGRA/RGBA frames and bounded platform handles;
+  malformed modern handles cannot fall back to legacy metadata. This boundary
+  preserves the original texture lease and makes no JavaScript pixel copy.
 - Readback, alpha handling and NDI submission execute on native workers.
   macOS uses Metal for Rec.709 UYVY/UYVA conversion; Windows/Linux read native
   BGRA/RGBA and use the SDK's colour conversion. Two native buffers preserve
@@ -862,7 +912,10 @@ Each rule is also proven by a committed fixture scenario under
   NDI synthesized timecodes. Each enabled output normally receives planar PCM
   over its own versioned port directly from the AudioWorklet to the NDI utility
   process, bypassing renderer and main-process event loops that can be busy
-  during a slide change. The utility validates the handshake, output, numeric
+  during a slide change. Ports transfer at attachment; each output's owned PCM
+  buffer is structured-cloned across the utility port. ArrayBuffer transfer
+  lists yield an invalid payload at that receiver with Electron 44 (ADR-0021).
+  The utility validates the handshake, output, numeric
   bounds, and exact planar byte length before submission. Until a port is ready,
   or after it fails, only that output uses the existing renderer -> main ->
   utility IPC route; ready outputs are never duplicated on the fallback route.
@@ -1118,6 +1171,13 @@ Each rule is also proven by a committed fixture scenario under
   hashed the same way `hashMcpToken` does and compared in constant time
   against the client roster main forwards on `start`/`update-clients` — an
   unknown or missing token is 401. Tokens are never logged.
+- Authenticated POST bodies are bounded before SDK validation or new session
+  allocation. Cast allows 4 MiB and Flux retains its 1 MiB limit; both reject
+  batches above 100 messages, aggregate object keys/array members above 100,000,
+  and nesting beyond 64. The shared main-process JSON reader lives in
+  `@lumacast/desktop`. A Cast session belongs to its authenticated client;
+  another valid client's token cannot reuse it. Failed initialization releases
+  transport resources and subscriptions.
 - `AgentConfig.mcp.port` (default `43117`, `null` for ephemeral) is the
   loopback port the host tries first; it falls back to an OS-assigned port
   itself if that one is taken and reports the real port back through `ready`.
@@ -1146,19 +1206,25 @@ Each rule is also proven by a committed fixture scenario under
 - `apps/cast/main/index.ts`'s `createMainWindow()` attaches `will-navigate` and
   `setWindowOpenHandler` to the window's `webContents`; both are deny-by-default.
   `will-navigate` allows only the application's own origin
-  (`isTrustedWebContentsUrl` in `apps/cast/main/security.ts`: the dev-server hosts in
-  `DEV_ALLOWED_HOSTS`, or the exact packaged `renderer/index.html` path) and
+  (`isTrustedWebContentsUrl` in `apps/cast/main/security.ts`: the exact configured
+  development origin in unpackaged mode, or the exact bundled
+  `renderer/index.html` path, with view queries preserved) and
   otherwise calls `event.preventDefault()`. The window-open handler always
   returns `{ action: 'deny' }` — no new `BrowserWindow` is ever created from
   renderer-requested navigation — and, only for a URL matching the explicit
   `APPROVED_EXTERNAL_ORIGINS` allow-list in `security.ts` (currently
   `https://github.com`, the Help menu's "Learn more" item), calls
   `shell.openExternal(url)` as a side effect before still returning deny.
-- Both allow-lists live in source (`apps/cast/main/security.ts`) and are extended
-  only by editing that file; neither is ever populated from renderer input,
-  IPC payloads, or configuration. `isTrustedWebContentsUrl` is also reused by
-  `assertTrustedIpcSender`, so its file-path and credentials handling harden
-  both call sites at once.
+- The development URL must be credential-free HTTP(S) on a loopback host.
+  Main and NDI-output loaders share `getDevServerUrl`; packaged mode ignores
+  the environment setting, and invalid configuration falls back to the bundled
+  renderer. The external-origin allow-list remains source-owned and is never
+  populated from renderer input or IPC payloads.
+- `assertTrustedIpcSender` requires a live owning window/webContents and an
+  exact, non-null main-frame identity, then validates both URLs with the same
+  renderer policy. NDI readiness also requires the owned output's main frame.
+  Present managed-media referrers use this policy; absent Chromium referrers
+  remain supported for cross-scheme requests.
 - Denial never logs or surfaces the denied URL: both handlers log only
   `describeUrlSchemeForLogging(url)` (the scheme, or `'unparseable'`), since a
   `file:` URL can carry an absolute filesystem path.
@@ -1559,12 +1625,13 @@ downloading and installation disabled. Managed-app update discovery remains in
 Cloud's release catalog (ADR-0116); app-isolated release feeds remain published
 for metadata and existing shipped clients.
 
-`.github/workflows/ci-release.yml` is the single validation and release pipeline
-(ADR-0043, which supersedes ADR-0035's single-release decision). It is called
-only by the gating workflow `.github/workflows/ci.yml` (ADR-0047), once per app
-the change affects, with one input, `app`, so the apps validate and release
-independently from one repository and a Cast run never collides with a Cloud,
-Flux, or Chord run. The pipeline logic itself is not duplicated per app.
+`.github/workflows/ci-validate.yml` owns the common read-only validation job for
+all six apps. The gating workflow `.github/workflows/ci.yml` (ADR-0047) calls it
+directly for Stream and Soundboard. Cast, Cloud, Flux, and Chord call
+`ci-release.yml`, which reuses that validation job and owns the separate release
+and native GPU jobs (ADR-0043). Validation-only callers need no publishing
+permissions or release secrets. Per-app concurrency keeps unrelated apps
+independent, and the validation logic is not duplicated.
 
 - **Gate.** `tool/ci/affected-apps.mjs` derives the app-to-package graph from
   the workspaces' static `@lumacast/*` imports and declared dependencies, closed
@@ -1577,13 +1644,21 @@ Flux, or Chord run. The pipeline logic itself is not duplicated per app.
   retried by the next push), a pull request from its base, and a manual run
   takes an `apps` input (`all`, `affected`, or a list) and an opt-in `release`
   input (ADR-0048).
+- **Required result.** `tool/ci/check-results.mjs` checks the detector's exact
+  selection against the caller-job results. Every selected app must succeed;
+  a skipped or missing selected job fails the summary. Documentation-only
+  changes may select no apps.
 - **Local parity.** `tool/ci/run.mjs` is the validation step CI executes and the
   command a developer runs (`npm run ci -- --app <app>`, `npm run ci:affected`):
   typecheck, architecture checks, unit tests scoped to the app and its packages,
   Cast's native NDI tests, the app build, and (with `--e2e`) Cast's Playwright
   suite. `.nvmrc` pins the Node version CI uses.
 
-- **Trigger.** Pull requests stop after validation. A `main` push releases an app
+- **Trigger.** Pull requests stop after validation. Publishing remains limited
+  to Cast, Cloud, Flux, and Chord, independently of which apps validate. The
+  reusable validation job exposes that release eligibility through
+  `isReleaseApp` in `tool/release-version.mjs`; the release detector requires it
+  for both pushes and manual dispatches. A `main` push releases an eligible app
   only when that app's own manifest version (`apps/<app>/package.json`) is a
   stable semantic version strictly greater than its baseline; an unchanged
   version ends after validation. A manual dispatch is CI-only unless its
@@ -1600,22 +1675,22 @@ Flux, or Chord run. The pipeline logic itself is not duplicated per app.
   a delayed or reverted push cannot hand the latest slot to an old version.
 - **Version release.** Immutable, tagged `<app>-v<version>`, and carrying the
   installers. It is assembled as a draft and published in one request, so a
-  partially uploaded release is never visible to an updater. Cast keeps the
-  signed Windows/macOS/Linux matrix and the native NDI addon; Cloud and Flux
-  package unsigned Linux artifacts.
+  partially uploaded release is never visible to an updater. All four release
+  apps share the Windows/macOS/Linux packaging matrix; signing is optional when
+  secrets are absent. Only Cast builds the native NDI addon.
 - **Update feed.** A permanent `<app>-feed` release carries generic updater
   metadata only. Its installer URLs are absolute and point at the immutable
-  `<app>-v<version>` release that produced them, and the feed is updated on every
-  `main` push so a failed update heals without republishing a version. The feed
-  job drops channel files the release no longer produces, so a feed can never
-  serve two versions.
+  `<app>-v<version>` release that produced them. Each selected app pipeline on
+  `main` checks its feed, including eligible manual runs, so a failed update can
+  heal without republishing installers. The feed job drops channel files the
+  release no longer produces, so a feed can never serve two versions.
 - **Latest slot.** Only a Cast version release is published with
   `make_latest=true`. That is the legacy bridge: only legacy shipped Cast
   versions (`provider: github`) resolve the repository's latest release, which
-  is always a Cast release. Every new build — Cast, Cloud, and Flux — uses
-  `provider: generic` against its own `<app>-feed` release; Cloud, Flux, and
-  every feed release are published with `make_latest=false`, so their updates
-  can never resolve against a Cast release.
+  is always a Cast release. All four release apps use `provider: generic`
+  against their own `<app>-feed` release; Cloud, Flux, Chord, and every feed
+  release are published with `make_latest=false`, so their updates can never
+  resolve against a Cast release.
 
 Cast's identity is unchanged by the move: product name `LumaCast`, app id
 `com.lumacast.app`. Flux is a new app; Cloud is the suite manager described
@@ -1651,7 +1726,9 @@ those remain explicit operations. See ADR-0116.
   release.
 - **Download and verification** (`apps/cloud/main/suite/download.ts`) stream
   the chosen artifact while hashing it and refuse to install on a size or
-  SHA-512 mismatch against the release's own `latest*.yml`.
+  SHA-512 mismatch against the release's own `latest*.yml`. Failure cancels the
+  response reader and closes the writer before removing its partial file;
+  verified output replaces the destination only after the writer closes.
 - **The platform seam** (`apps/cloud/main/platform`) is one `PlatformAdapter`
   per host: macOS discovers bundles by `Info.plist` under `/Applications` and
   `~/Applications` and verifies the bundle identifier before placing a bundle;
@@ -1674,7 +1751,11 @@ those remain explicit operations. See ADR-0116.
   through the typed `CloudDesktopAPI` contract (`apps/cloud/shared/desktop-api.ts`)
   exposed as `window.lumacloud`, every IPC handler validates its sender and
   arguments, and the only external destination the app opens is a GitHub
-  release page.
+  release page. Managed-action admission belongs to the bridge session and app,
+  surviving Apps/Updates navigation until pending IPC and queued operations
+  settle. Feedback belongs to the current screen; retry preserves the intent
+  while rechecking the current grant and operation. Settings display canonical
+  values until a successful overview update.
 
 ## LumaChord lyric-video maker
 
@@ -1698,7 +1779,9 @@ finished video (ADR-0045). Its layers:
   native menu that pushes `MenuCommand`s to the renderer, the
   `lumachord://file/<path>` media scheme served with Range support for
   admitted paths only (`media-scheme.ts`), and the export file sink that
-  writes encoder chunks at byte offsets (`export-sink.ts`). The renderer
+  writes encoder chunks at byte offsets (`export-sink.ts`). Exports stage in a
+  sibling temporary file and replace the destination only after complete
+  writes, sync, and close; cancellation preserves the prior destination. The renderer
   reaches it only through the typed `window.lumachord` bridge
   (`shared/desktop-api.ts`); every IPC handler validates its sender frame and
   arguments.
@@ -1709,14 +1792,60 @@ finished video (ADR-0045). Its layers:
   background. The timeline feature implements the transport, ruler, waveform
   track, lyric clips with drag, trim, snap, split, marquee, zoom, and
   tap-to-mark; the inspector edits the theme or a selected cue.
+  Document instances have separate async lifetimes even when they share a
+  project ID. Saves serialize invocation snapshots, reuse a preceding saved
+  destination, and preserve later edits or a replaced document. Media URLs
+  follow project changes and undo/redo independently for audio and background;
+  stale lookups cannot replace a newer source or imported URL. Main serializes
+  recent-project reads, pruning, and writes on one recoverable queue.
+  Imports capture the loaded-document session before picker/admission and
+  retain the latest accepted action/file order independently for audio,
+  background, and lyrics. Document replacement or a newer accepted selection
+  cancels stale probes/prompts; ordinary edits retain ownership. Append reads
+  current cues when accepted, and replaced confirmations settle as dismissed.
+- **Document navigation** belongs to the shell coordinator. New, Open, recent
+  files, and OS-open paths share one pending action and live-document
+  Save/Discard/Cancel protection. Main sends path intents, leaving document
+  reads and replacement under that owner. Close waits for renderer readiness
+  and consent, retires that window's export registry, then replays native close.
+  A final synchronous check of the exact document revision and session vetoes
+  edits or replacement during the asynchronous drain. The cached native dirty
+  mirror is not close authority; a veto restores an editable window and a fresh
+  registry after the prior registry drains (ADR-0045).
 - **Export** (`renderer/features/export`) renders every frame through the same
   Konva stage at the export size, encodes with WebCodecs via mediabunny, muxes
   the decoded audio, and streams MP4/MOV/WebM/MKV (or M4A/MP3/WAV, or a PNG
   frame) to main's sink. Background video is decoded frame-accurately for
   export. Codec choice degrades to what the platform can encode, with bundled
-  AAC and MP3 software encoders as the floor.
+  AAC and MP3 software encoders as the floor. Export requests own their API and
+  document session through setup, progress, cancellation, and publication;
+  superseded jobs cannot update a successor. Timestamp-interleaved audio/video
+  and awaited track completion preserve unequal tails without padding or
+  trimming audio. Audio and background-video reads use 8 MiB range caches.
+  Background video retains
+  two consumer samples and two alternating canvases, with a 128 MiB canvas
+  budget; browser and decoder allocations are separate. Unresolvable timestamp
+  precision fails explicitly. The pinned MediaBunny lifecycle patch and its
+  verified ESM/source-notice build contract are documented in ADR-0123.
 
 ## LumaFlux photo editing and agent guidance (ADR-0046)
+
+`apps/flux/shared/photo-command.ts` defines correlated command requests and
+inferred results for the desktop bridge; main retains runtime validation.
+Renderer-safe analysis and suggestion data lives in `photo-model`, while image
+processing stays in `photo-imaging` (including its existing type re-export).
+
+The renderer catalog hook owns the API session, canonical photo snapshot,
+change subscription, and typed command/refresh coordination. Only the current
+session's latest read may publish a snapshot or load error. Initial loading and
+failure have explicit states with retry; a background failure retains the usable
+catalog. Local commands suppress their own change echo, then await a refresh
+without replacing the original command result or failure.
+
+The app retains selection intents, filters, busy state, photo drafts and revision
+checks. Selection recovery reads the current canonical snapshot rather than an
+obsolete request result. API replacement and unmount retire the old catalog
+session, including when the same API object is later reused.
 
 LumaFlux's editor chrome opts into the shared dark theme's semantic tokens:
 `apps/flux/renderer/index.html` sets `data-theme="dark"` before first paint.
@@ -1728,6 +1857,13 @@ label/value columns rather than a helper paragraph.
 Flux validates rating and adjustment batches before one serialized catalog
 replacement, with a shared 10,000-photo limit for selection, batch edits, and
 exports. Export jobs snapshot their source records and recipes when queued.
+The export manager admits at most 100 outstanding jobs containing 10,000 photos
+in total; a full queue rejects the whole request with a retryable error. Queued
+cancellation releases its snapshots immediately, while a cancelled running job
+retains its capacity until rendering and cleanup settle. Session history keeps
+the newest 100 terminal jobs covering at most 10,000 photos, in submission order;
+active jobs remain visible. History eviction removes only job records, preserving
+all exported files and the complete results of retained jobs.
 Catalog change notifications remain immediate; job-only progress notifications
 are coalesced in the desktop process and do not trigger catalog cache pruning.
 Thumbnail pruning reads a detached ID list rather than cloning photo histories.

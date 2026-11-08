@@ -1,10 +1,11 @@
 # Release and signing setup
 
-LumaCast uses one reusable pipeline for every app: `.github/workflows/ci-release.yml`.
-One gating workflow, `.github/workflows/ci.yml`, runs on pull request, push to
-`main`, and manual dispatch; it detects which apps the change affects
-(`tool/ci/affected-apps.mjs`) and calls the pipeline with the `app` input once
-per affected app (ADR-0047).
+All six apps share read-only validation in `.github/workflows/ci-validate.yml`.
+Cast, Cloud, Flux, and Chord wrap it with `.github/workflows/ci-release.yml` for
+publishing. The gating workflow, `.github/workflows/ci.yml`, runs on pull
+requests, pushes to `main`, and manual dispatch; it detects affected apps
+(`tool/ci/affected-apps.mjs`) and calls the appropriate workflow once per app.
+Stream and Soundboard receive validation without publishing permissions.
 
 ## Workflow
 
@@ -14,15 +15,28 @@ affected app. A manual dispatch chooses its apps through the `apps` input
 `node tool/ci/run.mjs --app <app> --e2e`, the same command that reproduces it
 locally (`npm run ci -- --app <app>`):
 
-1. dependency installation and native packages
+1. dependency installation and native packages; provision and verify the selected app's pinned Electron
 2. TypeScript (root plus the app workspace) and architecture checks
 3. unit tests scoped to the app, its packages, and the shared tool tests; NDI tests (Cast only)
-4. `npm run build:<app>` for the calling app (`@lumacast/cast`, `@lumacast/cloud`, `@lumacast/flux`, `@lumacast/chord`)
+4. `npm run build:<app>` for the calling app (`cast`, `cloud`, `flux`, `chord`, `soundboard`, or `stream`)
 5. Playwright end-to-end tests (Cast only)
 
-Only a push to `main` can release, and only when the calling app's manifest
-`apps/<app>/package.json#version` is a stable `major.minor.patch` strictly
-greater than its baseline (the same file before the push):
+Electron 44 installs its binary lazily when required. CI explicitly prepares the
+selected app's runtime before native or end-to-end checks; Linux sandbox setup
+uses the helper beside that verified binary, including app-local npm layouts.
+Locally, `node tool/ci/run.mjs --app cast --only runtime` prepares just the runtime.
+Native and end-to-end selections include this prerequisite automatically.
+
+The required CI result rejects failed detection, missing application jobs, and
+any selected app whose validation did not succeed. Skipped jobs are accepted
+only for apps that were not selected. Stream's OS audio helpers and Zoom SDK
+integrations require their separate platform checks; this shared validation
+does not exercise real capture devices or provider sessions.
+
+For release-enabled apps, a push to `main` can publish when the manifest
+`apps/<app>/package.json#version` is a stable release version strictly greater
+than its baseline (the same file before the push). Flux may additionally carry
+a numeric build revision (`major.minor.patch+<number>`).
 
 - An unchanged version stops after validation.
 - A missing baseline never auto-releases. Cloud and Flux have no history, so
@@ -34,13 +48,15 @@ greater than its baseline (the same file before the push):
   fails instead of handing the latest slot or feed to an old version.
 - An already published `<app>-v<version>` tag is a no-op for installers; the
   feed job still runs so it can heal.
-- A manual dispatch is CI-only and never packages.
+- A manual dispatch is CI-only unless `release` is checked. On `main`, that
+  request may publish an unpublished version without a baseline increase;
+  it still refuses versions older than the highest published release.
 
 There is no prerelease workflow; prerelease versions fail the gate.
 
 ## Releases and feeds
 
-All apps release from the same `IT-PSAPE/LumaCast` repository:
+Release-enabled apps publish from the same `IT-PSAPE/LumaCast` repository:
 
 - Each version release is an immutable `<app>-v<version>` tag carrying raw
   installers and raw `latest*.yml` updater metadata.
@@ -66,9 +82,18 @@ Feed releases are never installable from Cloud.
 
 ## Build matrix
 
-Every app packages Windows, macOS, and Linux with the same formula. The workflow
-pins Node.js `22.13.0` and runs `electron-builder --projectDir apps/<app>`
-with `--win`, `--mac`, or `--linux`.
+All six apps use Electron `44.10.2`; macOS builds require macOS 13 or newer.
+The runtime requires 64-bit Windows 10 or newer, or a 64-bit Linux distribution
+supported by both Chromium and its vendor. Electron 44 removes Windows `ia32`
+and Linux `armv7l`; the existing x64 release matrix is unaffected. See the
+[versioned platform policy](https://github.com/electron/electron/blob/v44.10.2/README.md#platform-support).
+Keep every app's exact Electron dependency and Flux's explicit builder runtime
+pin aligned with the root lockfile. Resolve test binaries from the app's
+manifest so npm hoisting cannot select another app's runtime.
+
+Release-enabled apps package Windows, macOS, and Linux with the same formula.
+The workflow pins Node.js through `.nvmrc` and runs
+`electron-builder --projectDir apps/<app>` with `--win`, `--mac`, or `--linux`.
 
 | Runner | Output | Architecture |
 | --- | --- | --- |
@@ -93,9 +118,10 @@ YAML with `js-yaml`, which is a root devDependency.
 ## Repository permissions
 
 The reusable workflow defaults to `contents: read` and grants `contents: write`
-only to the version-release and feed jobs. Each app wrapper grants
+only to the version-release and feed jobs. Each release-enabled app wrapper grants
 `contents: write` on its reusable-call job and passes `secrets: inherit` so
-optional signing secrets reach packaging. The repository-level default may remain read-only.
+optional signing secrets reach packaging. Stream and Soundboard call only the
+read-only validation workflow. The repository-level default may remain read-only.
 
 Check the current setting with:
 

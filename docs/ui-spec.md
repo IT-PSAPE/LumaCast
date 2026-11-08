@@ -1,99 +1,106 @@
 # LumaCast UI Specification
 
-Updated on 2026-08-18. This document describes the current renderer shell and
-screen layout as implemented. It replaces an earlier version describing a
-`show` / `slide-editor` / `overlay-editor` workbench with a fixed
-`LibraryPanel` + `SlideBrowser` + `ResourceDrawer` + `PreviewPanel` layout;
-that structure predates the current screen set. For naming/boundary detail
-behind this document, see [renderer-taxonomy.md](./renderer-taxonomy.md).
+Updated on 2026-11-08. Scope: the Cast renderer in `apps/cast/renderer`.
+[Renderer taxonomy](./renderer-taxonomy.md) defines names and ownership;
+[UI code design](./ui-code-design-spec.md) describes composition and shared UI.
 
 ## 1. Shell Structure
 
-`app/renderer/App.tsx` renders a persistent shell:
+`apps/cast/renderer/shell/app-layout-content.tsx` composes the persistent shell:
 
-1. `WindowsInlineMenuBar` wrapping `AppToolbar` (`data-ui-region="app-toolbar"`)
-2. The active screen, chosen by `WorkbenchScreenRouter` from `workbenchMode`
-3. `StatusBar` (`data-ui-region="status-bar"`)
+1. `AppToolbar`, including platform-aware window chrome and `InlineMenuBar`
+   (`data-ui-region="app-toolbar"`).
+2. A main area showing the active screen through `WorkbenchScreenRouter`, or
+   snapshot startup loading/error/retry state before project data is available.
+3. `StatusBar` (`data-ui-region="status-bar"`).
+
+The toolbar and status bar remain outside the screen router. Root providers,
+output gates, command palette, assistant popup, and render host are composed in
+`apps/cast/renderer/App.tsx`.
 
 ## 2. Canonical Workbench Modes
 
-`WorkbenchMode` (`app/renderer/types/ui.ts`): `show | item-editor |
-overlay-editor | theme-editor | stage-editor | macro-editor | settings`.
+`WorkbenchMode` in `apps/cast/renderer/types/ui.ts` contains `show`,
+`item-editor`, `overlay-editor`, `theme-editor`, `stage-editor`, `macro-editor`,
+and `settings`.
 
-Toolbar segmented-control labels map to modes as:
+| Entry point | Label | Mode |
+| --- | --- | --- |
+| Primary view control | Show | `show` |
+| Primary view control | Edit | `item-editor` |
+| Primary view control | Themes | `theme-editor` |
+| More views menu | Overlay | `overlay-editor` |
+| More views menu | Stage | `stage-editor` |
+| More views menu | Macros | `macro-editor` |
+| Settings gear | Settings | `settings` |
 
-- `Show` -> `show`
-- `Edit` -> `item-editor`
-- `Overlay` -> `overlay-editor`
-- `Themes` -> `theme-editor`
-- `Stage` -> `stage-editor`
-- `Macros` -> `macro-editor`
-
-`settings` is reached from the toolbar's gear button, not the segmented
-control.
+The separate Audience and Stage toolbar buttons toggle output windows;
+selecting Stage in More views opens the stage editor. Settings is a full
+screen, not a dialog. The router eagerly loads Show and lazily loads editors
+and Settings.
 
 ## 3. Screen Layouts
 
 ### Show (`show-*` split-panel ids)
 
-- Left: `PlaylistPanels` (flat playlist tree: item rows and separator rows,
-  no library or group level)
-- Center: playlist tabs in `DeckBrowserToolbar`, the selected item's `SlideBrowserContent`, and `ResourceDrawer`
-- Right: `ProgramPanel`
+- Left: `PlaylistPanels`, containing playlists and flat item/separator rows.
+- Center: `DeckBrowserToolbar` and the current item's `SlideBrowserContent`,
+  or the empty logo state; `ResourceDrawer` occupies the collapsible bottom pane.
+- Right: `ProgramPanel`, including program surfaces and its lower resource tabs.
+
+The drawer tabs are Deck, Themes, Images, Videos, and Audio. Playlist tabs in
+the browser toolbar depend on the current browsing state.
 
 ### Item Editor (`data-ui-region="item-editor-layout"`)
 
-- Left: item picker (searchable across presentations and lyrics) + slide list,
-  and a Layers panel (`ItemEditorLayersPanel`)
-- Center: `StagePanel` and a notes textarea
-  (`data-ui-region="slide-notes-panel"`)
-- Right: `ItemEditorInspectorPanel` (`data-ui-region="inspector-panel"`)
+- Left: searchable item picker, slide list, and `ItemEditorLayersPanel`.
+- Center: `StagePanel` and the collapsible notes textarea
+  (`data-ui-region="slide-notes-panel"`).
+- Right: `ItemEditorInspectorPanel` (`data-ui-region="inspector-panel"`).
 
-### Overlay Editor, Theme Editor, Stage Editor (`data-ui-region="editor-layout"`)
+### Overlay, Theme, and Stage Editors (`data-ui-region="editor-layout"`)
 
-Same three-pane shape as Item Editor (list/layers, stage, inspector). The
-layers panel for these three screens is the shared
-`screens/shared/element-layers-panel.tsx` (`data-ui-region="object-list-panel"`).
+Each composes a list/layers pane, stage, and inspector. Their layers panel
+comes from `apps/cast/renderer/screens/shared/element-layers-panel.tsx`
+(`data-ui-region="object-list-panel"`); their inspector region is
+`inspector-panel`.
 
 ### Macro Editor (`data-ui-region="editor-layout"`)
 
-Own layers panel for cues (`data-ui-region="cue-list-panel"`), its own
-`canvas-panel.tsx`, and its own inspector
-(`data-ui-region="macro-inspector-panel"`) rather than reusing the shared
-element inspector.
+Composes macro selection and cue layers (`cue-list-panel`), its own canvas,
+and its own inspector (`macro-inspector-panel`). Macro cues use their own
+layers/inspector components rather than the shared scene-element inspector.
 
 ### Settings (`data-ui-region="settings-layout"`)
 
-Tab list: Appearance, Output, Overlays, Media, Observability, Import & Export.
+Sidebar entries: Appearance, Output, Overlays, Media, Assistant, Observability,
+and Import & Export. The selected entry is stored as `settingsTab` in the
+workbench context.
 
 ## 4. Keyboard Shortcuts
 
-See [keyboard-shortcuts.md](./keyboard-shortcuts.md) for the full, generated
-map of native menu accelerators and in-app shortcuts. That document is the
-single source of truth; do not duplicate the shortcut table here.
+[Keyboard shortcuts](./keyboard-shortcuts.md) is the authoritative native-menu
+and in-app shortcut map. Scope automation to the relevant toolbar, menu, or
+panel when a label is reused across output controls and editor navigation.
 
-## 5. Screenshot Generation — currently non-functional
+## 5. UI Verification and Diagnostics
 
-`npm run capture:ui-screenshots` runs `app/e2e/capture-ui-screenshots.mjs`.
-That script was written against an earlier renderer (`data-ui-region` values
-such as `library-panel`, `slide-browser`, `slide-list-panel`, and IPC calls
-such as `castApi.createPlaylistSegment` / `castApi.addDeckItemToSegment`)
-that no longer exist in this codebase. The region names in Section 3 above
-are current; the IPC surface has moved on twice since — first to
-`createPlaylistGroup` / `addDeckItemToGroup`, then (issue #219: playlist
-groups destroyed in favor of flat separator rows) to `createSeparator` /
-`addItemToPlaylist`. It currently exits immediately with an explanatory error
-instead of silently failing partway through a capture. No screenshot assets
-are checked into `docs/ui-spec-assets/` (the directory does not exist), so
-none are referenced from this document. Regenerating a real screenshot set
-in a future implementation requires rewriting the capture script's selectors
-and seed-data calls against the current screens.
+The maintained Cast Electron checks live in `tests/apps/cast/e2e` and run with
+`npm run test:e2e`. Add `-- --trace on` to retain Playwright diagnostics.
+The media-crop checks also write screenshots under `test-results/`.
 
-## 6. Implementation Guarantees
+There is no maintained full-screen documentation screenshot generator or
+committed `docs/ui-spec-assets` set. The obsolete `capture:ui-screenshots`
+alias and its failing stub have been removed; they did not capture any UI.
+Use current accessible labels and the region list in
+[UI code design](./ui-code-design-spec.md#6-screens) when extending the existing
+tests, and inspect the resulting renders before treating them as visual proof.
 
-- Playlist and separator references remain reusable across items — a
-  Presentation or Lyric can appear in more than one playlist. There is
-  no library or group level any more (issue #219).
-- Media drag/drop onto the stage remains intact.
-- Persisted `Presentation.kind` remains `canvas | lyrics` in storage.
-- NDI output remains driven by the shared canvas/stage rendering feature.
+## 6. Data and Rendering Contracts
+
+Presentations and lyrics are separate entities, referenced through `ItemRef`;
+see `packages/composition/src/domain/items.ts`. Playlists contain flat item and
+separator rows. Renderer terminology does not change persisted contracts.
+Stage/editor rendering and NDI outputs share rendering and media components;
+their ownership is documented in [renderer taxonomy](./renderer-taxonomy.md)
+and [architecture](./ARCHITECTURE.md).

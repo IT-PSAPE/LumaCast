@@ -1,22 +1,18 @@
 # Renderer Taxonomy
 
-Updated on 2026-08-18. This document is the canonical naming and boundary
-reference for `app/renderer`, derived directly from the current source tree.
-It replaces an earlier version that documented a pre-refactor workbench
-(`show` / `slide-editor` / `overlay-editor` only, a `LibraryPanel` +
-`SlideBrowser` + `ResourceDrawer` + `PreviewPanel` layout, and a
-`WorkspaceView` → `WorkbenchMode` rename history). That structure no longer
-matches the code; see git history for the prior taxonomy and rename matrix if
-you need the historical naming.
+Updated on 2026-11-08. Naming and ownership for the Cast renderer in
+`apps/cast/renderer`. Shared suite primitives live in `packages/ui/src`;
+other apps retain their own screens and domain state.
 
 ## 1. Canonical Modes
 
-Source of truth: `app/renderer/types/ui.ts`.
+Source of truth: `apps/cast/renderer/types/ui.ts`.
 
 - `WorkbenchMode`: `show | item-editor | overlay-editor | theme-editor | stage-editor | macro-editor | settings`
+- `SettingsTabId`: `appearance | output | overlays | media | assistant | observability | transfer`
 - `SlideBrowserMode`: `grid | list`
 - `ResourceDrawerViewMode`: `grid | list`
-- `DrawerTab`: `deck | image | themes`
+- `DrawerTab`: `deck | image | video | audio | themes`
 - `InspectorTab`: `presentation | slide | shape | text | theme | stage | binding | video | properties | triggers`
 - `ProgramSurfaceKind`: `program | monitor | stage`
 - `ProgramMode`: `single | all`
@@ -24,111 +20,108 @@ Source of truth: `app/renderer/types/ui.ts`.
 
 ## 2. Toolbar Label to Mode Mapping
 
-From `app/renderer/features/workbench/app-toolbar.tsx`:
+`apps/cast/renderer/features/workbench/app-toolbar.tsx` presents Show, Edit,
+and Themes directly. `overflow-view-menu.tsx` adds Overlay, Stage, and Macros
+under More views. The Settings gear opens the full Settings screen.
+[UI specification](./ui-spec.md#2-canonical-workbench-modes) lists the exact
+label-to-mode mapping.
 
-- `Show` -> `show`
-- `Edit` -> `item-editor`
-- `Overlay` -> `overlay-editor`
-- `Themes` -> `theme-editor`
-- `Stage` -> `stage-editor`
-- `Macros` -> `macro-editor`
+Audience and Stage output toggles are separate from editor navigation.
+The native View menu in `apps/cast/main/application-menu.ts` labels the modes
+Show, Slides, Overlays, Themes, Stage, Macros, and Settings.
 
-`settings` is not in the toolbar's segmented control; it is opened via the
-toolbar's gear button and is a full workbench mode (`WorkbenchScreenRouter`
-renders `SettingsScreen` for it), not a dialog.
+## 3. Screens (`apps/cast/renderer/screens`)
 
-The native application menu (`app/main/application-menu.ts`) labels the same
-modes slightly differently in its View menu: `Show`, `Slides`, `Overlays`,
-`Themes`, `Stage`, `Macros`, `Settings`.
+`apps/cast/renderer/workbench-screen-router.tsx` eagerly loads Show and lazily
+loads the other modes.
 
-## 3. Screens (`app/renderer/screens`)
-
-Each `WorkbenchMode` (other than `show`, which is eagerly loaded) maps to a
-lazily-loaded screen in `app/renderer/workbench-screen-router.tsx`:
-
-| Screen directory | Workbench mode | Notes |
+| Directory | Mode | Owns |
 | --- | --- | --- |
-| `show` | `show` | Landing surface; flat playlist browsing (with separator rows), slide/lyric browsing, resource drawer, program panel. Eagerly loaded. |
-| `item-editor` | `item-editor` | Presentation/lyric editing: item picker, layers panel, stage, notes, inspector. |
-| `overlay-editor` | `overlay-editor` | Overlay editing. |
-| `theme-editor` | `theme-editor` | Theme editing. |
-| `stage-editor` | `stage-editor` | Stage layout editing. |
-| `macro-editor` | `macro-editor` | Macro/cue/trigger-binding editing (own `canvas-panel.tsx` alongside the shared layers/inspector pattern). |
-| `settings` | `settings` | Tabs: Appearance, Output, Overlays, Media, Observability, Import & Export (`app/renderer/screens/settings/page.tsx`). |
-| `shared` | (n/a) | Cross-screen pieces shared by the editors above, currently `element-layers-panel.tsx`. |
+| `show` | `show` | Playlist/slide browsing, cross-feature integrations, resource drawer, program panel |
+| `item-editor` | `item-editor` | Presentation/lyric picker, slides, layers, stage, notes, inspector |
+| `overlay-editor` | `overlay-editor` | Overlay list, layers, stage, inspector |
+| `theme-editor` | `theme-editor` | Theme list, layers, stage, inspector |
+| `stage-editor` | `stage-editor` | Stage list, layers, stage, inspector |
+| `macro-editor` | `macro-editor` | Macro list, cue layers, canvas, inspector, trigger bindings |
+| `settings` | `settings` | Settings navigation and feature-owned settings panels |
+| `shared` | (n/a) | Editor element layers and cross-feature slide actions menu |
 
-Each editor screen (`item-editor`, `overlay-editor`, `theme-editor`,
-`stage-editor`, `macro-editor`) follows the same `layers-panel.tsx` /
-`inspector-panel.tsx` / `page.tsx` / `screen-context.tsx` file pattern.
+Editor directories have `page.tsx`, `screen-context.tsx`, layers, inspector,
+and content components. The item editor names its content component
+`item-editor-screen-content.tsx`; the other editors use `screen-content.tsx`.
 
-## 4. Features (`app/renderer/features`)
+## 4. Features (`apps/cast/renderer/features`)
 
 | Feature | Owns |
 | --- | --- |
-| `workbench` | App shell, toolbar, mode switching, resource drawer, status bar, Windows inline menu bar, panel-visibility toggles |
-| `playlists` | Flat playlist browsing and management: playlist panels, playlist rows (items and separators), separator color |
-| `items` | Presentation/lyric browsing and editing support: slide list and grid views, creation dialogs, and import/export |
-| `canvas` | Stage rendering primitives shared by every editor screen and the show screen (scene graph, stage viewport, element drag/resize, inline text editing). Under active refactor; see `app/renderer/rendering/` for the newer scene-traversal/scene-node-content split. |
-| `inspector` | Presentation, slide, shape, text, theme, stage, and binding property inspectors |
-| `assets` | Media, overlay, stage, and theme asset libraries (`audio`, `media`, `overlays`, `stages`, `themes` subdirectories) |
-| `automation` | Cues, macros, trigger bindings: automation context, cue icons/descriptions, macro bin panel, slide automation/bindings menus |
-| `playback` | NDI capture/output (audio and video), program (preview) panel, output settings |
-| `command-palette` | The `Cmd/Ctrl+K` command palette |
-| `observability` | Runtime metrics collection and the Observability settings panel |
+| `workbench` | Toolbar, platform inline menu, overflow view menu, panel-visibility controls |
+| `playlists` | Flat playlist browsing and management, including item and separator rows |
+| `items` | Presentation/lyric browsing, slide grid/list views, creation/editing dialogs, import/export |
+| `canvas` | Editable stage behavior and viewport integration with the rendering layer |
+| `inspector` | Presentation, slide, scene-element, theme, stage, and binding property controls |
+| `assets` | Audio/media, overlay, stage, and theme asset libraries and settings |
+| `automation` | Automation state, cues, macros, trigger bindings, and bindings UI |
+| `playback` | Output settings/gates, program surfaces, media transport/residency, timers UI |
+| `agent` | Assistant chat, model/vendor presentation, permission prompts |
+| `observability` | Runtime collectors, metrics storage, and Observability settings |
 
-A feature may not import another feature except through a documented public
-edge; see `AGENTS.md` and `tool/check_electron_architecture.mjs` for the
-enforced rule.
+Application-level commands, keyboard shortcuts, command palette, and renderer
+agent-action execution live in `apps/cast/renderer/application`. The persistent
+layout/status bar live in `apps/cast/renderer/shell`; resource drawer and program
+panel composition belong to the Show screen. Scene traversal/rendering lives in
+`apps/cast/renderer/rendering`, and NDI audio capture in
+`apps/cast/renderer/runtime`.
 
-## 5. Contexts (`app/renderer/contexts`)
+Use public feature/package entry points. The checker in
+`tool/check_electron_architecture.mjs` enforces import direction, process
+purity, and feature/package boundaries; application and screen code compose
+features without moving that orchestration into a shared primitive.
+
+## 5. Contexts (`apps/cast/renderer/contexts`)
 
 | Context | Responsibility |
 | --- | --- |
-| `app-context.tsx` (`AppProvider`) | Snapshot loading, mutation dispatch, global undo/redo, status text |
-| `navigation-context.tsx` (`NavigationProvider`) | Selection and CRUD for playlist, playlist row (item/separator), item (`currentItemRef: ItemRef \| null`) |
-| `workbench-context.tsx` (`WorkbenchProvider`) | `workbenchMode`, drawer tab/view-mode, inspector tab, program mode/surface/density, overlay stack |
-| `slide-context.tsx` (`SlideProvider`) | Current/live slide index, slide activation, take/next/prev |
-| `canvas/canvas-context.tsx` (`CanvasProvider`) | Active editor source and canvas-level state shared across editor screens |
-| `element/` | Element selection, history (undo/redo), inspector sync, and command helpers used by the canvas |
-| `asset-editor/asset-editor-context.tsx` (`AssetEditorProvider`) | Staged theme/asset editing and persisted-ID resolution (see `docs/ARCHITECTURE.md`) |
-| `playback/playback-context.tsx` (`PlaybackProvider`) | Program/monitor/stage output state |
-| `create-screen-context.tsx` | Shared scaffolding for the per-screen `screen-context.tsx` files |
+| `app-context.tsx` | Bootstrap/subscriptions for `app-store.ts`; snapshot, mutation/history, theme, status, and output hooks |
+| `navigation-context.tsx` | Playlist/drawer selection and typed item references; output arming |
+| `workbench-context.tsx` | Modes, settings tab, drawer/view preferences, program layout, overlay stack |
+| `slide-context.tsx` | Current/live slide selection and activation |
+| `canvas/canvas-context.tsx` | Active editor source and canvas-level editing state |
+| `element/` | Element history, inspector synchronization, and commands |
+| `asset-editor/asset-editor-context.tsx` | Staged theme/asset edits and persisted-ID resolution |
+| `playback/playback-context.tsx` | Program/monitor/stage playback and output state |
+| `playback-schedules-context.tsx` | Persisted schedules and their active playback runtime |
+| `timers/timers-context.tsx` | Persisted timer configuration and shared volatile timer readings |
+| `command-palette-context.tsx` | Palette visibility; the palette component owns its query |
+| `observability-port.tsx` | Injected event-recording contract |
+| `create-screen-context.tsx` | Per-screen context scaffolding |
 
-Provider composition order is defined in `app/renderer/App.tsx`.
+`apps/cast/renderer/App.tsx` is the source of truth for composition order;
+[UI code design](./ui-code-design-spec.md#2-provider-composition) records that order.
 
-## 6. Shared Components (`app/renderer/components`)
+## 6. Shared Components
 
-- `controls`: `Button`, `ButtonGroup`, `SegmentedControl`
-- `display`: `Accordion`, `EmptyState`, `EntityIcon`, `LazySceneStage`, `SceneFrame`, `SelectableRow`, `Tabs`, `Text`, `Thumbnail`
-- `feedback`: `ErrorBoundary`
-- `form`: `Checkbox`, `ColorPicker`, `DocEditor`/`DocSortableBlock`, `Dropdown`, `Field` (input/select/textarea), `FileTrigger`, `GridSizeSlider`, `RenameField`
-- `layout`: `CollectionLayout`, `Panel`, `ResizableSplit` (`panel-split`, `resizable-split`), `ScrollArea`, `ThumbnailGrid`
-- `overlays`: `ConfirmDialog`, `ContextMenu`, `Dialog`, `MediaPickerDialog`, overlay primitives, `Popover`
+`packages/ui/src/index.ts` exports suite-wide controls and behavior:
+`ReacstButton`, `SegmentedControl`, fields, sliders, selection controls,
+`Tabs`, `Accordion`, dialogs/menus/popovers, confirmations, feedback,
+`Panel`, `Sidebar`, `StatusBar`, `Split`, and `WindowChrome`.
 
-Feature-owned controls stay feature-local when the behavior is
-domain-coupled (for example, `OutputSettingsPanel` stays in `playback`).
+`apps/cast/renderer/components` contains Cast-specific presentation and editing
+building blocks: scene frames, thumbnails, item icons, collection and sortable
+layouts, editor fields, media pickers, the error boundary, and the workbench
+split-panel routing integration. Feature-owned controls remain local when they
+carry domain behavior.
 
 ## 7. Terminology Notes
 
-- Persisted `Presentation.kind` remains `canvas | lyrics` in storage; the UI
-  no longer uses "canvas" as a rendering-surface term (that is now `stage`
-  in the UI/`WorkbenchMode` sense), so do not conflate the two.
-- Playlists are flat: there is no accordion, no collapse/expand, and no
-  grouping entity. "Separator" (`createSeparator`/`renameSeparator`/
-  `setSeparatorColor`) is the current term for the divider row that keeps its
-  own name and color inside a playlist — never "group", "segment", or
-  "divider" in code or new UI copy. Earlier drafts of this document blessed
-  "Group" (`createPlaylistGroup`, `addDeckItemToGroup`) as the current term;
-  that concept was destroyed (issue #219) and is not to be reintroduced.
-- Database and IPC payload names are not renamed to match renderer UI terms
-  unless required by the renderer.
-- "Item" is the generic word wherever code structurally needs "one of
-  presentation | lyric" — it replaces "deck item" everywhere: types, IPC
-  params, macro scope, drag payloads, and UI copy. `ItemType = 'presentation'
-  | 'lyric'`; `ItemRef = { type: ItemType; id: Id }` is the typed
-  reference used for selection, playback arming, macro scope contexts, and
-  drag payloads (drag MIME `application/x-lumacast-item`, payload
-  `{ itemType, itemId }`). There is no `Item` base interface or union entity —
-  `Presentation` and `Lyric` are separate interfaces that merely share fields;
-  which one an entity is comes from its table/array, never from a discriminant
-  field.
+- `ItemType = 'presentation' | 'lyric'` and `ItemRef = { type: ItemType; id: Id }`
+  come from `packages/composition/src/domain/items.ts`. Presentation and Lyric
+  are separate entities/tables; there is no shared `Item` entity or
+  `Presentation.kind` discriminator in the current model.
+- Cast playlists are flat. A separator has its own name and color; there is
+  no playlist group/segment hierarchy. Use the current separator and typed
+  item APIs rather than the removed group/segment or deck-item APIs.
+- Stage is the user-facing editor/surface term; canvas remains a technical
+  rendering term. A Stage output window and the Stage editor are distinct.
+- Do not rename persisted fields, IPC payloads, or drag contracts solely to
+  match a renderer label. Item drag data uses `application/x-lumacast-item`
+  with `{ itemType, itemId }`.

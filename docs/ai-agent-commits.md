@@ -2,7 +2,7 @@
 
 This repo has one GitHub Actions path:
 
-- [.github/workflows/ci-release.yml](../.github/workflows/ci-release.yml): validates pull requests and `main`, then packages and publishes a stable release only when `package.json#version` increases on `main`.
+- [.github/workflows/ci.yml](../.github/workflows/ci.yml) selects affected apps for validation. Cast, Cloud, Flux, and Chord use the release pipeline; Stream and Soundboard validate without publishing. A stable increase in an eligible app's manifest version on `main` can publish a release. Manual runs validate by default and publish only when `release` is checked.
 
 ## Commit messages
 
@@ -20,7 +20,7 @@ Bad:
 
 ## Version bumps
 
-Only bump `package.json` when preparing an actual stable release.
+Only bump `apps/<app>/package.json` when preparing an actual stable release.
 
 | Change class | Bump |
 | --- | --- |
@@ -31,10 +31,10 @@ Only bump `package.json` when preparing an actual stable release.
 ## Release process
 
 1. Land the change through a passing PR.
-2. Bump the version without creating a local tag:
+2. Bump the selected release app's version without creating a local tag. For Cast:
 
 ```bash
-npm version patch --no-git-tag-version
+npm version patch --workspace apps/cast --no-git-tag-version
 ```
 
 3. Commit and push the version increase to `main`. The unified workflow validates the change, builds all platforms, creates the tag, and publishes the release.
@@ -48,12 +48,12 @@ gh run watch
 
 After validation passes and the stable version increased, the workflow:
 
-1. verifies that `v<version>` is not already published
-2. builds the native addon and application on Windows, macOS, and Linux
+1. verifies that `<app>-v<version>` is unpublished and newer than the highest published version
+2. builds the application on Windows, macOS, and Linux, including the native NDI addon for Cast
 3. packages and uploads each platform's artifacts
-4. creates `v<version>` and publishes one GitHub Release after every platform succeeds
+4. creates `<app>-v<version>` and publishes its GitHub Release after every platform succeeds, then updates the app's `<app>-feed` metadata
 
-If the version is unchanged, the workflow finishes after validation. A manual workflow dispatch retries the current version only when its release does not exist.
+An unchanged version on a push finishes after validation. A manual dispatch with `release` checked on `main` can publish an unpublished eligible version without a baseline increase; it must still exceed the highest published version. See [release setup](release-setup.md) for the complete gate and signing policy.
 
 ## Release notes
 

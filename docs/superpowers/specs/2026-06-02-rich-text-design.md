@@ -225,7 +225,8 @@ landed additively (see the amendment note in the header).
 
 1. **Plain-text pixel parity** — moving plain text off Konva `<Text>` onto the custom draw path
    must match current output. Validate with screenshot diffs across existing decks
-   (`capture:ui-screenshots`).
+   (the original capture command has been retired; see
+   [current UI diagnostics](../../ui-spec.md#5-ui-verification-and-diagnostics)).
 2. **NDI parity** — the offscreen capture (`ndi-frame-capture.tsx`) must rasterize identically;
    validate the run path on the offscreen stage, not just the editor stage.
 3. **Editor ⇄ renderer metric parity** — shared `measure.ts` is the mitigation; test wrapping at

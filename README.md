@@ -26,8 +26,14 @@ imports an app; `tool/check_electron_architecture.mjs` enforces both.
 
 ## Requirements
 
-- Node.js `22.18.0` or newer (CI pins exactly `22.18.0`)
-- npm `11.6.2` or newer (`package.json#packageManager`)
+- macOS 13 (Ventura) or newer for macOS builds of all six apps
+- Windows 10 or newer on 64-bit systems; Linux requires a 64-bit distribution
+  supported by both Chromium and its vendor. See [Electron's platform policy](https://github.com/electron/electron/blob/v44.10.2/README.md#platform-support).
+- Node.js `22.23.4` for development and CI (`.nvmrc`); API compatibility starts at `22.18.0`
+- npm `11.21.2` (`package.json#packageManager`)
+
+All six apps pin Electron `44.10.2`. Keep their runtime pins and the lockfile
+in sync; development, smoke tests, and packaged apps use that same baseline.
 
 For the native NDI addon build, also install the toolchain for your
 platform. CI compiles and packages the addon on Windows, macOS, and Linux;
@@ -50,14 +56,22 @@ package is the workspace root; `apps/*` and `packages/*` are its members.
 For local development:
 
 ```bash
-npm install
+npx --yes npm@11.21.2 install
 ```
 
 For CI or any clean reproducible install:
 
 ```bash
-npm ci
+npx --yes npm@11.21.2 ci
 ```
+
+Development launchers prepare the app's pinned Electron binary on first use.
+These install commands select the declared npm without changing a global installation.
+CI selects and verifies that npm version before installing dependencies.
+Install scripts apply Chord's hash-checked MediaBunny lifecycle patch. If scripts
+were intentionally skipped, run `npm run postinstall` before Chord dev/build;
+those commands verify the patch and its ESM path. See
+[ADR-0123](docs/adr/0123-chord-mediabunny-lifecycle-patch.md).
 
 ## Run
 
@@ -73,6 +87,12 @@ npm run dev:stream
 ```
 
 `npm run dev` is an alias for `npm run dev:cast`.
+
+For a read-only Cast browser preview, run `npm run build:cast` followed by
+`npm run preview:browser`, then open the printed `127.0.0.1` URL. The preview
+uses a temporary copy of Cast's database and serves only on loopback. Use
+`npm run preview:browser -- --db /path/to/lumacast.sqlite --user-data-dir /path/to/user-data`
+to choose an explicit database and media directory.
 
 LumaSoundboard saves named boards and imported audio copies in its own local
 user-data directory. Playbacks may overlap within a board. Pause preserves the
@@ -310,7 +330,7 @@ npm run build:flux
 npm run e2e --workspace apps/flux
 ```
 
-It creates temporary photos and catalogs, preserves source files, and writes screenshots and timing results to `apps/flux/output/playwright/`. Use Node.js 22.18 or newer, as required by the workspace.
+It creates temporary photos and catalogs, preserves source files, and writes screenshots and timing results to `apps/flux/output/playwright/`. Use the workspace Node version from `.nvmrc`.
 
 Check the architecture rules against the working tree:
 
@@ -350,12 +370,12 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 ## CI and releases
 
-- One entry point, [.github/workflows/ci.yml](.github/workflows/ci.yml), runs on every pull request and push to `main`. Its `detect` job works out which apps the change affects ([tool/ci/affected-apps.mjs](tool/ci/affected-apps.mjs): the app's own tree, any package it imports directly or transitively, or shared tooling) and calls the common pipeline, [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml), once per affected app. A documentation-only change runs nothing. A manual run takes an `apps` input: `all`, `affected`, or a list such as `cast,flux`.
+- One entry point, [.github/workflows/ci.yml](.github/workflows/ci.yml), runs on every pull request and push to `main`. Its `detect` job works out which apps the change affects ([tool/ci/affected-apps.mjs](tool/ci/affected-apps.mjs): the app's own tree, any package it imports directly or transitively, or shared tooling). Cast, Cloud, Flux, and Chord call [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml); Stream and Soundboard call the read-only [.github/workflows/ci-validate.yml](.github/workflows/ci-validate.yml), which also supplies validation for the release pipeline. A documentation-only change runs nothing. A manual run takes an `apps` input: `all`, `affected`, or a list such as `cast,flux`.
 - CI is reproducible locally. `npm run ci -- --app cast` runs exactly the validation steps CI runs for Cast (add `--e2e` for the Playwright suite); `npm run ci:affected` runs the apps the gate would select for your diff against `origin/main`; `npm run ci:apps -- --base origin/main` only prints the selection. Use the Node version in `.nvmrc` (`nvm use`) to match CI. Only packaging for Windows and Linux needs the hosted runners.
 - Releases are stable only; there is no prerelease workflow.
-- A push to `main` releases an app only when that app's own `package.json` version (`apps/<app>/package.json`) is a stable semantic version **strictly greater** than its baseline. The baseline is the app manifest as it stood before the push; Cast falls back to the previous root `package.json` while the migration is in flight, and Cloud and Flux have no such history, so their first push validates and publishes nothing. A manual dispatch is CI-only. An unchanged version ends after validation.
+- A push to `main` releases an app only when that app's own `package.json` version (`apps/<app>/package.json`) is a stable semantic version **strictly greater** than its baseline. A missing baseline or unchanged version ends after validation; Cast can fall back to the previous root manifest during migration. A manual dispatch validates by default; checking `release` on `main` may publish an unpublished eligible version without a baseline increase, provided it exceeds the highest published version.
 - The version release is immutable, tagged `<app>-v<version>`, and carries the installers. A permanent `<app>-feed` release carries generic updater metadata only: its installer URLs are absolute and point at the immutable `<app>-v<version>` release that produced them.
-- All three apps ship `provider: generic` against their own `<app>-feed` release. Only legacy shipped Cast versions read the repository's "latest release" slot (`provider: github`); that slot is still taken only by a Cast version release (`make_latest=true`), and no other app or feed release ever takes it.
+- All four release apps ship `provider: generic` against their own `<app>-feed` release. Only legacy shipped Cast versions read the repository's "latest release" slot (`provider: github`); that slot is still taken only by a Cast version release (`make_latest=true`), and no other app or feed release ever takes it.
 - Cast keeps its identity through the move: product name `LumaCast`, app id `com.lumacast.app`, current version `0.2.0`.
 - Release note grouping is configured in [.github/release.yml](.github/release.yml).
 
@@ -364,6 +384,8 @@ See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release 
 ## Multiple selection
 
 The suite shares selection behavior through [`@lumacast/selection`](packages/selection/README.md): Ctrl/Cmd-click toggles entries, Shift-click selects list ranges, and selection stays separate from playback or the active editor item. Select several entries and use one bulk action or Delete where supported. Canvas and timeline movement preserves the selected items' offsets; reorderable lists preserve their relative order. Each app keeps its own permissions, confirmations, undo, and lock rules.
+
+In Chord, Tab enters the lyric track; Left/Right and Home/End focus cues. Space selects, Shift+Space extends the selection, and Ctrl/Cmd+Space toggles a cue. Enter selects the cue and focuses its text editor when the inspector is open. Outside controls, Space plays or pauses.
 
 Flux's **Remove from library** preserves original files. Soundboard removal deletes managed audio copies. Cloud's selected-app actions require explicit management actions and retain its per-app grants; selecting cards never downloads or installs anything.
 

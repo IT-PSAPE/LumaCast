@@ -1,160 +1,101 @@
 # LumaCast UI Code Design Spec
 
-Updated on 2026-08-18. Scope: `app/renderer` runtime structure and
-terminology, verified directly against the current source tree. This
-replaces an earlier version written for a `workbench` / `library-browser` /
-`resource-drawer` / `slide-browser` / `stage` / `slide-editor` /
-`overlay-editor` / `inspector` / `outputs` feature set and a `show-mode` /
-`slide-editor` / `overlay-editor` screenshot set, none of which match the
-current tree. See [renderer-taxonomy.md](./renderer-taxonomy.md) for the
-canonical naming reference this document defers to.
+Updated on 2026-11-08. Scope: Cast renderer composition in
+`apps/cast/renderer` and its use of shared `@lumacast/ui` primitives.
+[Renderer taxonomy](./renderer-taxonomy.md) defines names and ownership;
+[UI specification](./ui-spec.md) describes the actual screen layouts.
 
 ## 1. Renderer UI Structure
 
-```text
-app/renderer
-├── components
-│   ├── controls
-│   ├── display
-│   ├── feedback
-│   ├── form
-│   ├── icon-group
-│   ├── layout
-│   └── overlays
-├── contexts
-│   ├── asset-editor
-│   ├── canvas
-│   ├── element
-│   └── playback
-├── features
-│   ├── assets
-│   ├── automation
-│   ├── canvas
-│   ├── command-palette
-│   ├── inspector
-│   ├── items
-│   ├── observability
-│   ├── playback
-│   ├── playlists
-│   └── workbench
-├── hooks
-├── rendering
-├── screens
-│   ├── item-editor
-│   ├── macro-editor
-│   ├── overlay-editor
-│   ├── settings
-│   ├── shared
-│   ├── show
-│   ├── stage-editor
-│   └── theme-editor
-├── types
-└── utils
-```
+| Directory under `apps/cast/renderer` | Responsibility |
+| --- | --- |
+| `application` | Cross-feature app commands, shortcuts, palette, agent-action execution |
+| `shell` | Persistent application layout and status bar |
+| `screens` | Concrete screen composition and screen-local state |
+| `features` | Domain behavior and public feature APIs |
+| `contexts` | App/editor state and injected contracts |
+| `components` | Cast-specific reusable visual/editing components |
+| `hooks`, `utils`, `types` | Shared app helpers and local contracts |
+| `rendering` | Scene construction/traversal and common render stages/host |
+| `runtime` | NDI audio capture lifecycle |
+| `output` | GPU output view |
 
-`app/renderer/rendering` holds the scene-graph traversal/render helpers
-factored out of `features/canvas`; that split is under active development
-(tracked separately from this documentation issue) — treat internals of
-`features/canvas` and `rendering` as subject to change without notice here.
+Generic suite controls and their theme live in `packages/ui/src`, not in Cast's
+component tree. Dependency rules are enforced by
+`tool/check_electron_architecture.mjs`.
 
 ## 2. Provider Composition
 
-`app/renderer/App.tsx` composes providers in this order:
+`apps/cast/renderer/App.tsx` composes these boundaries outermost first:
 
 1. `ErrorBoundary`
 2. `WorkbenchProvider`
 3. `ConfirmProvider`
-4. `AppProvider`
-5. `AssetEditorProvider`
-6. `NavigationProvider`
-7. `PlaybackProvider`
-8. `SlideProvider`
-9. `AutomationProvider`
-10. `LyricEditorProvider`
-11. `CreateItemProvider`
-12. `CanvasProvider`
-13. `CommandPaletteProvider`
+4. `AgentChatProvider`
+5. `ObservabilityPortProvider`
+6. `AppProvider`
+7. `TimersProvider`
+8. `AssetEditorProvider`
+9. `NavigationProvider`
+10. `PlaybackProvider`
+11. `SlideProvider`
+12. `PlaybackSchedulesProvider`
+13. `MediaResidencyBoundary`
+14. `AutomationProvider`
+15. `LyricEditorProvider`
+16. `CreateItemProvider`
+17. `CanvasProvider`
+18. `CommandPaletteProvider`
 
-Primary state ownership:
+`ObservabilityRuntime` runs inside Workbench before the remaining providers.
+Within CommandPalette, `SplitPanel` wraps `AppLayoutContent` and
+`AgentActionDispatcher` so commands can reach panel-route state. Output gates,
+the command palette, file-drop navigation guard, render host, and assistant
+popup are sibling compositions within their required provider scope.
 
-- `AppProvider` (`app-context.tsx`): snapshot loading/mutation, global
-  undo/redo, status text.
-- `NavigationProvider`: selected playlist, playlist row (item/separator), and
-  item (`currentItemRef: ItemRef | null`). There is no library or group
-  level.
-- `WorkbenchProvider`: `workbenchMode`, drawer tab/view mode, inspector tab,
-  program mode/surface/density, overlay (modal) stack.
-- `SlideProvider`: current/live slide index, slide activation.
-- `CanvasProvider` (`contexts/canvas/canvas-context.tsx`): active editor
-  source shared across editor screens.
-- `AssetEditorProvider`: staged theme/asset drafts and persisted-ID
-  resolution (see `docs/ARCHITECTURE.md`, "Staged Theme Resolution").
-- `PlaybackProvider`: program/monitor/stage output state.
-- `AutomationProvider`: cue/macro/trigger-binding state.
+The [context ownership table](./renderer-taxonomy.md#5-contexts-appscastrenderercontexts)
+identifies state owners. Root composition injects observability rather than
+making shared app state import the observability feature's store.
 
 ## 3. Feature Ownership
 
-See [renderer-taxonomy.md](./renderer-taxonomy.md) (section 4, "Features")
-for the authoritative feature-to-directory table
-(`workbench`, `playlists`, `items`, `canvas`, `inspector`, `assets`,
-`automation`, `playback`, `command-palette`, `observability`).
+See [renderer taxonomy](./renderer-taxonomy.md#4-features-appscastrendererfeatures).
+Screens and `application` compose public feature APIs; rendering and process
+resources remain in their own layers. Feature-specific controls stay with
+that feature, such as `OutputSettingsPanel` in `features/playback`.
 
 ## 4. Canonical Terminology
 
-See [renderer-taxonomy.md](./renderer-taxonomy.md#1-canonical-modes) for the
-canonical `WorkbenchMode`, `SlideBrowserMode`,
-`DrawerTab`, `InspectorTab`, and program-surface types, and
-[section 7, "Terminology Notes"](./renderer-taxonomy.md#7-terminology-notes)
-for `Item`/`ItemType`/`ItemRef` and the flat-playlist/`Separator` vocabulary.
-There is no `LibraryPanelView` — the library/collection concept was
-destroyed (issue #219).
-
-Persisted `Presentation.kind` values remain `canvas | lyrics`; storage naming
-was not migrated when the UI's "canvas" terminology moved to "stage".
+UI modes and view preferences come from `apps/cast/renderer/types/ui.ts`.
+Presentation/Lyric entities and typed references come from
+`packages/composition/src/domain/items.ts`; the current model has no
+`Presentation.kind`. See [terminology notes](./renderer-taxonomy.md#7-terminology-notes)
+for flat playlists, separator rows, and editor/output naming.
 
 ## 5. Shared Base Components
 
-Shared primitives live in `app/renderer/components`, grouped by directory:
-`controls` (`Button`, `ButtonGroup`, `SegmentedControl`), `display`
-(`Accordion`, `EmptyState`, `EntityIcon`, `LazySceneStage`, `SceneFrame`,
-`SelectableRow`, `Tabs`, `Text`, `Thumbnail`), `feedback` (`ErrorBoundary`),
-`form` (`Checkbox`, `ColorPicker`, doc editor blocks, `Dropdown`, `Field`
-variants, `FileTrigger`, `GridSizeSlider`, `RenameField`), `layout`
-(`CollectionLayout`, `Panel`, split/resizable-split panels, `ScrollArea`,
-`ThumbnailGrid`), and `overlays` (`ConfirmDialog`, `ContextMenu`, `Dialog`,
-`MediaPickerDialog`, overlay primitives, `Popover`).
+Use `@lumacast/ui` for generic controls, typography, fields, menus, feedback,
+confirmations, and layout primitives. Its public entry is
+`packages/ui/src/index.ts`. Cast-specific scene frames, thumbnails, document
+editing, media pickers, collections, and routed split panels live in
+`apps/cast/renderer/components`.
 
-Feature-owned controls remain feature-local when the behavior is
-domain-coupled — for example, `OutputSettingsPanel` stays in
-`features/playback`.
+Base UI-backed primitives own keyboard behavior, focus management, and ARIA
+(ADR 0033). Shared overlay helpers resolve `#overlay-root` and manage overlay
+stack entries; controls keep the markers used by shortcut/click-outside guards.
 
-These primitives are built on Base UI (`@base-ui/react`, ADR 0033): Base UI
-parts provide behaviour, keyboard interaction, focus management, and ARIA,
-and each component keeps its own exported API on top, so feature code never
-imports Base UI directly. Overlays portal into `#overlay-root`, carry the
-`data-popover-content` / `data-context-menu-owned` markers the shortcut and
-click-outside guards rely on, and register with the workbench overlay stack
-while open.
-
-Renderer composition follows the same named-part model (ADR 0036). A visual
-state owns its markup locally, and a screen or feature composes the concrete
-parts explicitly where they render. Unique empty, loading, toolbar, tab,
-collection, and variant states are not represented as one-use `ReactNode`
-arrays or configuration registries elsewhere in the module. One-use UI values
-stay inline; a constant, provider, or shared hook is warranted only by actual
-reuse, domain meaning, or state that must coordinate distant consumers.
-Necessary control-flow guards remain direct code rather than being disguised
-as generic conditional-rendering helpers. A shared primitive may normalize its
-explicit child parts into metadata required by the underlying UI library; callers
-still compose the visible parts directly.
+Follow ADR 0036 when composing screens: meaningful variants use named parts
+and explicit JSX. Keep one-use markup near its state; retain direct algorithmic
+and lifecycle guards. Data/state render callbacks remain useful where consumers
+need item-specific integration or virtualization.
 
 ## 5a. Design Tokens
 
-`app/renderer/theme.css` holds the whole colour system in two tiers. The
+`packages/ui/src/theme.css` holds the shared colour system in two tiers. The
 base values are 26 raw colours (a grey ramp, brand 400–600, and red, orange
 and green 400–600); Tailwind's default palette is switched off, so nothing
-else can be named in a class. Twelve semantic tokens carry every colour
-meaning in the UI and are the only names components use:
+else can be named in a class. Neutral and semantic roles describe interface
+meaning:
 
 - `bg-primary`, `bg-secondary`, `bg-tertiary` for the app canvas, panels, and
   controls;
@@ -163,49 +104,52 @@ meaning in the UI and are the only names components use:
 - `brand`, `error`, `warning`, `success`, usable in any namespace
   (`bg-brand`, `text-error`, `ring-brand`, `border-success/40`).
 
-Hover, pressed, tinted, and disabled states are opacity modifiers on these
-tokens (`hover:bg-brand/90`, `bg-error/15`), never extra tokens. Light values
-sit in `@theme`; dark values override the same twelve variables under
-`[data-theme="dark"]`. A palette experiment therefore edits base values or
-the twelve semantic lines and nothing in a component. The two remaining
-places that need a border or text colour as a background or ring reference
-the variable directly (`bg-(--border-color-primary)`).
+Tinted surfaces use opacity modifiers (`bg-error/15`). Solid actions and badges
+use `brand-solid`, `error-solid`, `warning-solid`, and `success-solid` with
+`text-on-solid`. These opaque fills preserve at least 4.5:1 contrast for small
+labels in both themes, independently of the brighter semantic text colours in
+dark mode. Primary hover and pointer-pressed states use `brand-solid-hover`,
+which darkens the fill rather than making it transparent.
+
+The foreground-derived `focus-ring` role supplies an inset keyboard-focus
+outline on controls without their own indicator. Component rings and wrapper
+focus treatments retain precedence. Forced-colour mode restores a system
+outline even where a component normally relies on a box shadow. Light values
+sit in `@theme`; dark values override the neutral and semantic roles under
+`[data-theme="dark"]`. Palette changes stay in the shared theme.
 
 ## 6. Screens
 
-| Screen | `data-ui-region` on its root/major panels |
+| Surface | `data-ui-region` values |
 | --- | --- |
-| `show` | `app-toolbar`, `resource-drawer`, `status-bar` |
-| `item-editor` | `item-editor-layout`, `slide-notes-panel`, `inspector-panel` |
-| `overlay-editor` | `editor-layout`, `inspector-panel` |
-| `theme-editor` | `editor-layout`, `inspector-panel` |
-| `stage-editor` | `editor-layout`, `inspector-panel` |
-| `macro-editor` | `editor-layout`, `cue-list-panel`, `macro-inspector-panel` |
-| `settings` | `settings-layout` |
-| `shared` (`element-layers-panel.tsx`) | `object-list-panel` (used by item-editor, overlay-editor, theme-editor, stage-editor) |
+| Persistent shell | `app-toolbar`, `status-bar` |
+| Show | `resource-drawer` |
+| Item Editor | `item-editor-layout`, `slide-notes-panel`, `inspector-panel` |
+| Overlay, Theme, Stage Editors | `editor-layout`, `inspector-panel` |
+| Macro Editor | `editor-layout`, `cue-list-panel`, `macro-inspector-panel` |
+| Settings | `settings-layout` |
+| Shared editor element layers | `object-list-panel` |
 
-Full layout composition (panel-by-panel) for each screen lives in
-[ui-spec.md](./ui-spec.md); this table exists so automation (screenshot
-capture, Playwright locators) has one authoritative region-name list.
+Region names are source-level hooks, not complete accessibility or visual
+acceptance evidence. Prefer accessible roles/labels for interactions and scope
+reused labels to the appropriate region. Full layouts are in
+[UI specification](./ui-spec.md#3-screen-layouts).
 
-## 7. Screenshot Generation — currently non-functional
+## 7. UI Verification and Diagnostics
 
-`npm run capture:ui-screenshots` (`app/e2e/capture-ui-screenshots.mjs`) is
-not currently maintained against this renderer: its Playwright selectors and
-seed-data IPC calls target a prior screen/region layout and IPC method set
-that no longer exist (for example `castApi.createPlaylistSegment` /
-`castApi.addDeckItemToSegment`, superseded first by `createPlaylistGroup` /
-`addDeckItemToGroup` and then, once playlist groups were destroyed in favor
-of flat separator rows (issue #219), by `createSeparator` /
-`addItemToPlaylist`). No screenshots are committed under
-`docs/ui-spec-assets/` (the directory does not exist) and none are embedded
-in this document. The script now fails fast with an explanatory error
-instead of silently producing broken or partial output. A future screenshot
-capture implementation must rewrite its selectors and seed-data calls against
-the region names in Section 6.
+Use the existing Electron tests in `tests/apps/cast/e2e`:
+`npm run test:e2e -- --trace on`. Diagnostic artifacts use `test-results/`;
+media-crop tests explicitly capture screenshots there. Test discovery alone can
+be checked without launching an app via `npx --no-install playwright test --list`.
+
+Full-screen documentation capture needs a maintained generator; the obsolete
+capture alias and failing stub have been removed. Visual acceptance requires
+inspection of the current rendered states and behaviors, using test artifacts
+where available.
 
 ## 8. Reference
 
 - Canonical naming: [renderer-taxonomy.md](./renderer-taxonomy.md)
 - Layout detail: [ui-spec.md](./ui-spec.md)
 - Keyboard shortcuts: [keyboard-shortcuts.md](./keyboard-shortcuts.md)
+- Composition: [ADR 0036](./adr/0036-declarative-renderer-component-composition.md)
