@@ -5,6 +5,7 @@ import { Workspace } from '../../../../../apps/chord/renderer/shell/workspace';
 const mocks = vi.hoisted(() => ({
   importAudio: vi.fn(),
   importBackground: vi.fn(),
+  importDroppedFiles: vi.fn(),
   toast: vi.fn(),
 }));
 
@@ -44,10 +45,11 @@ vi.mock('../../../../../apps/chord/renderer/shell/media-import', () => ({
   importBackground: mocks.importBackground,
   importBackgroundFromFile: vi.fn(),
   importLyricsFromFile: vi.fn(),
+  importDroppedFiles: mocks.importDroppedFiles,
 }));
 
 vi.mock('../../../../../apps/chord/renderer/shell/top-bar', () => ({
-  TopBar: () => null,
+  TopBar: ({ onSave }: { onSave: () => void }) => <button onClick={onSave}>Save document</button>,
 }));
 
 beforeEach(() => {
@@ -57,8 +59,14 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('Workspace feature callback composition', () => {
+  it('passes the shell navigation Save callback to the existing toolbar', () => {
+    const onSave = vi.fn();
+    render(<Workspace onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save document' }));
+    expect(onSave).toHaveBeenCalledOnce();
+  });
   it('wires shell-owned media import actions to Timeline and Inspector', () => {
-    render(<Workspace />);
+    render(<Workspace onSave={() => {}} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Import audio' }));
     fireEvent.click(screen.getByRole('button', { name: 'Import background' }));

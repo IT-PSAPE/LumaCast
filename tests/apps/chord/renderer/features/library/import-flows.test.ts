@@ -29,7 +29,9 @@ const apiMock: ChordDesktopAPI = {
   revealPath: vi.fn(),
   showApplicationMenu: vi.fn(),
   onMenuCommand: vi.fn(),
-  onOpenDocument: vi.fn(),
+  documentNavigationReady: vi.fn(async () => {}),
+  requestWindowClose: vi.fn(async () => false),
+  onOpenProjectRequest: vi.fn(),
 };
 
 vi.mock('../../../../../../apps/chord/renderer/api', () => ({
@@ -39,12 +41,12 @@ vi.mock('../../../../../../apps/chord/renderer/api', () => ({
 let testStore: TestChordStore;
 
 vi.mock('../../../../../../apps/chord/renderer/store', () => ({
-  useChordStore: { getState: () => testStore },
+  useChordStore: { getState: () => testStore, subscribe: () => () => {} },
 }));
 
-const confirmChoiceMock = vi.fn<(title: string, choices: unknown[], message?: string) => Promise<string | null>>();
+const confirmChoiceMock = vi.fn<(title: string, choices: unknown[], message?: string, options?: { signal?: AbortSignal }) => Promise<string | null>>();
 vi.mock('../../../../../../apps/chord/renderer/components/confirm-dialog', () => ({
-  confirmChoice: (...args: [string, unknown[], string?]) => confirmChoiceMock(...args),
+  confirmChoice: (...args: [string, unknown[], string?, { signal?: AbortSignal }?]) => confirmChoiceMock(...args),
 }));
 
 const toastMock = vi.fn();

@@ -48,6 +48,8 @@ function makeDeps(overrides: DepsOverrides = {}): IpcDeps {
       ...overrides.dialogs,
     },
     windowControl: {
+      documentNavigationReady: vi.fn(async () => {}),
+      requestWindowClose: vi.fn(async () => false),
       setTitle: vi.fn(),
       setDocumentEdited: vi.fn(),
       showApplicationMenu: vi.fn(),
@@ -455,6 +457,16 @@ describe('apps/chord createIpcHandlers: cue export / general export / reveal', (
 });
 
 describe('apps/chord DocumentDirtyTracker', () => {
+  it('delegates ready/close only through the window owner and validates consent', async () => {
+    const deps = makeDeps();
+    const handlers = createIpcHandlers(deps);
+    await handlers[IPC_CHANNELS.documentNavigationReady]();
+    expect(deps.windowControl.documentNavigationReady).toHaveBeenCalledOnce();
+    await handlers[IPC_CHANNELS.requestWindowClose](false);
+    expect(deps.windowControl.requestWindowClose).toHaveBeenCalledExactlyOnceWith(false);
+    expect(() => handlers[IPC_CHANNELS.requestWindowClose]('true')).toThrow();
+    expect(deps.windowControl.requestWindowClose).toHaveBeenCalledOnce();
+  });
   it('starts clean and reflects set() calls', () => {
     const tracker = new DocumentDirtyTracker();
     expect(tracker.get()).toBe(false);

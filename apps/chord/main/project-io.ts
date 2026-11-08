@@ -70,9 +70,23 @@ function isRecentProjectShape(value: unknown): value is RecentProject {
  * silently falls out of Open Recent instead of erroring when clicked.
  */
 export class RecentProjectsStore {
+  private pending: Promise<void> = Promise.resolve();
+
   constructor(private readonly filePath: string) {}
 
-  async list(): Promise<RecentProject[]> {
+  // A list can prune the file too. Keep every read/modify/write on the same
+  // queue so a delayed prune cannot overwrite a newly opened project.
+  private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const next = this.pending.then(operation);
+    this.pending = next.then(() => {}, () => {});
+    return next;
+  }
+
+  list(): Promise<RecentProject[]> {
+    return this.enqueue(() => this.readList());
+  }
+
+  private async readList(): Promise<RecentProject[]> {
     let raw: string;
     try {
       raw = await readFile(this.filePath, 'utf8');
@@ -102,12 +116,15 @@ export class RecentProjectsStore {
   }
 
   /** Adds/moves `entry` to the front, deduped by path, capped at 10. */
-  async push(entry: RecentProject): Promise<RecentProject[]> {
-    const current = await this.list();
-    const deduped = current.filter((item) => item.path !== entry.path);
-    const next = [entry, ...deduped].slice(0, MAX_RECENT_PROJECTS);
-    await this.save(next);
-    return next;
+  push(entry: RecentProject): Promise<RecentProject[]> {
+    const opened = { ...entry };
+    return this.enqueue(async () => {
+      const current = await this.readList();
+      const deduped = current.filter((item) => item.path !== opened.path);
+      const next = [opened, ...deduped].slice(0, MAX_RECENT_PROJECTS);
+      await this.save(next);
+      return next;
+    });
   }
 
   private async save(entries: RecentProject[]): Promise<void> {

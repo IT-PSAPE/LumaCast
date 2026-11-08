@@ -71,7 +71,7 @@ describe('empty untitled project', () => {
 
   it('Workspace renders top bar, canvas, inspector and timeline together', () => {
     empty();
-    const { container } = render(<Workspace />);
+    const { container } = render(<Workspace onSave={() => {}} />);
     expect(screen.getByRole('toolbar', { name: 'Project' })).toBeInTheDocument();
     expect(screen.getByTestId('preview-canvas')).toBeInTheDocument();
     expect(container.querySelector('[data-ui-region="timeline"]')).not.toBeNull();

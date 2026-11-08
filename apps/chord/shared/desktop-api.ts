@@ -28,6 +28,7 @@ export type MenuCommand =
   | 'open'
   | 'save'
   | 'save-as'
+  | 'close'
   | 'import-audio'
   | 'import-cues'
   | 'import-background'
@@ -59,8 +60,12 @@ export interface ChordDesktopAPI {
   /** Save-as dialog when the document has no path or `saveAs` is set; null when cancelled. */
   saveProject: (document: ProjectDocument, options?: { saveAs?: boolean }) => Promise<string | null>;
   recentProjects: () => Promise<RecentProject[]>;
-  /** Drives the window title and the close prompt. */
+  /** Window title and edited affordance; never the authority for closing. */
   setDocumentState: (state: { title: string; path: string | null; dirty: boolean }) => Promise<void>;
+  /** Called after renderer navigation listeners and its unload guard mount. */
+  documentNavigationReady: () => Promise<void>;
+  /** Completes a native close request; true drains sinks then replays close. */
+  requestWindowClose: (approved: boolean) => Promise<boolean>;
 
   // Media
   importMedia: (kind: ImportKind) => Promise<ImportedFile | null>;
@@ -91,7 +96,8 @@ export interface ChordDesktopAPI {
 
   // Push channels
   onMenuCommand: (callback: (command: MenuCommand) => void) => () => void;
-  onOpenDocument: (callback: (document: ProjectDocument) => void) => () => void;
+  /** OS/Open Recent intent; renderer acquires and protects the replacement. */
+  onOpenProjectRequest: (callback: (path: string) => void) => () => void;
 }
 
 declare global {

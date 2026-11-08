@@ -28,7 +28,7 @@ import {
 import { timelineEndMs } from '../utils/timeline-end';
 import type { ChordDesktopAPI } from '../../shared/desktop-api';
 import type { ChordCue, ChordProject } from '../../shared/project';
-import type { ChordStore } from './types';
+import type { ChordStore, ResolvedMedia } from './types';
 
 const UNDO_LIMIT = 200;
 const MIN_ZOOM_PX_PER_SEC = 2;
@@ -68,18 +68,84 @@ function emptyExportJob(): ChordStore['exportJob'] {
   return { status: 'idle', percent: 0, etaMs: null, outputPath: null, error: null };
 }
 
+function mediaPaths(project: ChordProject | null): ResolvedMedia {
+  return {
+    audioUrl: project?.audio?.path ?? null,
+    backgroundUrl: project && project.background.kind !== 'color' ? project.background.media.path : null,
+  };
+}
+
 export function createChordStore(api: ChordDesktopAPI) {
   return create<ChordStoreImpl>()((set, get) => {
-    async function resolveMedia(project: ChordProject): Promise<void> {
-      const [audioUrl, backgroundUrl] = await Promise.all([
-        project.audio ? api.mediaUrl(project.audio.path) : Promise.resolve(null),
-        project.background.kind !== 'color' ? api.mediaUrl(project.background.media.path) : Promise.resolve(null),
-      ]);
-      // The document may have changed again while these awaits were in
-      // flight (a second load fired before the first resolved); a stale
-      // response must not clobber the media for the document now showing.
-      if (get().document.project.id !== project.id) return;
-      set({ media: { audioUrl, backgroundUrl } });
+    // A loaded instance has its own lifetime even when its project id is reused.
+    let documentSession = 0;
+    let documentRequest = 0;
+    let pendingSave = Promise.resolve();
+    const mediaRequests: Record<keyof ResolvedMedia, number> = { audioUrl: 0, backgroundUrl: 0 };
+
+    async function resolveMedia(channel: keyof ResolvedMedia, path: string, request: number, session: number): Promise<void> {
+      let url: string | null;
+      try {
+        url = await api.mediaUrl(path);
+      } catch {
+        // A missing asset must not prevent the other channel or document loading.
+        url = null;
+      }
+      if (session !== documentSession || request !== mediaRequests[channel]
+        || mediaPaths(get().document.project)[channel] !== path) return;
+      set((state) => ({ media: { ...state.media, [channel]: url } }));
+    }
+
+    // Clear changed sources in the same update as the project, then resolve each
+    // independently. Explicit import URLs supersede pending lookups, while an
+    // unrelated edit leaves the current channel and its pending request intact.
+    function prepareMedia(previous: ChordProject | null, next: ChordProject, known: Partial<ResolvedMedia> = {}): ResolvedMedia {
+      const before = mediaPaths(previous);
+      const after = mediaPaths(next);
+      const current = get().media;
+      let media = current;
+      for (const channel of ['audioUrl', 'backgroundUrl'] as const) {
+        const supplied = channel in known;
+        if (previous !== null && before[channel] === after[channel] && !supplied) continue;
+        if (media === current) media = { ...current };
+        const request = ++mediaRequests[channel];
+        const path = after[channel];
+        media[channel] = path === null ? null : supplied ? known[channel] ?? null : null;
+        if (path !== null && !supplied) void resolveMedia(channel, path, request, documentSession);
+      }
+      return media;
+    }
+
+    function updateProject(label: string, mutate: (project: ChordProject) => void, knownMedia?: Partial<ResolvedMedia>): void {
+      const state = get();
+      const draft = structuredClone(state.document.project);
+      mutate(draft);
+      draft.cues = normalizeCues(draft.cues);
+      draft.updatedAt = nowIso();
+      const media = prepareMedia(state.document.project, draft, knownMedia);
+
+      if (state._txDepth > 0) {
+        set({
+          document: { ...state.document, project: draft },
+          media,
+          dirty: true,
+          _txMutated: true,
+          ...(state._txMutated ? {} : { _redoStack: [], canRedo: false }),
+        });
+        return;
+      }
+
+      const undoStack = [...state._undoStack, { project: state.document.project, label }];
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+      set({
+        document: { ...state.document, project: draft },
+        media,
+        dirty: true,
+        _undoStack: undoStack,
+        _redoStack: [],
+        canUndo: true,
+        canRedo: false,
+      });
     }
 
     return {
@@ -111,7 +177,10 @@ export function createChordStore(api: ChordDesktopAPI) {
       _txMutated: false,
 
       // ── Document lifecycle ──────────────────────────────────────────
+      getDocumentSession: () => documentSession,
       loadDocument: (document) => {
+        documentSession += 1;
+        documentRequest += 1;
         set({
           document,
           dirty: false,
@@ -122,7 +191,7 @@ export function createChordStore(api: ChordDesktopAPI) {
           tapOrder: null,
           inspectorTab: 'cue',
           playback: { playing: false, timeMs: 0, loop: false },
-          media: { audioUrl: null, backgroundUrl: null },
+          media: prepareMedia(null, document.project),
           exportJob: emptyExportJob(),
           _undoStack: [],
           _redoStack: [],
@@ -133,52 +202,40 @@ export function createChordStore(api: ChordDesktopAPI) {
           canUndo: false,
           canRedo: false,
         });
-        void resolveMedia(document.project);
         void api.setDocumentState({ title: document.project.title, path: document.path, dirty: false });
       },
 
       newDocument: async () => {
+        const request = ++documentRequest;
         const document = await api.newProject();
-        get().loadDocument(document);
+        if (request === documentRequest) get().loadDocument(document);
       },
 
       openDocument: async (path) => {
+        const request = ++documentRequest;
         const document = await api.openProject(path);
-        if (document) get().loadDocument(document);
+        if (document && request === documentRequest) get().loadDocument(document);
       },
 
-      saveDocument: async (saveAs) => {
-        const state = get();
-        const path = await api.saveProject(state.document, { saveAs });
-        if (path === null) return;
-        set({ document: { ...state.document, path }, dirty: false });
-        void api.setDocumentState({ title: state.document.project.title, path, dirty: false });
-      },
-
-      updateProject: (label, mutate) => {
-        const state = get();
-        const draft = structuredClone(state.document.project);
-        mutate(draft);
-        draft.cues = normalizeCues(draft.cues);
-        draft.updatedAt = nowIso();
-
-        if (state._txDepth > 0) {
-          if (!state._txMutated) set({ _txMutated: true, _redoStack: [], canRedo: false });
-          set({ document: { ...state.document, project: draft }, dirty: true });
-          return;
-        }
-
-        const undoStack = [...state._undoStack, { project: state.document.project, label }];
-        if (undoStack.length > UNDO_LIMIT) undoStack.shift();
-        set({
-          document: { ...state.document, project: draft },
-          dirty: true,
-          _undoStack: undoStack,
-          _redoStack: [],
-          canUndo: true,
-          canRedo: false,
+      saveDocument: (saveAs) => {
+        const session = documentSession;
+        const project = get().document.project;
+        // Preserve the invocation's revision, but let a preceding Save As supply
+        // the destination. Serial writes prevent an older save finishing last.
+        const saving = pendingSave.then(async () => {
+          if (session !== documentSession) return;
+          const path = await api.saveProject({ project, path: get().document.path }, { saveAs });
+          if (path === null || session !== documentSession) return;
+          const current = get();
+          const dirty = current.document.project !== project;
+          set({ document: { ...current.document, path }, dirty });
+          void api.setDocumentState({ title: current.document.project.title, path, dirty });
         });
+        pendingSave = saving.catch(() => {});
+        return saving;
       },
+
+      updateProject,
 
       undo: () => {
         const state = get();
@@ -189,6 +246,7 @@ export function createChordStore(api: ChordDesktopAPI) {
         if (redoStack.length > UNDO_LIMIT) redoStack.shift();
         set({
           document: { ...state.document, project: entry.project },
+          media: prepareMedia(state.document.project, entry.project),
           dirty: true,
           _undoStack: undoStack,
           _redoStack: redoStack,
@@ -206,6 +264,7 @@ export function createChordStore(api: ChordDesktopAPI) {
         if (undoStack.length > UNDO_LIMIT) undoStack.shift();
         set({
           document: { ...state.document, project: entry.project },
+          media: prepareMedia(state.document.project, entry.project),
           dirty: true,
           _undoStack: undoStack,
           _redoStack: redoStack,
@@ -367,10 +426,9 @@ export function createChordStore(api: ChordDesktopAPI) {
       },
 
       setBackground: (background, url) => {
-        get().updateProject('Edit background', (draft) => {
+        updateProject('Edit background', (draft) => {
           draft.background = background;
-        });
-        set((state) => ({ media: { ...state.media, backgroundUrl: url } }));
+        }, { backgroundUrl: url });
       },
 
       setComposition: (patch) => {
@@ -384,10 +442,9 @@ export function createChordStore(api: ChordDesktopAPI) {
       },
 
       setAudio: (audio, url) => {
-        get().updateProject(audio ? 'Set audio' : 'Remove audio', (draft) => {
+        updateProject(audio ? 'Set audio' : 'Remove audio', (draft) => {
           draft.audio = audio;
-        });
-        set((state) => ({ media: { ...state.media, audioUrl: url } }));
+        }, { audioUrl: url });
       },
 
       setTitle: (title) => {

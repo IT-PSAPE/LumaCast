@@ -32,23 +32,31 @@ afterEach(() => {
 });
 
 describe('TopBar', () => {
+  it('routes Save to the shell navigation owner', () => {
+    testStore = createTestStore();
+    const onSave = vi.fn();
+    render(<TopBar onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(testStore.saveDocument).not.toHaveBeenCalled();
+  });
   it('renders the project title', () => {
     const project = createTestStore().document.project;
     testStore = createTestStore({ document: { project: { ...project, title: 'My Song' }, path: null } });
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     expect(screen.getByText('My Song')).toBeInTheDocument();
   });
 
   it('disables Undo/Redo initially', () => {
     testStore = createTestStore({ canUndo: false, canRedo: false });
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Redo' })).toBeDisabled();
   });
 
   it('enables Undo/Redo when the store says so, and clicking calls the store', () => {
     testStore = createTestStore({ canUndo: true, canRedo: true });
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     const undoButton = screen.getByRole('button', { name: 'Undo' });
     expect(undoButton).toBeEnabled();
     fireEvent.click(undoButton);
@@ -57,14 +65,14 @@ describe('TopBar', () => {
 
   it('the Export button is disabled for an empty project', () => {
     testStore = createTestStore();
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
   it('leaves New and Open to the File menu and keeps the rarely used controls out of the bar', () => {
     testStore = createTestStore();
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     expect(screen.queryByRole('button', { name: 'New' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Audio…' })).not.toBeInTheDocument();
@@ -74,7 +82,7 @@ describe('TopBar', () => {
   it('collapses the three imports into one keyboard-reachable menu', async () => {
     const { importAudio } = await import('../../../../../../apps/chord/renderer/shell/media-import');
     testStore = createTestStore();
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     const trigger = screen.getByRole('button', { name: /Import/ });
     expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
     fireEvent.click(trigger);
@@ -86,7 +94,7 @@ describe('TopBar', () => {
 
   it('holds composition, frame rate and theme preset in a project settings popover', async () => {
     testStore = createTestStore();
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     const trigger = screen.getByRole('button', { name: 'Project settings' });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(trigger);
@@ -102,7 +110,7 @@ describe('TopBar', () => {
     testStore = createTestStore({
       document: { project: { ...project, cues: [{ id: 'a', startMs: 0, endMs: null, text: 'Hi', override: null }] }, path: null },
     });
-    render(<TopBar />);
+    render(<TopBar onSave={() => {}} />);
     expect(screen.queryByTestId('export-dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));
     expect(screen.getByTestId('export-dialog')).toBeInTheDocument();

@@ -20,7 +20,7 @@ import {
   IPC_CHANNELS,
   INVOKED_CHANNELS,
   MENU_COMMAND_CHANNEL,
-  OPEN_DOCUMENT_CHANNEL,
+  OPEN_PROJECT_REQUEST_CHANNEL,
   type IpcChannel,
 } from './ipc-channels';
 
@@ -68,6 +68,8 @@ export interface IpcDialogs {
 }
 
 export interface IpcWindowControl {
+  documentNavigationReady(): Promise<void>;
+  requestWindowClose(approved: boolean): Promise<boolean>;
   setTitle(title: string): void;
   /** macOS-only affordance; a no-op implementation elsewhere is fine. */
   setDocumentEdited(edited: boolean): void;
@@ -86,9 +88,8 @@ export interface IpcClock {
   createId(): string;
 }
 
-/** Tracks whether the open document has unsaved changes, shared between the
- *  setDocumentState handler (which sets it) and main/index.ts's window
- *  `close` handler (which reads it to decide whether to prompt). */
+/** Mirrored document state for native affordances. Closing consults the live
+ *  renderer document and does not trust this asynchronously reported state. */
 export class DocumentDirtyTracker {
   private dirty = false;
 
@@ -192,6 +193,8 @@ export function createIpcHandlers(deps: IpcDeps): IpcHandlerMap {
   });
 
   return {
+    [IPC_CHANNELS.documentNavigationReady]: () => deps.windowControl.documentNavigationReady(),
+    [IPC_CHANNELS.requestWindowClose]: (approved: unknown) => deps.windowControl.requestWindowClose(z.boolean().parse(approved)),
     [IPC_CHANNELS.newProject]: async (): Promise<ProjectDocument> => {
       const project = createEmptyProject(deps.clock.now(), deps.clock.createId());
       return { project, path: null };
@@ -371,8 +374,8 @@ export function sendMenuCommand(window: BrowserWindow | null, command: MenuComma
   window.webContents.send(MENU_COMMAND_CHANNEL, command);
 }
 
-/** Pushes an opened document to the renderer (OS file-open, Open Recent). */
-export function sendOpenDocument(window: BrowserWindow | null, document: ProjectDocument): void {
+/** Pushes an intent, before any asynchronous file I/O can reorder requests. */
+export function sendOpenProjectRequest(window: BrowserWindow | null, path: string): void {
   if (!window || window.isDestroyed()) return;
-  window.webContents.send(OPEN_DOCUMENT_CHANNEL, document);
+  window.webContents.send(OPEN_PROJECT_REQUEST_CHANNEL, path);
 }

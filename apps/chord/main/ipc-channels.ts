@@ -9,6 +9,8 @@ export const IPC_CHANNELS = {
   saveProject: 'project-save',
   recentProjects: 'project-recent',
   setDocumentState: 'project-document-state',
+  documentNavigationReady: 'document-navigation-ready',
+  requestWindowClose: 'window-close-request',
   importMedia: 'media-import',
   admitFiles: 'media-admit',
   mediaUrl: 'media-url',
@@ -29,7 +31,7 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 /** Pushed when the application menu (or a shortcut) issues a command. */
 export const MENU_COMMAND_CHANNEL = 'menu-command';
 /** Pushed when the OS asks the app to open a project file. */
-export const OPEN_DOCUMENT_CHANNEL = 'open-document';
+export const OPEN_PROJECT_REQUEST_CHANNEL = 'open-project-request';
 
 /** Channels the renderer invokes, in the order main registers them. */
 export const INVOKED_CHANNELS: readonly IpcChannel[] = Object.values(IPC_CHANNELS);

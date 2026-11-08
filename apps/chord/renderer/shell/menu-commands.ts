@@ -4,30 +4,37 @@
 // bar control or used the menu bar/a shortcut, so both paths land here or in
 // `top-bar.tsx`'s own handlers, never duplicated.
 import { useEffect } from 'react';
+import { useToast } from '@lumacast/ui';
 import { getApi } from '../api';
 import { useChordStore } from '../store';
 import { deleteSelectedCues, duplicateSelectedCue, isEditableTarget, trimSelectedCueToPlayhead } from '../features/timeline';
 import { importAudio, importBackground, importLyrics } from './media-import';
 import { openCueFormatChooser, openExportDialog } from './shell-ui-state';
+import type { DocumentNavigationCommands } from './document-navigation';
 
-export function useMenuCommands(): void {
+export function useMenuCommands(navigation: DocumentNavigationCommands): void {
+  const { toast } = useToast();
   useEffect(() => {
     const api = getApi();
+    let mounted = true;
 
     const unsubscribeCommand = api.onMenuCommand((command) => {
       const store = useChordStore.getState();
       switch (command) {
         case 'new':
-          void store.newDocument();
+          void navigation.newDocument();
           break;
         case 'open':
-          void store.openDocument();
+          void navigation.openDocument();
           break;
         case 'save':
-          void store.saveDocument(false);
+          void navigation.saveDocument(false);
           break;
         case 'save-as':
-          void store.saveDocument(true);
+          void navigation.saveDocument(true);
+          break;
+        case 'close':
+          void navigation.closeDocument();
           break;
         case 'import-audio':
           void importAudio();
@@ -89,8 +96,11 @@ export function useMenuCommands(): void {
       }
     });
 
-    const unsubscribeOpen = api.onOpenDocument((document) => {
-      useChordStore.getState().loadDocument(document);
+    const unsubscribeOpen = api.onOpenProjectRequest((path) => {
+      void navigation.openDocument(path);
+    });
+    void api.documentNavigationReady().catch(() => {
+      if (mounted) toast({ description: 'Could not finish closing the previous session. Close the window to retry.', tone: 'error' });
     });
 
     // Main swaps the Edit menu between native editing roles and app commands
@@ -111,10 +121,11 @@ export function useMenuCommands(): void {
     document.addEventListener('focusout', handleFocusOut);
 
     return () => {
+      mounted = false;
       document.removeEventListener('focusin', handleFocusIn);
       document.removeEventListener('focusout', handleFocusOut);
       unsubscribeCommand();
       unsubscribeOpen();
     };
-  }, []);
+  }, [navigation, toast]);
 }

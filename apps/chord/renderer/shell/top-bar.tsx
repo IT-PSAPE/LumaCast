@@ -59,11 +59,9 @@ function TitleControl() {
   );
 }
 
-function SaveControl() {
-  const saveDocument = useChordStore((s) => s.saveDocument);
-
+function SaveControl({ onSave }: { onSave: () => void }) {
   return (
-    <ReacstButton.Icon label="Save" onClick={() => void saveDocument()}>
+    <ReacstButton.Icon label="Save" onClick={onSave}>
       <Save size={16} />
     </ReacstButton.Icon>
   );
@@ -261,7 +259,7 @@ function CueFormatChooserDialog() {
   );
 }
 
-export function TopBar() {
+export function TopBar({ onSave }: { onSave: () => void }) {
   const isEmpty = useChordStore((s) => s.document.project.cues.length === 0 && s.document.project.audio === null);
   const exportDialogOpen = useShellUiState((s) => s.exportDialogOpen);
 
@@ -272,7 +270,7 @@ export function TopBar() {
       </Toolbar.Start>
 
       <Toolbar.Center>
-        <Toolbar.Group label="Document"><SaveControl /></Toolbar.Group>
+        <Toolbar.Group label="Document"><SaveControl onSave={onSave} /></Toolbar.Group>
         <Toolbar.Group label="History"><HistoryControls /></Toolbar.Group>
       </Toolbar.Center>
 
@@ -280,7 +278,7 @@ export function TopBar() {
         <ImportMenu />
         <ProjectSettingsPopover />
         <LyricsExportMenu />
-        <ReacstButton className="bg-brand text-white hover:bg-brand/90" disabled={isEmpty} onClick={openExportDialog}>
+        <ReacstButton variant="primary" disabled={isEmpty} onClick={openExportDialog}>
           Export
         </ReacstButton>
       </Toolbar.End>

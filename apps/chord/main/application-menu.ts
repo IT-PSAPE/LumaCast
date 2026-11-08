@@ -20,9 +20,7 @@ export interface ApplicationMenuDeps {
   recentProjects: RecentProject[];
   /** Pushes a MenuCommand to the renderer over MENU_COMMAND_CHANNEL. */
   emit: (command: MenuCommand) => void;
-  /** An Open Recent item was clicked; main reads/admits/pushes that project
-   *  directly rather than round-tripping through a MenuCommand (which has no
-   *  path payload) — see main/index.ts's handleOpenDocument. */
+  /** Sends a path intent through the same protected renderer navigation as Open. */
   onOpenRecent: (path: string) => void;
   onOpenReleaseNotes: () => void;
   /** A text field (input, textarea, contenteditable) has focus. Flips the

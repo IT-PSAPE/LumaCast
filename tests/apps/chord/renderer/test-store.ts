@@ -83,6 +83,7 @@ export function createTestStore(overrides: Partial<TestChordStore> = {}): TestCh
     canRedo: false,
     exportJob: { status: 'idle', percent: 0, etaMs: null, outputPath: null, error: null },
 
+    getDocumentSession: vi.fn(() => 0),
     loadDocument: vi.fn(),
     newDocument: vi.fn(async () => {}),
     openDocument: vi.fn(async () => {}),

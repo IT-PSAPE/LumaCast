@@ -77,3 +77,49 @@ that rendered it.
 
 Media references are absolute paths, so a project moved to another machine
 must have its audio and background re-imported.
+
+## Document navigation and export retirement (2026-11-08)
+
+The renderer shell coordinates New, Open, recent files, and OS-open requests
+as one pending action with Save/Discard/Cancel protection. Main sends raw path
+intents; reading a replacement file cannot race consent or another open request.
+Consent belongs to an exact loaded-document session and revision, including
+same-ID replacement. Cancelled pickers, failed saves, and edits during prompts
+preserve the current document. Choosing Save on close retains the existing
+stay-open behavior.
+
+Native close waits for the mounted renderer to decide from its live store.
+The debounced native dirty mirror can lag edits, so it cannot authorize close.
+After accepted close, main retires that window's export registry and replays
+native close. The renderer synchronously vetoes a changed revision or session
+at that final boundary; asynchronous drain alone cannot guarantee the approved
+document is still current. A veto restores a fresh registry only after its
+predecessor drains. Renderer replacement and quit use the same ownership fence.
+
+Export sinks stage in exclusive sibling temporary files. Complete ordered
+positional writes, sync, and close precede atomic replacement; failures and
+cancellation clean up only the captured temporary file. The first close or
+abort wins, and an accepted close cannot later report successful cancellation.
+Retirement blocks new admissions, drains accepted publication, and aborts other
+staged work. Cleanup failure retains ownership for retry instead of forgetting
+an open handle or deleting the prior export.
+
+## Bounded export decoding and track completion (2026-11-08)
+
+Export requests retain their API and loaded-document session through path
+choice, preparation, progress, and publication. Setup failure and cancellation
+release acquired resources; obsolete work cannot replace a successor's status.
+Publication seals only immediately before main accepts the final file close.
+
+Audio and video feed the muxer in timestamp order, awaiting track completion
+as each track ends. Unequal tails retain their original content; audio is not
+padded or trimmed to match saved duration metadata. Audio and background-video
+inputs use 8 MiB range caches. Background video keeps only current/lookahead
+samples and two
+alternating canvases, whose combined RGBA allocation must fit 128 MiB. This
+canvas budget is separate from browser/codec buffers. Ambiguous timestamp
+precision is rejected rather than silently choosing the wrong frame.
+
+The existing MediaBunny dependency needs a pinned lifecycle correction to make
+early track completion awaitable and failure-safe; see ADR-0123 for the patch,
+verification, source-distribution, and removal contract.

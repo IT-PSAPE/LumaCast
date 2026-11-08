@@ -9,13 +9,15 @@ import { ShellStatusBar } from './shell/status-bar';
 import { TitleBar } from './shell/title-bar';
 import { Workspace } from './shell/workspace';
 import { useMenuCommands } from './shell/menu-commands';
+import { useDocumentNavigation } from './shell/document-navigation';
 import { useDebouncedEffect } from './hooks/use-debounced-effect';
 import { useSystemThemeAttribute } from './hooks/use-system-theme';
 import { useChordStore } from './store';
 
 export function App() {
   useSystemThemeAttribute();
-  useMenuCommands();
+  const navigation = useDocumentNavigation();
+  useMenuCommands(navigation);
 
   const title = useChordStore((s) => s.document.project.title);
   const path = useChordStore((s) => s.document.path);
@@ -28,7 +30,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col bg-primary text-primary">
       <TitleBar />
-      <Workspace />
+      <Workspace onSave={() => void navigation.saveDocument()} />
       <ShellStatusBar />
       <Toaster />
       <ConfirmHost />

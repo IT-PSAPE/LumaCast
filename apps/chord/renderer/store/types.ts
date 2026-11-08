@@ -81,6 +81,9 @@ export interface ChordState {
 
 export interface ChordActions {
   // Document lifecycle (main-backed)
+  /** Lifetime of the loaded document instance; ordinary edits do not change it. */
+  getDocumentSession: () => number;
+  /** Trusted imperative replacement; shell navigation owns unsaved-change consent. */
   loadDocument: (document: ProjectDocument) => void;
   newDocument: () => Promise<void>;
   openDocument: (path?: string) => Promise<void>;

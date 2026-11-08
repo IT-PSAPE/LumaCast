@@ -5,7 +5,7 @@ import {
   IPC_CHANNELS,
   INVOKED_CHANNELS,
   MENU_COMMAND_CHANNEL,
-  OPEN_DOCUMENT_CHANNEL,
+  OPEN_PROJECT_REQUEST_CHANNEL,
 } from '../../../../apps/chord/main/ipc-channels';
 
 const APP_DIR = path.resolve(__dirname, '../../../../apps/chord');
@@ -23,6 +23,8 @@ describe('apps/chord IPC channel identity', () => {
       'project-save',
       'project-recent',
       'project-document-state',
+      'document-navigation-ready',
+      'window-close-request',
       'media-import',
       'media-admit',
       'media-url',
@@ -43,14 +45,14 @@ describe('apps/chord IPC channel identity', () => {
     // If the renderer could invoke either, a compromised renderer could forge
     // a menu command or a "the OS opened this file" event.
     expect(MENU_COMMAND_CHANNEL).toBe('menu-command');
-    expect(OPEN_DOCUMENT_CHANNEL).toBe('open-document');
+    expect(OPEN_PROJECT_REQUEST_CHANNEL).toBe('open-project-request');
     expect(INVOKED_CHANNELS).not.toContain(MENU_COMMAND_CHANNEL);
-    expect(INVOKED_CHANNELS).not.toContain(OPEN_DOCUMENT_CHANNEL);
+    expect(INVOKED_CHANNELS).not.toContain(OPEN_PROJECT_REQUEST_CHANNEL);
   });
 
   it('keeps one channel per ChordDesktopAPI capability that needs main', () => {
     // `pathsForFiles` is resolved entirely in preload (webUtils); every other
-    // invoked capability has a channel. `onMenuCommand`/`onOpenDocument` are
+    // invoked capability has a channel. `onMenuCommand`/`onOpenProjectRequest` are
     // push-only and use the two channels above instead.
     const expected: Record<string, string> = {
       newProject: IPC_CHANNELS.newProject,
@@ -58,6 +60,8 @@ describe('apps/chord IPC channel identity', () => {
       saveProject: IPC_CHANNELS.saveProject,
       recentProjects: IPC_CHANNELS.recentProjects,
       setDocumentState: IPC_CHANNELS.setDocumentState,
+      documentNavigationReady: IPC_CHANNELS.documentNavigationReady,
+      requestWindowClose: IPC_CHANNELS.requestWindowClose,
       importMedia: IPC_CHANNELS.importMedia,
       admitFiles: IPC_CHANNELS.admitFiles,
       mediaUrl: IPC_CHANNELS.mediaUrl,

@@ -18,11 +18,10 @@ import { isApprovedExternalUrl } from './navigation-policy';
 import { ExportSinkRegistry } from './export-sink';
 import {
   DocumentDirtyTracker,
-  admitProjectMedia,
   createIpcHandlers,
   registerIpc,
   sendMenuCommand,
-  sendOpenDocument,
+  sendOpenProjectRequest,
   type IpcDeps,
   type IpcDialogs,
 } from './ipc';
@@ -30,6 +29,7 @@ import { MediaAdmissions, MEDIA_EXTENSIONS_BY_KIND, MEDIA_SCHEME, MEDIA_SCHEME_P
 import { PROJECT_DIALOG_FILTERS, RecentProjectsStore, readProjectFile, readTextFileWithLimit, writeProjectFile, writeTextFile } from './project-io';
 import { resolveUserData } from './user-data';
 import { createMainWindow } from './window';
+import { WindowLifetime } from './window-lifetime';
 
 // Registered before app.whenReady(): privileges cannot be granted afterwards.
 // `standard` keeps `lumachord://` same-origin with the renderer document
@@ -74,7 +74,19 @@ if (!app.requestSingleInstanceLock()) {
   let pendingOpenPath: string | null = null;
 
   const admissions = new MediaAdmissions();
-  const exportSinks = new ExportSinkRegistry();
+  let mainLifetime: WindowLifetime | null = null;
+  let predecessorDrain: Promise<void> = Promise.resolve();
+  let predecessor: WindowLifetime | null = null;
+  let opening: Promise<void> | null = null;
+  let quitting = false;
+  let allowQuit = false;
+  let rendererReady = false;
+  let initialized = false;
+
+  const currentSinks = () => {
+    if (!mainLifetime) throw new Error('No active renderer');
+    return mainLifetime.sinks;
+  };
   const dirtyTracker = new DocumentDirtyTracker();
   const recentStore = new RecentProjectsStore(path.join(userData.dir, 'recent-projects.json'));
 
@@ -129,6 +141,16 @@ if (!app.requestSingleInstanceLock()) {
   const ipcDeps: IpcDeps = {
     dialogs,
     windowControl: {
+      documentNavigationReady: async () => {
+        const lifetime = mainLifetime;
+        const window = mainWindow;
+        if (!lifetime || !window) return;
+        const ready = await lifetime.rendererReady();
+        if (!ready || mainLifetime !== lifetime || mainWindow !== window) return;
+        rendererReady = true;
+        flushOpenPath();
+      },
+      requestWindowClose: (approved) => mainLifetime?.finishClose(approved) ?? Promise.resolve(false),
       setTitle: (title) => mainWindow?.setTitle(title),
       setDocumentEdited: (edited) => {
         if (process.platform === 'darwin') mainWindow?.setDocumentEdited(edited);
@@ -146,9 +168,21 @@ if (!app.requestSingleInstanceLock()) {
       read: (targetPath) => readProjectFile(targetPath),
       write: (targetPath, project) => writeProjectFile(targetPath, project),
     },
-    recentProjects: recentStore,
+    recentProjects: {
+      list: () => recentStore.list(),
+      push: async (entry) => {
+        const recent = await recentStore.push(entry);
+        rebuildRecentMenu(recent);
+        return recent;
+      },
+    },
     admissions,
-    exportSinks,
+    exportSinks: {
+      open: (target) => currentSinks().open(target),
+      write: (id, position, bytes) => currentSinks().write(id, position, bytes),
+      close: (id) => currentSinks().close(id),
+      abort: (id) => currentSinks().abort(id),
+    },
     clock: {
       now: () => new Date().toISOString(),
       createId: () => randomUUID(),
@@ -162,50 +196,21 @@ if (!app.requestSingleInstanceLock()) {
 
   const ipcHandlers = createIpcHandlers(ipcDeps);
 
-  /**
-   * Reads, admits, and pushes a project to the renderer — shared by the OS
-   * open-file flow (macOS `open-file`, Windows/Linux argv/second-instance)
-   * and clicking an Open Recent menu item, since neither carries the path
-   * through a normal `openProject` IPC round trip.
-   */
-  async function handleOpenDocument(filePath: string): Promise<void> {
-    try {
-      const document = await readProjectFile(filePath);
-      await admitProjectMedia(admissions, document.project);
-      const recent = await recentStore.push({
-        path: filePath,
-        title: document.project.title,
-        openedAt: new Date().toISOString(),
-      });
-      rebuildRecentMenu(recent);
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        sendOpenDocument(mainWindow, document);
-        mainWindow.show();
-        mainWindow.focus();
-      }
-    } catch (error) {
-      console.error('[main] failed to open document', filePath, error);
-    }
+  function flushOpenPath(): void {
+    if (!rendererReady || !mainWindow || !pendingOpenPath) return;
+    const filePath = pendingOpenPath;
+    pendingOpenPath = null;
+    sendOpenProjectRequest(mainWindow, filePath);
+    mainWindow.show();
+    mainWindow.focus();
   }
 
   function openDocumentPath(filePath: string): void {
-    if (!mainWindow) {
-      pendingOpenPath = filePath;
-      return;
-    }
-    // A cold start via file-open races the renderer's mount: the window
-    // exists but hasn't attached its onOpenDocument listener yet, so a push
-    // sent now would be silently lost. Deferring to did-finish-load is what
-    // keeps double-clicking a .lumachord file on a fresh launch reliable.
-    if (mainWindow.webContents.isLoading()) {
-      const targetWindow = mainWindow;
-      targetWindow.webContents.once('did-finish-load', () => {
-        void handleOpenDocument(filePath);
-      });
-      return;
-    }
-    void handleOpenDocument(filePath);
+    // Send the intent before file I/O. Renderer navigation owns acquisition,
+    // consent, and request order for OS, recent, and ordinary Open alike.
+    pendingOpenPath = filePath;
+    flushOpenPath();
+    if (!mainWindow && initialized) void openMainWindow().catch((error: unknown) => console.error('[main] window creation failed', error));
   }
 
   // Must be registered before app.whenReady(): macOS can deliver open-file
@@ -222,50 +227,57 @@ if (!app.requestSingleInstanceLock()) {
     if (filePath) openDocumentPath(filePath);
   });
 
-  function openMainWindow(): void {
-    mainWindow = createMainWindow();
-
-    // Simplified close-confirmation flow (documented, not a full native save
-    // sheet): a dirty document blocks the close and prompts. "Save" cancels
-    // the close and asks the renderer to save via the same 'save' menu
-    // command the File menu uses; the renderer is responsible for calling
-    // setDocumentState({ dirty: false }) once the save completes and for
-    // closing the window again afterwards (e.g. the user's next close
-    // attempt, or the renderer calling window.close() itself). "Don't Save"
-    // clears the dirty flag and closes immediately; "Cancel" leaves the
-    // window open.
-    mainWindow.on('close', (event) => {
-      if (!dirtyTracker.get()) return;
-      event.preventDefault();
-
-      const choice = dialog.showMessageBoxSync(mainWindow!, {
-        type: 'question',
-        buttons: ["Don't Save", 'Cancel', 'Save'],
-        defaultId: 2,
-        cancelId: 1,
-        message: 'Save changes to this project before closing?',
+  function openMainWindow(): Promise<void> {
+    if (mainWindow) return Promise.resolve();
+    if (opening) return opening;
+    opening = (async () => {
+      // A successor never admits export work before its predecessor drains.
+      await (predecessor?.retire() ?? predecessorDrain);
+      if (mainWindow || quitting || allowQuit) return;
+      const window = createMainWindow();
+      mainWindow = window;
+      rendererReady = false;
+      const lifetime = new WindowLifetime({
+        createSinks: () => new ExportSinkRegistry(),
+        sendCloseRequest: () => {
+          if (mainWindow === window && mainLifetime === lifetime) sendMenuCommand(window, 'close');
+        },
+        replayClose: () => {
+          if (mainWindow === window && mainLifetime === lifetime && !window.isDestroyed()) window.close();
+        },
+        onCloseSettled: (closed) => { if (!closed && mainLifetime === lifetime) quitting = false; },
       });
-
-      if (choice === 2) {
-        sendMenuCommand(mainWindow, 'save');
-        return;
-      }
-      if (choice === 0) {
-        dirtyTracker.set(false);
-        mainWindow?.close();
-      }
-      // choice === 1 (Cancel) or the dialog was dismissed: stay open.
-    });
-
-    mainWindow.on('closed', () => {
-      if (mainWindow !== null) mainWindow = null;
-    });
-
-    if (pendingOpenPath) {
-      const filePath = pendingOpenPath;
-      pendingOpenPath = null;
-      openDocumentPath(filePath);
-    }
+      mainLifetime = lifetime;
+      window.on('close', (event) => lifetime.nativeClose(event));
+      window.webContents.on('will-prevent-unload', () => lifetime.unloadPrevented());
+      const retireRenderer = (gone: boolean) => {
+        const current = mainWindow === window && mainLifetime === lifetime;
+        if (current) rendererReady = false;
+        const drain = lifetime.rendererLost(gone);
+        if (current) { predecessor = lifetime; predecessorDrain = drain; }
+        void drain.catch((error: unknown) => console.error('[main] renderer cleanup failed', error));
+      };
+      window.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) retireRenderer(false);
+      });
+      window.webContents.on('render-process-gone', () => retireRenderer(true));
+      window.webContents.on('destroyed', () => retireRenderer(true));
+      window.on('closed', () => {
+        const drain = lifetime.closed();
+        if (mainWindow === window && mainLifetime === lifetime) {
+          predecessorDrain = drain;
+          predecessor = lifetime;
+          mainWindow = null;
+          mainLifetime = null;
+          rendererReady = false;
+        }
+        void drain.then(() => {
+          if (quitting && !mainWindow && !allowQuit) { allowQuit = true; app.quit(); }
+        }, (error: unknown) => console.error('[main] window cleanup failed', error));
+      });
+      flushOpenPath();
+    })().finally(() => { opening = null; });
+    return opening;
   }
 
   app.whenReady().then(async () => {
@@ -298,13 +310,14 @@ if (!app.requestSingleInstanceLock()) {
       },
     });
 
-    openMainWindow();
+    initialized = true;
+    await openMainWindow();
 
     // macOS keeps the process alive with no windows; clicking the dock icon
     // reopens the shell rather than doing nothing.
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        openMainWindow();
+        void openMainWindow().catch((error: unknown) => console.error('[main] window creation failed', error));
       }
     });
 
@@ -317,9 +330,17 @@ if (!app.requestSingleInstanceLock()) {
     app.exit(1);
   });
 
+  app.on('before-quit', (event) => {
+    if (allowQuit) return;
+    event.preventDefault();
+    quitting = true;
+    if (mainWindow) mainWindow.close();
+    else void (predecessor?.retire() ?? predecessorDrain).then(() => {
+      if (quitting && !mainWindow && !allowQuit) { allowQuit = true; app.quit(); }
+    }, (error: unknown) => { quitting = false; console.error('[main] quit cleanup failed', error); });
+  });
+
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
+    if (process.platform !== 'darwin') app.quit();
   });
 }

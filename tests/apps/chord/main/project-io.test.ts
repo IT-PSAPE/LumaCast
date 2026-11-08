@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -147,6 +147,40 @@ describe('apps/chord RecentProjectsStore', () => {
     expect(list).toHaveLength(2);
     expect(list[0]).toEqual({ path: a, title: 'A (renamed)', openedAt: '2026-01-03T00:00:00.000Z' });
     expect(list[1].path).toBe(b);
+  });
+
+  it('preserves concurrent pushes in invocation order', async () => {
+    const a = { path: makeProjectFile('a.lumachord'), title: 'A', openedAt: '2026-01-01T00:00:00.000Z' };
+    const b = { path: makeProjectFile('b.lumachord'), title: 'B', openedAt: '2026-01-02T00:00:00.000Z' };
+    await Promise.all([store.push(a), store.push(b)]);
+    await expect(store.list()).resolves.toEqual([b, a]);
+  });
+
+  it('keeps the latest metadata when concurrent pushes refer to the same path', async () => {
+    const filePath = makeProjectFile('same.lumachord');
+    const first = { path: filePath, title: 'Old title', openedAt: '2026-01-01T00:00:00.000Z' };
+    const second = { path: filePath, title: 'New title', openedAt: '2026-01-02T00:00:00.000Z' };
+    await Promise.all([store.push(first), store.push(second)]);
+    await expect(store.list()).resolves.toEqual([second]);
+  });
+
+  it('does not let a concurrent pruning read erase a pushed entry', async () => {
+    const removed = makeProjectFile('removed.lumachord');
+    const retained = makeProjectFile('retained.lumachord');
+    await store.push({ path: removed, title: 'Removed', openedAt: '2026-01-01T00:00:00.000Z' });
+    unlinkSync(removed);
+    const entry = { path: retained, title: 'Retained', openedAt: '2026-01-02T00:00:00.000Z' };
+    await Promise.all([store.list(), store.push(entry)]);
+    await expect(store.list()).resolves.toEqual([entry]);
+  });
+
+  it('allows a later operation to recover after a queued read fails', async () => {
+    mkdirSync(storePath);
+    await expect(store.list()).rejects.toThrow();
+    rmSync(storePath, { recursive: true });
+    const entry = { path: makeProjectFile('recovered.lumachord'), title: 'Recovered', openedAt: '2026-01-01T00:00:00.000Z' };
+    await store.push(entry);
+    await expect(store.list()).resolves.toEqual([entry]);
   });
 
   it('caps the list at 10 entries', async () => {

@@ -4,13 +4,12 @@
 // that's shell chrome, not any one feature's concern.
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { PanelResize, ReacstButton, useToast } from '@lumacast/ui';
+import { PanelResize, ReacstButton } from '@lumacast/ui';
 import { AudioElement } from '../features/playback';
 import { PreviewCanvas } from '../features/canvas';
 import { Timeline } from '../features/timeline';
-import { getApi } from '../api';
 import { Inspector } from '../features/inspector';
-import { importAudio, importAudioFromFile, importBackground, importBackgroundFromFile, importLyricsFromFile } from './media-import';
+import { importAudio, importBackground, importDroppedFiles } from './media-import';
 import { TopBar } from './top-bar';
 
 const INSPECTOR_DEFAULT_WIDTH = 320;
@@ -19,10 +18,9 @@ function hasFiles(event: DragEvent): boolean {
   return Array.from(event.dataTransfer?.types ?? []).includes('Files');
 }
 
-export function Workspace() {
+export function Workspace({ onSave }: { onSave: () => void }) {
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
-  const { toast } = useToast();
 
   useEffect(() => {
     function handleDragOver(event: DragEvent) {
@@ -35,19 +33,7 @@ export function Workspace() {
       const files = Array.from(event.dataTransfer?.files ?? []);
       if (files.length === 0) return;
 
-      try {
-        const api = getApi();
-        const paths = api.pathsForFiles(files);
-        if (paths.length === 0) return;
-        const admitted = await api.admitFiles(paths);
-        for (const file of admitted) {
-          if (file.kind === 'audio') await importAudioFromFile(file);
-          else if (file.kind === 'image' || file.kind === 'video') await importBackgroundFromFile(file);
-          else if (file.kind === 'cues') await importLyricsFromFile(file);
-        }
-      } catch (error) {
-        toast({ description: error instanceof Error ? error.message : 'Could not import the dropped file(s).', tone: 'error' });
-      }
+      await importDroppedFiles(files);
     }
 
     window.addEventListener('dragover', handleDragOver);
@@ -56,11 +42,11 @@ export function Workspace() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [toast]);
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar />
+      <TopBar onSave={onSave} />
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 bg-primary">
           <PreviewCanvas />

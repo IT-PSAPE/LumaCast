@@ -11,7 +11,6 @@ import {
   ALL_FORMATS,
   AudioBufferSink,
   AudioBufferSource,
-  BlobSource,
   CanvasSource,
   Conversion,
   ConversionCanceledError,
@@ -22,7 +21,7 @@ import {
   Mp4OutputFormat,
   Output,
   StreamTarget,
-  VideoSampleSink,
+  UrlSource,
   WavOutputFormat,
   WebMOutputFormat,
   canEncodeAudio,
@@ -30,6 +29,7 @@ import {
   type AudioCodec,
   type OutputFormat,
   type StreamTargetChunk,
+  type WrappedAudioBuffer,
 } from 'mediabunny';
 import { registerAacEncoder } from '@mediabunny/aac-encoder';
 import { registerMp3Encoder } from '@mediabunny/mp3-encoder';
@@ -37,6 +37,7 @@ import type { ChordProject } from '../../../shared/project';
 import { estimateBitrate, type ExportAudioCodec, type ExportContainer, type ExportSettings, type ExportVideoCodec } from '../../../shared/export-presets';
 import { buildFrameScene, resolveTimelineEndMs } from '../../rendering/build-frame-scene';
 import { ChordStage } from '../../rendering/chord-stage';
+import { prepareBackgroundFrameSource, type BackgroundFrameSource } from './background-frame-source';
 import {
   audioCodecsForContainer,
   estimateAudioBitrate,
@@ -83,6 +84,13 @@ export interface RunExportInput {
 
 const EXPORT_SLIDE_ID = 'chord-export';
 const TIMING_WINDOW = 30;
+const SOURCE_CACHE_BYTES = 8 * 1024 * 1024;
+
+function mediaInput(url: string): Input {
+  return new Input({ formats: ALL_FORMATS, source: new UrlSource(url, {
+    maxCacheSize: SOURCE_CACHE_BYTES, getRetryDelay: () => null,
+  }) });
+}
 
 // ── Off-DOM frame renderer ──────────────────────────────────────────────
 // Mounts ChordStage into a detached, hidden container via createRoot, and
@@ -98,7 +106,9 @@ function mountFrameRenderer(project: ChordProject, backgroundUrl: string | null,
   const container = document.createElement('div');
   container.style.cssText = `position:fixed;left:-100000px;top:0;width:${width}px;height:${height}px;pointer-events:none;`;
   document.body.appendChild(container);
-  const root: Root = createRoot(container);
+  let root: Root;
+  try { root = createRoot(container); }
+  catch (error) { container.remove(); throw error; }
   const stageRef: { current: Konva.Stage | null } = { current: null };
   let pinnedPixelRatio = false;
 
@@ -118,105 +128,18 @@ function mountFrameRenderer(project: ChordProject, backgroundUrl: string | null,
       if (canvas.getPixelRatio() !== 1) canvas.setPixelRatio(1);
       pinnedPixelRatio = true;
     }
-    layer.batchDraw();
+    // CanvasSource snapshots immediately; a deferred batchDraw can encode the
+    // preceding frame (or a blank first frame) rather than this timestamp.
+    layer.draw();
     return layer.getNativeCanvasElement();
   }
 
   function dispose(): void {
-    root.unmount();
-    container.remove();
+    try { root.unmount(); }
+    finally { container.remove(); }
   }
 
   return { renderAt, dispose };
-}
-
-// ── Background frame source ──────────────────────────────────────────────
-// Pre-decodes the background media once so the tight per-frame export loop
-// never awaits media decoding.
-
-interface BackgroundFrameSource {
-  getFrame(timeS: number): CanvasImageSource | null;
-  dispose(): void;
-}
-
-const NO_BACKGROUND_FRAME: BackgroundFrameSource = { getFrame: () => null, dispose() {} };
-
-interface DecodedBackgroundFrame {
-  timestampS: number;
-  canvas: HTMLCanvasElement;
-}
-
-function findBackgroundFrame(frames: readonly DecodedBackgroundFrame[], timeS: number): HTMLCanvasElement | null {
-  if (frames.length === 0) return null;
-  if (timeS <= frames[0].timestampS) return frames[0].canvas;
-  let lo = 0;
-  let hi = frames.length - 1;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (frames[mid].timestampS <= timeS) lo = mid;
-    else hi = mid - 1;
-  }
-  return frames[lo].canvas;
-}
-
-async function decodeBackgroundVideoFrames(sink: VideoSampleSink, endS: number): Promise<DecodedBackgroundFrame[]> {
-  const frames: DecodedBackgroundFrame[] = [];
-  for await (const sample of sink.samples(0, endS)) {
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(sample.displayWidth));
-    canvas.height = Math.max(1, Math.round(sample.displayHeight));
-    const ctx = canvas.getContext('2d');
-    if (ctx) sample.draw(ctx, 0, 0, canvas.width, canvas.height);
-    frames.push({ timestampS: sample.timestamp, canvas });
-    sample.close();
-  }
-  return frames;
-}
-
-/**
- * Pre-decodes the background once: an image is a single bitmap; a video is
- * decoded across one loop cycle (or the whole export duration when not
- * looping) via a single forward `VideoSampleSink.samples()` pass, then
- * looked up per output frame by binary search — frame-accurate, and handles
- * looping with a plain modulo instead of seeking the sink backwards mid-export.
- * Memory cost is bounded by that one cycle's frame count, which is fine for
- * the short loops a lyric-video background typically is; a very long,
- * non-looping background video would want a streaming redesign instead.
- */
-async function prepareBackgroundFrameSource(project: ChordProject, backgroundUrl: string | null, durationS: number): Promise<BackgroundFrameSource> {
-  const background = project.background;
-  if (background.kind === 'color' || !backgroundUrl) return NO_BACKGROUND_FRAME;
-
-  const blob = await (await fetch(backgroundUrl)).blob();
-
-  if (background.kind === 'image') {
-    const bitmap = await createImageBitmap(blob);
-    return { getFrame: () => bitmap, dispose: () => bitmap.close() };
-  }
-
-  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(blob) });
-  const track = await input.getPrimaryVideoTrack();
-  if (!track) {
-    input.dispose();
-    return NO_BACKGROUND_FRAME;
-  }
-  const bgDurationS = await track.computeDuration();
-  const cycleEndS = background.loop || bgDurationS <= 0 ? bgDurationS : Math.min(bgDurationS, durationS);
-  const frames = cycleEndS > 0 ? await decodeBackgroundVideoFrames(new VideoSampleSink(track), cycleEndS) : [];
-  input.dispose();
-
-  return {
-    getFrame(timeS: number) {
-      if (frames.length === 0) return null;
-      const bgTimeS = background.loop && bgDurationS > 0 ? timeS % bgDurationS : Math.min(timeS, cycleEndS);
-      return findBackgroundFrame(frames, bgTimeS);
-    },
-    dispose() {
-      // Plain canvases have no explicit release step; dropping every
-      // reference here lets them be garbage-collected.
-      frames.length = 0;
-    },
-  };
 }
 
 // ── Codec selection: mediabunny capability probing over export-plan's pure picks ──
@@ -290,41 +213,79 @@ async function runVideoExport(input: RunExportInput): Promise<void> {
   const videoCodec = await resolveVideoCodec(settings.container, settings.videoCodec, settings.width, settings.height, settings.fps);
   const audioCodec = settings.includeAudio && audioUrl ? await resolveAudioCodec(settings.container, settings.audioCodec) : null;
   const bitrate = estimateBitrate(settings.width, settings.height, settings.fps, settings.quality);
+  signal.throwIfAborted();
 
   const output = new Output({ format: outputFormatFor(settings.container), target: createStreamTarget(sink) });
-  const renderer = mountFrameRenderer(project, backgroundUrl, settings.width, settings.height);
-  const backgroundSource = await prepareBackgroundFrameSource(project, backgroundUrl, durationMs / 1000);
-
-  const onAbort = () => {
-    void output.cancel();
-  };
+  let renderer: FrameRenderer | null = null;
+  let backgroundSource: BackgroundFrameSource | null = null;
+  let audioInput: Input | null = null;
+  let audioBuffers: AsyncGenerator<WrappedAudioBuffer, void, unknown> | null = null;
+  let completed = false;
+  let cancellation: Promise<void> | null = null;
+  const cancel = () => cancellation ??= output.cancel().catch(() => {});
+  const disposeAudio = () => { audioInput?.dispose(); audioInput = null; };
+  const onAbort = () => { disposeAudio(); void cancel(); };
   signal.addEventListener('abort', onAbort);
 
   try {
-    if (signal.aborted) {
-      await output.cancel();
-      return;
-    }
+    renderer = mountFrameRenderer(project, backgroundUrl, settings.width, settings.height);
+    backgroundSource = await prepareBackgroundFrameSource(project, backgroundUrl, signal);
+    signal.throwIfAborted();
 
-    const initialCanvas = renderer.renderAt(0, backgroundSource.getFrame(0));
+    const initialFrame = await backgroundSource.getFrame(0);
+    signal.throwIfAborted();
+    const initialCanvas = renderer.renderAt(0, initialFrame);
     const videoSource = new CanvasSource(initialCanvas, { codec: videoCodec, bitrate });
     output.addVideoTrack(videoSource, { frameRate: settings.fps });
 
     let audioSource: AudioBufferSource | null = null;
-    if (audioCodec) {
+    if (audioCodec && audioUrl) {
       audioSource = new AudioBufferSource({ codec: audioCodec, bitrate: estimateAudioBitrate(settings.quality) });
       output.addAudioTrack(audioSource);
+      audioInput = mediaInput(audioUrl);
+      const audioTrack = await audioInput.getPrimaryAudioTrack();
+      signal.throwIfAborted();
+      if (audioTrack) audioBuffers = new AudioBufferSink(audioTrack).buffers();
     }
 
     await output.start();
+    signal.throwIfAborted();
     onProgress({ percent: 0, etaMs: null, stage: 'rendering' });
+
+    let audioTimeS = 0;
+    let audioEnded = !audioSource;
+    const feedAudioUntil = async (endS: number) => {
+      while (audioSource && !audioEnded && audioTimeS < endS) {
+        signal.throwIfAborted();
+        const next = await audioBuffers?.next();
+        signal.throwIfAborted();
+        if (!next || next.done) {
+          audioEnded = true;
+          // Await the patched public EOF promise before proceeding. An ended
+          // track must release the muxer's interleave gate for the other tail.
+          await audioSource.close();
+          signal.throwIfAborted();
+          break;
+        }
+        await audioSource.add(next.value.buffer);
+        signal.throwIfAborted();
+        // Preserve AudioBufferSource's original contiguous timeline from zero.
+        audioTimeS += next.value.buffer.duration;
+      }
+    };
 
     const timingSamples: FrameTimingSample[] = [];
     for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
-      if (signal.aborted) return;
-      const timeS = frameIndex * frameDurationS;
-      if (frameIndex > 0) renderer.renderAt(timeS * 1000, backgroundSource.getFrame(timeS));
+      signal.throwIfAborted();
+      const timeS = frameIndex / settings.fps;
+      if (frameIndex > 0) {
+        const frame = await backgroundSource.getFrame(timeS);
+        signal.throwIfAborted();
+        renderer.renderAt(timeS * 1000, frame);
+      }
       await videoSource.add(timeS, frameDurationS);
+      signal.throwIfAborted();
+      await feedAudioUntil((frameIndex + 1) / settings.fps);
 
       timingSamples.push({ framesDone: frameIndex + 1, totalFrames: frameCount, atMs: performance.now() });
       if (timingSamples.length > TIMING_WINDOW) timingSamples.shift();
@@ -335,27 +296,24 @@ async function runVideoExport(input: RunExportInput): Promise<void> {
       });
     }
 
-    if (audioSource && audioUrl) {
-      const audioBlob = await (await fetch(audioUrl)).blob();
-      const audioInput = new Input({ formats: ALL_FORMATS, source: new BlobSource(audioBlob) });
-      const audioTrack = await audioInput.getPrimaryAudioTrack();
-      if (audioTrack) {
-        const bufferSink = new AudioBufferSink(audioTrack);
-        for await (const { buffer } of bufferSink.buffers()) {
-          if (signal.aborted) break;
-          await audioSource.add(buffer);
-        }
-      }
-      audioInput.dispose();
-    }
-
-    if (signal.aborted) return;
+    await videoSource.close();
+    signal.throwIfAborted();
+    await feedAudioUntil(Infinity);
+    signal.throwIfAborted();
     onProgress({ percent: 100, etaMs: 0, stage: 'finalizing' });
     await output.finalize();
+    completed = true;
   } finally {
     signal.removeEventListener('abort', onAbort);
-    renderer.dispose();
-    backgroundSource.dispose();
+    disposeAudio();
+    try { renderer?.dispose(); }
+    finally {
+      try { await backgroundSource?.dispose(); }
+      finally {
+        try { await audioBuffers?.return(); }
+        finally { if (!completed) await cancel(); }
+      }
+    }
   }
 }
 
@@ -371,52 +329,45 @@ async function runAudioExport(input: RunExportInput): Promise<void> {
 
   onProgress({ percent: 0, etaMs: null, stage: 'preparing' });
 
-  const blob = await (await fetch(audioUrl)).blob();
-  const audioInput = new Input({ formats: ALL_FORMATS, source: new BlobSource(blob) });
+  signal.throwIfAborted();
+  const audioInput = mediaInput(audioUrl);
   const format = settings.format === 'wav' ? new WavOutputFormat() : settings.format === 'mp3' ? new Mp3OutputFormat() : new Mp4OutputFormat();
-  const output = new Output({ format, target: createStreamTarget(sink) });
+  let output: Output;
+  try { output = new Output({ format, target: createStreamTarget(sink) }); }
+  catch (error) { audioInput.dispose(); throw error; }
 
   const codec: AudioCodec | undefined = settings.format === 'wav' ? undefined : settings.format === 'mp3' ? 'mp3' : 'aac';
   const bitrate = estimateAudioBitrate(settings.quality);
 
-  const conversion = await Conversion.init({
-    input: audioInput,
-    output,
-    video: { discard: true },
-    audio: codec ? { codec, bitrate } : {},
-  });
-
-  if (!conversion.isValid) {
-    audioInput.dispose();
-    throw new Error('This audio could not be converted to the requested format.');
-  }
-
-  conversion.onProgress = (progress) => {
-    onProgress({ percent: Math.round(progress * 100), etaMs: null, stage: 'rendering' });
-  };
-
-  const onAbort = () => {
-    void conversion.cancel();
-  };
+  let conversion: Conversion | null = null;
+  let completed = false;
+  let cancellation: Promise<void> | null = null;
+  const cancel = () => cancellation ??= (conversion ? conversion.cancel() : output.cancel()).catch(() => {});
+  const onAbort = () => { audioInput.dispose(); void cancel(); };
   signal.addEventListener('abort', onAbort);
 
   try {
-    if (signal.aborted) {
-      await conversion.cancel();
-      return;
-    }
+    signal.throwIfAborted();
+    conversion = await Conversion.init({ input: audioInput, output, video: { discard: true }, audio: codec ? { codec, bitrate } : {} });
+    signal.throwIfAborted();
+    if (!conversion.isValid) throw new Error('This audio could not be converted to the requested format.');
+    conversion.onProgress = (progress) => {
+      if (!signal.aborted) onProgress({ percent: Math.round(progress * 100), etaMs: null, stage: 'rendering' });
+    };
     onProgress({ percent: 0, etaMs: null, stage: 'rendering' });
     try {
       await conversion.execute();
     } catch (error) {
-      if (error instanceof ConversionCanceledError) return;
+      if (error instanceof ConversionCanceledError && signal.aborted) return;
       throw error;
     }
-    if (signal.aborted) return;
+    signal.throwIfAborted();
     onProgress({ percent: 100, etaMs: 0, stage: 'finalizing' });
+    completed = true;
   } finally {
     signal.removeEventListener('abort', onAbort);
     audioInput.dispose();
+    if (!completed) await cancel();
   }
 }
 
@@ -429,26 +380,31 @@ async function runImageExport(input: RunExportInput): Promise<void> {
 
   onProgress({ percent: 0, etaMs: null, stage: 'preparing' });
   const { width, height } = project.composition;
-  const backgroundSource = await prepareBackgroundFrameSource(project, backgroundUrl, settings.timeMs / 1000);
-  const renderer = mountFrameRenderer(project, backgroundUrl, width, height);
+  let backgroundSource: BackgroundFrameSource | null = null;
+  let renderer: FrameRenderer | null = null;
 
   try {
-    if (signal.aborted) return;
+    backgroundSource = await prepareBackgroundFrameSource(project, backgroundUrl, signal);
+    renderer = mountFrameRenderer(project, backgroundUrl, width, height);
+    signal.throwIfAborted();
     onProgress({ percent: 40, etaMs: null, stage: 'rendering' });
-    const frame = backgroundSource.getFrame(settings.timeMs / 1000);
+    const frame = await backgroundSource.getFrame(settings.timeMs / 1000);
+    signal.throwIfAborted();
     const canvas = renderer.renderAt(settings.timeMs, frame);
 
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
     if (!blob) throw new Error('Failed to encode the exported image.');
-    if (signal.aborted) return;
+    signal.throwIfAborted();
 
     onProgress({ percent: 90, etaMs: null, stage: 'finalizing' });
     const bytes = new Uint8Array(await blob.arrayBuffer());
+    signal.throwIfAborted();
     await sink.write(0, bytes);
+    signal.throwIfAborted();
     onProgress({ percent: 100, etaMs: 0, stage: 'finalizing' });
   } finally {
-    renderer.dispose();
-    backgroundSource.dispose();
+    try { renderer?.dispose(); }
+    finally { await backgroundSource?.dispose(); }
   }
 }
 

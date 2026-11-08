@@ -23,10 +23,11 @@ describe('apps/chord ExportSinkRegistry', () => {
 
     expect(sink.path).toBe(filePath);
     expect(sink.id).toMatch(/^[0-9a-f]{32}$/);
-    expect(existsSync(filePath)).toBe(true);
+    expect(existsSync(filePath)).toBe(false);
     expect(registry.isOpen(sink.id)).toBe(true);
 
     await registry.close(sink.id);
+    expect(existsSync(filePath)).toBe(true);
   });
 
   it('issues a different id per open, even for the same path', async () => {
@@ -126,6 +127,8 @@ describe('apps/chord ExportSinkRegistry', () => {
     }
     await registry.close(opened[0].id);
 
-    await expect(registry.open(path.join(dir, 'now-fits.bin'))).resolves.toMatchObject({});
+    const replacement = await registry.open(path.join(dir, 'now-fits.bin'));
+    await registry.close(replacement.id);
+    for (const sink of opened.slice(1)) await registry.close(sink.id);
   });
 });

@@ -19,6 +19,8 @@ export function createMockApi(): ChordDesktopAPI {
     saveProject: async () => null,
     recentProjects: async () => [],
     setDocumentState: async () => {},
+    documentNavigationReady: async () => {},
+    requestWindowClose: async () => false,
 
     importMedia: async () => null,
     admitFiles: async (): Promise<ImportedFile[]> => [],
@@ -38,6 +40,6 @@ export function createMockApi(): ChordDesktopAPI {
     setEditableFocus: async () => {},
 
     onMenuCommand: () => () => {},
-    onOpenDocument: () => () => {},
+    onOpenProjectRequest: () => () => {},
   };
 }

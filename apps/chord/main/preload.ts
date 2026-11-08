@@ -8,7 +8,7 @@
 // (shared/desktop-api.ts); only the implementation behind it lives here.
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { ChordDesktopAPI } from '../shared/desktop-api';
-import { IPC_CHANNELS, MENU_COMMAND_CHANNEL, OPEN_DOCUMENT_CHANNEL } from './ipc-channels';
+import { IPC_CHANNELS, MENU_COMMAND_CHANNEL, OPEN_PROJECT_REQUEST_CHANNEL } from './ipc-channels';
 
 const api: ChordDesktopAPI = {
   newProject: () => ipcRenderer.invoke(IPC_CHANNELS.newProject),
@@ -16,6 +16,8 @@ const api: ChordDesktopAPI = {
   saveProject: (document, options) => ipcRenderer.invoke(IPC_CHANNELS.saveProject, document, options),
   recentProjects: () => ipcRenderer.invoke(IPC_CHANNELS.recentProjects),
   setDocumentState: (state) => ipcRenderer.invoke(IPC_CHANNELS.setDocumentState, state),
+  documentNavigationReady: () => ipcRenderer.invoke(IPC_CHANNELS.documentNavigationReady),
+  requestWindowClose: (approved) => ipcRenderer.invoke(IPC_CHANNELS.requestWindowClose, approved),
 
   importMedia: (kind) => ipcRenderer.invoke(IPC_CHANNELS.importMedia, kind),
   admitFiles: (paths) => ipcRenderer.invoke(IPC_CHANNELS.admitFiles, paths),
@@ -46,10 +48,10 @@ const api: ChordDesktopAPI = {
     ipcRenderer.on(MENU_COMMAND_CHANNEL, handler);
     return () => ipcRenderer.removeListener(MENU_COMMAND_CHANNEL, handler);
   },
-  onOpenDocument: (callback) => {
-    const handler = (_event: Electron.IpcRendererEvent, document: Parameters<typeof callback>[0]) => callback(document);
-    ipcRenderer.on(OPEN_DOCUMENT_CHANNEL, handler);
-    return () => ipcRenderer.removeListener(OPEN_DOCUMENT_CHANNEL, handler);
+  onOpenProjectRequest: (callback) => {
+    const handler = (_event: Electron.IpcRendererEvent, path: string) => callback(path);
+    ipcRenderer.on(OPEN_PROJECT_REQUEST_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(OPEN_PROJECT_REQUEST_CHANNEL, handler);
   },
 };
 
