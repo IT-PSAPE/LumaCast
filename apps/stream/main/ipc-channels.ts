@@ -1,7 +1,10 @@
 export const IPC_CHANNELS = {
   readClipboardText: 'stream:read-clipboard-text',
+  quit: 'stream:quit',
   loadProject: 'stream:load-project',
   saveProject: 'stream:save-project',
+  flushProject: 'stream:flush-project',
+  projectFlushed: 'stream:project-flushed',
   loadAudioSettings: 'stream:load-audio-settings',
   saveAudioSettings: 'stream:save-audio-settings',
   loadRecordingPreferences: 'stream:load-recording-preferences',

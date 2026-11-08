@@ -672,10 +672,17 @@ export class ProjectStore {
   }
 
   async load(): Promise<StreamWorkspace> {
-    const index = await this.ensureIndex();
-    const profiles = await this.ensureProfiles(index);
-    const project = this.withProfile(await this.readProject(index.activeCollectionId), this.activeProfile(profiles));
-    return this.workspace(index, profiles, project);
+    return this.serialize(async () => {
+      const index = await this.ensureIndex();
+      const profiles = await this.ensureProfiles(index);
+      const project = this.withProfile(await this.readProject(index.activeCollectionId), this.activeProfile(profiles));
+      return this.workspace(index, profiles, project);
+    });
+  }
+
+  /** Waits for all operations already accepted by the main process. */
+  flush(): Promise<void> {
+    return this.operationQueue;
   }
 
   save(collectionId: string, profileId: string, value: unknown): Promise<void> {

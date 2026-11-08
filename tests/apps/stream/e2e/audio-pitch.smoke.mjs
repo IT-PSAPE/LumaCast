@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
@@ -9,11 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 process.chdir(fileURLToPath(new URL('../../../../', import.meta.url)));
 const root = process.cwd();
-const appRequire = createRequire(path.resolve('apps/stream/package.json'));
 const playwrightRequire = createRequire(path.resolve('package.json'));
 const { _electron: electron, expect } = playwrightRequire('@playwright/test');
-const electronBinary = appRequire('electron');
-const electronVersion = appRequire('electron/package.json').version;
+const { binaryPath: electronBinary, version: electronVersion } = resolveAppElectron('stream');
 const ffmpegExecutable = path.resolve('apps/stream/vendor/ffmpeg/bin/ffmpeg');
 const outputRoot = path.resolve('output/playwright/audio-pitch-smoke');
 const fixtureSampleRate = 48_000;
@@ -75,7 +74,7 @@ async function buildCurrentNativeAudioHelper(runRoot) {
   execFileSync('clang', [
     '-fobjc-arc', '-O2', '-Wall', '-Wextra', '-Wno-unused-parameter',
     '-mmacosx-version-min=13.0', '-arch', 'arm64', '-arch', 'x86_64',
-    sourcePath, '-o', helperPath,
+    sourcePath, path.join(path.dirname(sourcePath), 'pcm-writer.c'), '-o', helperPath,
     '-framework', 'Foundation', '-framework', 'AppKit', '-framework', 'CoreAudio', '-framework', 'AVFoundation',
   ], { timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
   const clangVersion = execFileSync('clang', ['--version'], { encoding: 'utf8', timeout: 10000 }).split(/\r?\n/)[0] ?? 'unknown';
@@ -322,7 +321,8 @@ ${ioCallbackAnchor}`);
   execFileSync('clang', [
     '-fobjc-arc', '-O2', '-Wall', '-Wextra', '-Wno-unused-parameter',
     '-mmacosx-version-min=13.0', '-arch', 'arm64', '-arch', 'x86_64',
-    diagnosticSourcePath, '-o', diagnosticBinaryPath,
+    '-I', path.dirname(nativeHelper.sourcePath),
+    diagnosticSourcePath, path.join(path.dirname(nativeHelper.sourcePath), 'pcm-writer.c'), '-o', diagnosticBinaryPath,
     '-framework', 'Foundation', '-framework', 'AppKit', '-framework', 'CoreAudio', '-framework', 'AVFoundation',
   ], { timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
   return { path: diagnosticBinaryPath, sourceSha256: await sha256(diagnosticSourcePath) };
@@ -1180,7 +1180,6 @@ function makeSyntheticMediaSource(id, assetId) {
 }
 
 async function main() {
-  assert.equal(electronVersion, '44.3.0', `Expected Stream Electron 44.3.0, resolved ${electronVersion}.`);
   assert.equal(process.platform, 'darwin', 'This reproduction is scoped to the active macOS report.');
   await fs.access(ffmpegExecutable);
   const ffmpegVersionOutput = execFileSync(ffmpegExecutable, ['-hide_banner', '-version'], { encoding: 'utf8', timeout: 10000 });

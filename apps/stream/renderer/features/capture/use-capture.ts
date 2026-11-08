@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import type { ApplicationAudioConsumer } from '../../../shared/application-audio-transport';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { AudioMixerEngine } from '../../audio-mixer';
 import { audioOutputDeviceOptions, type AudioOutputDeviceOption } from '../../audio-output-devices';
 import { retainDesktopAudioTracks } from '../../desktop-audio-capture';
@@ -237,6 +238,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const previouslyOwnedRuntimeIds = useRef(new Set<string>());
   const runtimeOwnershipEpochs = useRef(new Map<string, number>());
   const applicationAudioInputs = useRef(new Map<string, ApplicationAudioInput>());
+  const audioConsumer = useRef<ApplicationAudioConsumer>(async () => false);
   const applicationAudioSessions = useRef(new Map<string, { pid: number; path: string }>());
   const mixer = useRef<AudioMixerEngine | null>(null);
   const audioSettingsRef = useRef(audioSettings);
@@ -766,9 +768,18 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
         applicationAudioInputs.current.set(runtimeId, input);
         if (mode === 'application') applicationAudioSessions.current.set(runtimeId, { pid: application!.pid, path: application!.path });
         else applicationAudioSessions.current.delete(runtimeId);
+        const ownedInput = input;
+        input.onError((error) => {
+          if (generation !== captureSessionGeneration.current || applicationAudioInputs.current.get(runtimeId) !== ownedInput) return;
+          void audioConsumer.current(runtimeId, { error: error.message }).catch(() => undefined);
+        });
       }
 
       try {
+        // Consumption deadlines begin only after the audio context can render.
+        await ensureMixer().resume();
+        if (!await input.ready()) throw new CaptureOperationCancelled();
+        if (generation !== captureSessionGeneration.current || applicationAudioInputs.current.get(runtimeId) !== input) throw new CaptureOperationCancelled();
         if (!existingInput) {
           if (mode === 'application') await api.startApplicationAudioCapture(runtimeId, application!.pid, application!.path);
           else await api.startSystemAudioCapture(runtimeId);
@@ -778,8 +789,8 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
             applicationAudioInputs.current.delete(runtimeId);
             applicationAudioSessions.current.delete(runtimeId);
             input.close();
+            await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
           }
-          await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
           throw new CaptureOperationCancelled();
         }
         const startupFailure = nativeAudioStartupFailures.current.get(input);
@@ -818,10 +829,10 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
           applicationAudioSessions.current.delete(runtimeId);
           input.close();
         }
-        if (!nativeAudioStartupFailures.current.has(input)) {
+        if (stillOwnsInput && !nativeAudioStartupFailures.current.has(input)) {
           await api.stopApplicationAudioCapture(runtimeId).catch(() => undefined);
         }
-        if (generation === captureSessionGeneration.current && !isCaptureOperationCancelled(error)) {
+        if (stillOwnsInput && generation === captureSessionGeneration.current && !isCaptureOperationCancelled(error)) {
           setSourceStatus(runtimeId, { state: 'unavailable', message: friendlyError(error) });
         }
         throw error;
@@ -1574,12 +1585,11 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const browserAudioSignature = JSON.stringify(activeBrowserSources
     .map((source) => ({ id: source.id, enabled: source.browserAudioEnabled === true, url: source.url ?? '' })));
 
-  useEffect(() => api.onApplicationAudioFrame((sourceId, frame) => {
+  const consumeApplicationAudioFrame = useCallback(async (sourceId: string, frame: ArrayBuffer | { error: string }): Promise<boolean> => {
     const input = applicationAudioInputs.current.get(sourceId);
-    if (!input) return;
+    if (!input) return false;
     if (frame instanceof ArrayBuffer) {
-      input.node.port.postMessage(frame, [frame]);
-      return;
+      return input.push(frame);
     }
     const source = runtimeSources.current.get(sourceId);
     const runtime = runtimes.current.get(sourceId);
@@ -1597,7 +1607,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       const videoOnlyStream = new MediaStream(liveVideoTracks);
       if (generation !== captureSessionGeneration.current) {
         videoOnlyStream.getTracks().forEach((track) => track.stop());
-        return;
+        return false;
       }
       void attachRuntime(source, videoOnlyStream).then(() => {
         if (generation !== captureSessionGeneration.current || runtimes.current.get(sourceId) !== videoOnlyStream) return;
@@ -1607,11 +1617,15 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       }).catch(() => {
         videoOnlyStream.getTracks().forEach((track) => track.stop());
       });
-      return;
+      return false;
     }
     stopRuntimeRaw(sourceId, false);
     setSourceStatus(sourceId, { state: 'unavailable', message: frame.error });
-  }), [api, attachRuntime, setActionError, setSourceStatus, stopRuntimeRaw]);
+
+    return false;
+  }, [api, attachRuntime, setActionError, setSourceStatus, stopRuntimeRaw]);
+  useLayoutEffect(() => { audioConsumer.current = consumeApplicationAudioFrame; }, [consumeApplicationAudioFrame]);
+  useEffect(() => api.onApplicationAudioFrame((sourceId, frame) => audioConsumer.current(sourceId, frame)), [api]);
 
   useEffect(() => {
     const enabledBrowserSources = JSON.parse(browserAudioSignature) as Array<{ id: string; enabled: boolean }>;

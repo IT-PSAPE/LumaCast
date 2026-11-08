@@ -1,3 +1,4 @@
+import type { ApplicationAudioConsumer } from './application-audio-transport';
 import { defaultTextFontFamilyForPlatform, defaultVideoEncoderForPlatform, type StreamPlatform } from './platform-capabilities';
 import type { StreamServiceId } from './stream-services';
 import type { StreamNdiAPI } from './ndi';
@@ -422,8 +423,12 @@ export interface StreamAPI {
   /** Host operating system, so the renderer can offer only the capture and encoder paths that exist there. */
   readonly platform: StreamPlatform;
   readClipboardText(): Promise<string>;
+  /** Requests main-owned graceful project persistence and output teardown before quitting. */
+  quit(): Promise<void>;
   loadProject(): Promise<StreamWorkspace>;
   saveProject(collectionId: string, profileId: string, project: StreamProject): Promise<void>;
+  /** closing=true freezes edits and flushes; false resumes edits after a failed or cancelled close. */
+  onProjectFlush(listener: (closing: boolean) => Promise<void>): () => void;
   loadAudioSettings(): Promise<StreamAudioSettings>;
   saveAudioSettings(settings: StreamAudioSettings): Promise<void>;
   loadRecordingPreferences(): Promise<StreamRecordingPreferences>;
@@ -452,7 +457,7 @@ export interface StreamAPI {
   /** macOS only: capture the whole system mix through the audio helper; frames arrive on the application-audio port. */
   startSystemAudioCapture(sourceId: string): Promise<void>;
   stopApplicationAudioCapture(sourceId: string): Promise<void>;
-  onApplicationAudioFrame(listener: (sourceId: string, frame: ArrayBuffer | { error: string }) => void): () => void;
+  onApplicationAudioFrame(listener: ApplicationAudioConsumer): () => void;
   importMedia(kind: MediaKind): Promise<MediaAsset | null>;
   importSlideshowImages(maxImages: number): Promise<MediaAsset[]>;
   importPresentation(): Promise<ImportedPresentation | null>;

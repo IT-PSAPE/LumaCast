@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -12,8 +13,7 @@ const require = createRequire(path.resolve('package.json'));
 const streamRequire = createRequire(path.resolve('apps/stream/package.json'));
 const { _electron: electron, expect } = require('@playwright/test');
 const sharp = streamRequire('sharp');
-const electronBinary = streamRequire('electron');
-const electronVersion = streamRequire('electron/package.json').version;
+const { binaryPath: electronBinary, version: electronVersion } = resolveAppElectron('stream');
 const outputRoot = path.resolve('output/playwright/toolbar-ux-review');
 const assetIds = Object.fromEntries(['pptx', 'slideshow', 'pdf'].map((family) => [family, [1, 2, 3].map(() => crypto.randomUUID())]));
 const sourceIds = Object.fromEntries(['pptx', 'slideshow', 'pdf', 'video', 'audio', 'browser', 'group', 'backdrop', 'otherBackdrop'].map((name) => [name, crypto.randomUUID()]));
@@ -180,7 +180,6 @@ async function layout(page, width, runRoot) {
 }
 
 async function main() {
-  assert.equal(electronVersion, '44.3.0', 'Use the Stream workspace Electron.');
   const runRoot = path.join(outputRoot, `run-${new Date().toISOString().replaceAll(':', '-')}-${process.pid}`);
   await fs.mkdir(runRoot, { recursive: true });
   const server = http.createServer((_request, response) => {

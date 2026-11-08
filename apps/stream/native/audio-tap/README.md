@@ -1,6 +1,6 @@
 # Stream macOS audio tap helper
 
-A single-file Objective-C command-line tool that gives LumaStream the same
+An Objective-C command-line tool that gives LumaStream the same
 application and system audio capture on macOS that `AudioLoopback.exe` provides
 on Windows. It uses Core Audio process taps (`AudioHardwareCreateProcessTap`),
 has no third-party dependencies or Swift runtime, and is built as a universal
@@ -8,7 +8,7 @@ binary by `node script/prepare-application-audio.mjs` (which `npm run dev` and
 `npm run dist:mac` call for you) using only the Xcode Command Line Tools:
 
 ```sh
-clang -fobjc-arc -O2 -mmacosx-version-min=13.0 -arch arm64 -arch x86_64 main.m \
+clang -fobjc-arc -O2 -mmacosx-version-min=13.0 -arch arm64 -arch x86_64 main.m pcm-writer.c \
   -framework Foundation -framework AppKit -framework CoreAudio -framework AVFoundation \
   -o build/lumastream-audio-tap
 ```
@@ -28,6 +28,13 @@ clang -fobjc-arc -O2 -mmacosx-version-min=13.0 -arch arm64 -arch x86_64 main.m \
   audio is not captured twice.
 - Capture ends when stdin reaches EOF or, for `--pid`, when the tapped process
   exits. Diagnostics go to stderr.
+- Output preserves every PCM byte in order while capture is healthy. The capture
+  callback never waits for stdout: a worker writes from a fixed 250 ms queue
+  (96,000 bytes at the output format), including partially written blocks.
+  Kernel pipe buffering is separate. A full queue or 250 ms without write
+  progress while PCM is pending stops capture with exit code 1 and a diagnostic;
+  restart the audio source to recover. Explicit stop aborts pending PCM, and a
+  closed stdout reader is a clean exit. No audio blocks are silently dropped.
 
 ## Requirements
 

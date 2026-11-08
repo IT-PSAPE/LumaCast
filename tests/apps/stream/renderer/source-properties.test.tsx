@@ -3,6 +3,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SourceProperties, type SourcePropertiesProps } from '../../../../apps/stream/renderer/docks/source-properties';
 import type { StreamProject, StreamSource } from '../../../../apps/stream/shared/desktop-api';
 
+// The public capture entry also exports its runtime hook. These controls use
+// its pure device helpers and must not construct a Web Audio engine.
+vi.mock('../../../../apps/stream/renderer/audio-mixer', () => ({
+  AudioMixerEngine: vi.fn(() => { throw new Error('Source properties must not construct an audio engine'); }),
+}));
+
 afterEach(cleanup);
 
 function mediaSource(): StreamSource {

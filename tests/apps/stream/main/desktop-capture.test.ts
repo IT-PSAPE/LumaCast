@@ -49,10 +49,10 @@ describe('DesktopCaptureController source resolution', () => {
     controller.register();
     const handler = vi.mocked(session.defaultSession.setDisplayMediaRequestHandler).mock.calls[0]![0];
     const request = { frame: mainFrame, userGesture: true, videoRequested: true, audioRequested: true } as Electron.DisplayMediaRequestHandlerHandlerRequest;
-    const granted = await new Promise<Electron.Streams>((resolve) => handler!(request, resolve));
+    const granted = await new Promise<Electron.Streams | null>((resolve) => handler!(request, resolve));
 
-    expect(granted.video).toBe(option);
-    expect(granted.audio).toBe(includesAudio ? 'loopback' : undefined);
+    expect(granted?.video).toBe(option);
+    expect(granted?.audio).toBe(includesAudio ? 'loopback' : undefined);
   });
 
   it('returns the display identity and app icon hash needed for safe later matching', async () => {
@@ -165,12 +165,12 @@ describe('DesktopCaptureController source resolution', () => {
       videoRequested: true,
       audioRequested: false,
     } as unknown as Electron.DisplayMediaRequestHandlerHandlerRequest;
-    const denied = await new Promise<Electron.Streams>((resolve) => requestHandler!(request, resolve));
+    const denied = await new Promise<Electron.Streams | null>((resolve) => requestHandler!(request, resolve));
     expect(denied).toEqual({});
     expect(controller.isCaptureAuthorized(7)).toBe(true);
 
-    const granted = await new Promise<Electron.Streams>((resolve) => requestHandler!({ ...request, userGesture: true }, resolve));
-    expect(granted.video).toBe(option);
+    const granted = await new Promise<Electron.Streams | null>((resolve) => requestHandler!({ ...request, userGesture: true }, resolve));
+    expect(granted?.video).toBe(option);
     expect(controller.isCaptureAuthorized(7)).toBe(false);
     expect(desktopCapturer.getSources).toHaveBeenLastCalledWith({
       types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 },

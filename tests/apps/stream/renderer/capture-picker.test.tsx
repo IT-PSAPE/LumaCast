@@ -4,6 +4,12 @@ import { ApplicationAudioPicker, CapturePicker } from '../../../../apps/stream/r
 import type { CaptureAudioMode } from '../../../../apps/stream/shared/capture-audio';
 import type { AudioApplicationOption, DesktopSourceOption } from '../../../../apps/stream/shared/desktop-api';
 
+// The public capture entry also exports its runtime hook. These controls use
+// its pure device helpers and must not construct a Web Audio engine.
+vi.mock('../../../../apps/stream/renderer/audio-mixer', () => ({
+  AudioMixerEngine: vi.fn(() => { throw new Error('Capture controls must not construct an audio engine'); }),
+}));
+
 afterEach(cleanup);
 
 const option: DesktopSourceOption = { id: 'window:1', name: 'Editor', kind: 'window', thumbnail: 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' };

@@ -35,17 +35,44 @@ process identity before capture, reducing the risk of PID reuse. The persisted
 source contains the absolute executable path; the PID is transient. Standalone
 Application Audio requires a live selection. Display capture can restore its
 combined application audio when the saved path matches exactly one catalog entry.
-Main transfers
-PCM to the trusted renderer through a per-source MessagePort. The renderer
-queues PCM in an AudioWorklet with a one-second bound and presents its output
-as a MediaStream to the existing audio mixer. Stopping the source, closing the
-renderer connection, or helper termination ends the session.
+Main transfers PCM to the trusted renderer through a per-source MessagePort.
+Packets contain complete stereo frames, at most 7,680 bytes (20 ms). Five
+packets, at most 38,400 bytes, can remain outstanding across the renderer relay
+and AudioWorklet. Credit returns only after the worklet consumes the packet's
+final frame; receiving or forwarding it does not release credit. Main pulls
+stdout only while credit is available, using one fixed 7,680-byte assembly
+buffer and flushing partial complete frames within 20 ms. The oldest packet
+has a 250 ms consumption deadline that invalid receipts cannot extend. Overflow,
+timeout, or transfer failure ends capture with an explicit error; the worklet
+does not silently trim queued audio.
+
+The renderer resumes the mixer and waits up to two seconds for the worklet's
+first processing receipt before launching the helper. An internal preload
+epoch and exact port ownership reject old session announcements and asynchronous
+completions; stopping invalidates that ownership synchronously. The public
+start/stop API remains source-based. The worklet output remains a MediaStream
+feeding the existing mixer. Stopping the source, closing the renderer
+connection, or helper termination ends the session; combined display capture
+can retain its live video when audio fails.
+Each input also reports processor failure while no PCM is pending. The failure
+handler checks the captured input before stopping or updating a source, so an
+obsolete input cannot tear down its replacement.
 
 The macOS tap uses a private tap-only aggregate. Adding the physical output as a
 subdevice can give the aggregate a different clock from the tap format, causing
 captured audio to play too fast and at a higher pitch. The converter consumes
 the tap's actual format and emits the fixed 48 kHz contract; it does not apply a
 pitch correction. Buffer layout is validated before constructing PCM buffers.
+
+The macOS callback submits complete blocks to a fixed 96,000-byte SPSC queue
+(250 ms at the output format). One worker writes stdout nonblockingly, retaining
+partially written blocks in FIFO order. A full queue or 250 ms without write
+progress while PCM is pending terminates capture with a diagnostic; it does
+not silently drop audio. Explicit stop quiesces capture callbacks, aborts pending
+output, and joins the worker before releasing its queue. Teardown restores
+the borrowed stdout descriptor's flags. Native queue, kernel pipe, Node readable
+buffers, and ContextBridge copies remain separate allocations. The packet
+window bounds outstanding PCM payload, not aggregate process memory.
 
 ## Consequences
 

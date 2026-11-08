@@ -1,3 +1,4 @@
+import { APPLICATION_AUDIO_PACKET_BYTES, APPLICATION_AUDIO_WINDOW_PACKETS, APPLICATION_AUDIO_PACKET_MS, APPLICATION_AUDIO_CONSUMPTION_MS, isApplicationAudioEpoch, type ApplicationAudioPacket } from '../shared/application-audio-transport';
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import path from 'node:path';
 import { MessageChannelMain, type MessagePortMain, type WebContents } from 'electron';
@@ -10,7 +11,7 @@ export interface ApplicationAudioProcess {
   path: string;
 }
 
-export type ApplicationAudioCaptureMessage = ArrayBuffer | { error: string };
+export type ApplicationAudioCaptureMessage = ApplicationAudioPacket;
 
 type ListChild = ChildProcessByStdio<null, Readable, Readable>;
 type CaptureChild = ChildProcessByStdio<Writable, Readable, Readable>;
@@ -22,6 +23,7 @@ const MAX_PROCESS_NAME_LENGTH = 512;
 const MAX_PROCESS_PATH_LENGTH = 32768;
 const MAX_PCM_CHUNK_BYTES = 1024 * 1024;
 const LIST_TIMEOUT_MS = 5000;
+const CONSUMPTION_ERROR = 'Application audio stopped because the audio processor did not consume audio in time. Restart the audio source.';
 
 export interface ApplicationAudioCaptureOptions {
   spawnProcess?: typeof spawn;
@@ -137,7 +139,8 @@ export class ApplicationAudioCapture {
     });
   }
 
-  async start(sourceId: string, webContents: WebContents, pid: number, expectedExecutablePath: string): Promise<void> {
+  async start(sourceId: string, webContents: WebContents, pid: number, expectedExecutablePath: string, epoch: string): Promise<void> {
+    if (!isApplicationAudioEpoch(epoch)) throw new Error('Invalid application-audio transport epoch.');
     if (typeof sourceId !== 'string' || sourceId.length < 1 || sourceId.length > 256 || /[\u0000-\u001f\u007f]/.test(sourceId)) {
       throw new Error('Invalid application-audio source ID.');
     }
@@ -160,7 +163,7 @@ export class ApplicationAudioCapture {
       // output-session evidence. Do not use that list as capture authorization: paused
       // sessions can disappear between listing and capture. The helper validates the
       // live PID and executable path before it starts the native tap/loopback.
-      this.launch(sourceId, reservation, webContents, ['capture', '--pid', String(pid), '--path', expectedExecutablePath]);
+      this.launch(sourceId, reservation, webContents, ['capture', '--pid', String(pid), '--path', expectedExecutablePath], epoch);
     } finally {
       if (this.starts.get(sourceId) === reservation) this.starts.delete(sourceId);
     }
@@ -170,7 +173,8 @@ export class ApplicationAudioCapture {
    * Captures the whole system output mix. Only the macOS helper implements `capture --system`
    * (a Core Audio process tap); on Windows the renderer uses Electron's display loopback instead.
    */
-  async startSystem(sourceId: string, webContents: WebContents): Promise<void> {
+  async startSystem(sourceId: string, webContents: WebContents, epoch: string): Promise<void> {
+    if (!isApplicationAudioEpoch(epoch)) throw new Error('Invalid application-audio transport epoch.');
     if (typeof sourceId !== 'string' || sourceId.length < 1 || sourceId.length > 256 || /[\u0000-\u001f\u007f]/.test(sourceId)) {
       throw new Error('Invalid system-audio source ID.');
     }
@@ -179,13 +183,13 @@ export class ApplicationAudioCapture {
     const reservation: StartReservation = { cancelled: false };
     this.starts.set(sourceId, reservation);
     try {
-      this.launch(sourceId, reservation, webContents, ['capture', '--system']);
+      this.launch(sourceId, reservation, webContents, ['capture', '--system'], epoch);
     } finally {
       if (this.starts.get(sourceId) === reservation) this.starts.delete(sourceId);
     }
   }
 
-  private launch(sourceId: string, reservation: StartReservation, webContents: WebContents, args: string[]): void {
+  private launch(sourceId: string, reservation: StartReservation, webContents: WebContents, args: string[], epoch: string): void {
     const channel = this.createMessageChannel();
     let child: CaptureChild;
     try {
@@ -202,7 +206,7 @@ export class ApplicationAudioCapture {
     this.sessions.set(sourceId, session);
     try {
       session.start(() => this.remove(sourceId, session));
-      webContents.postMessage(IPC_CHANNELS.applicationAudioFrame, sourceId, [channel.port2]);
+      webContents.postMessage(IPC_CHANNELS.applicationAudioFrame, { sourceId, epoch }, [channel.port2]);
       this.throwIfStartCancelled(sourceId, reservation);
     } catch (error) {
       try { channel.port2.close(); } catch { /* The port may already have been transferred. */ }
@@ -238,21 +242,84 @@ export class ApplicationAudioCapture {
 }
 
 class CaptureSession {
-  private trailingBytes = Buffer.alloc(0);
-  private readonly onData = (chunk: Buffer) => {
-    if (chunk.byteLength > MAX_PCM_CHUNK_BYTES) {
-      this.send({ error: 'The application-audio helper produced an oversized audio chunk.' });
-      this.close();
+  // One fixed assembly buffer plus five in-flight payloads. Node/OS buffering
+  // remains separate; readable mode never drains it into an auxiliary queue.
+  private readonly assembly = Buffer.alloc(APPLICATION_AUDIO_PACKET_BYTES);
+  private assembled = 0;
+  private sequence = 0;
+  private acknowledged = 0;
+  private readonly outstanding: Array<{ sequence: number; sentAt: number }> = [];
+  private packetTimer: NodeJS.Timeout | null = null;
+  private deadlineTimer: NodeJS.Timeout | null = null;
+  private readonly onReadable = () => {
+    if (this.closed || this.consumptionExpired()) return;
+    if (this.child.stdout.readableLength > MAX_PCM_CHUNK_BYTES) {
+      this.fail('The application-audio helper produced an oversized audio buffer.');
       return;
     }
-    const combined = this.trailingBytes.byteLength === 0 ? chunk : Buffer.concat([this.trailingBytes, chunk]);
-    const alignedLength = combined.byteLength - (combined.byteLength % 8);
-    this.trailingBytes = Buffer.from(combined.subarray(alignedLength));
-    if (alignedLength === 0) return;
-    const copy = new Uint8Array(alignedLength);
-    copy.set(combined.subarray(0, alignedLength));
-    this.send(copy.buffer);
+    while (!this.closed && this.outstanding.length < APPLICATION_AUDIO_WINDOW_PACKETS && this.child.stdout.readableLength > 0) {
+      const length = Math.min(APPLICATION_AUDIO_PACKET_BYTES - this.assembled, this.child.stdout.readableLength);
+      const bytes = this.child.stdout.read(length) as Buffer | null;
+      if (!bytes) break;
+      bytes.copy(this.assembly, this.assembled);
+      this.assembled += bytes.length;
+      if (this.assembled === APPLICATION_AUDIO_PACKET_BYTES) this.flushPacket();
+      else if (!this.packetTimer) this.packetTimer = setTimeout(() => {
+        this.packetTimer = null;
+        this.flushPacket();
+      }, APPLICATION_AUDIO_PACKET_MS);
+    }
   };
+  private flushPacket(): void {
+    if (this.closed || this.consumptionExpired() || this.outstanding.length >= APPLICATION_AUDIO_WINDOW_PACKETS) return;
+    const length = this.assembled - this.assembled % 8;
+    if (length === 0) return;
+    if (this.packetTimer) clearTimeout(this.packetTimer);
+    this.packetTimer = null;
+    const buffer = new ArrayBuffer(length);
+    new Uint8Array(buffer).set(this.assembly.subarray(0, length));
+    this.assembly.copy(this.assembly, 0, length, this.assembled);
+    this.assembled -= length;
+    const sequence = ++this.sequence;
+    this.outstanding.push({ sequence, sentAt: performance.now() });
+    this.send({ type: 'pcm', sequence, buffer });
+    this.armDeadline();
+  }
+  private armDeadline(): void {
+    if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+    this.deadlineTimer = null;
+    const first = this.outstanding[0];
+    if (!first || this.closed) return;
+    this.deadlineTimer = setTimeout(() => {
+      this.deadlineTimer = null;
+      this.fail(CONSUMPTION_ERROR);
+    }, Math.max(0, first.sentAt + APPLICATION_AUDIO_CONSUMPTION_MS - performance.now()));
+  }
+  private readonly onMessage = ({ data }: Electron.MessageEvent) => {
+    if (this.closed || this.consumptionExpired()) return;
+    if (data?.type === 'failed') {
+      this.fail('Application audio stopped because the audio processor could not accept audio. Restart the audio source.');
+      return;
+    }
+    if (data?.type !== 'consumed' || !Number.isSafeInteger(data.sequence) || data.sequence < 1) {
+      this.fail('Application audio received an invalid consumption acknowledgement.'); return;
+    }
+    if (data.sequence <= this.acknowledged) return;
+    if (this.outstanding[0]?.sequence !== data.sequence) {
+      this.fail('Application audio received an out-of-order consumption acknowledgement.'); return;
+    }
+    this.outstanding.shift();
+    this.acknowledged = data.sequence;
+    this.armDeadline();
+    this.onReadable();
+  };
+  private consumptionExpired(): boolean {
+    const first = this.outstanding[0];
+    if (!first || performance.now() < first.sentAt + APPLICATION_AUDIO_CONSUMPTION_MS) return false;
+    this.fail(CONSUMPTION_ERROR);
+    return true;
+  }
+  private fail(error: string): void { this.send({ type: 'error', error }); this.close(); }
   private readonly onStderr = (chunk: Buffer) => {
     if (this.stderrBytes >= MAX_STDERR_BYTES) return;
     const accepted = chunk.subarray(0, MAX_STDERR_BYTES - this.stderrBytes);
@@ -260,7 +327,7 @@ class CaptureSession {
     this.stderr += accepted.toString('utf8');
   };
   private readonly onError = (error: Error) => {
-    this.send({ error: `The application-audio helper failed: ${error.message}` });
+    this.send({ type: 'error', error: `The application-audio helper failed: ${error.message}` });
     this.close();
   };
   private readonly onExit = (code: number | null) => {
@@ -268,12 +335,12 @@ class CaptureSession {
     const message = code === 0
       ? 'The selected application audio process ended.'
       : details || `The application-audio helper stopped unexpectedly (exit code ${String(code)}).`;
-    this.send({ error: message });
+    this.send({ type: 'error', error: message });
     this.close();
   };
   private readonly onClose = (code: number | null) => this.onExit(code);
   private readonly onStreamError = (error: Error) => {
-    this.send({ error: `The application-audio helper stream failed: ${error.message}` });
+    this.send({ type: 'error', error: `The application-audio helper stream failed: ${error.message}` });
     this.close();
   };
   private readonly onPortClose = () => this.close();
@@ -292,13 +359,14 @@ class CaptureSession {
 
   start(removeFromOwner: () => void): void {
     this.removeFromOwner = removeFromOwner;
-    this.child.stdout.on('data', this.onData);
+    this.child.stdout.on('readable', this.onReadable);
     this.child.stdout.once('error', this.onStreamError);
     this.child.stderr.on('data', this.onStderr);
     this.child.stderr.once('error', this.onStreamError);
     this.child.once('error', this.onError);
     this.child.once('exit', this.onExit);
     this.child.once('close', this.onClose);
+    this.mainPort.on('message', this.onMessage);
     this.mainPort.once('close', this.onPortClose);
     this.webContents.once('destroyed', this.onContentsDestroyed);
     this.mainPort.start();
@@ -309,13 +377,20 @@ class CaptureSession {
     this.closed = true;
     this.removeFromOwner?.();
     this.removeFromOwner = null;
-    this.child.stdout.removeListener('data', this.onData);
+    if (this.packetTimer) clearTimeout(this.packetTimer);
+    if (this.deadlineTimer) clearTimeout(this.deadlineTimer);
+    this.packetTimer = null;
+    this.deadlineTimer = null;
+    this.outstanding.length = 0;
+    this.assembled = 0;
+    this.child.stdout.removeListener('readable', this.onReadable);
     this.child.stdout.removeListener('error', this.onStreamError);
     this.child.stderr.removeListener('data', this.onStderr);
     this.child.stderr.removeListener('error', this.onStreamError);
     this.child.removeListener('error', this.onError);
     this.child.removeListener('exit', this.onExit);
     this.child.removeListener('close', this.onClose);
+    this.mainPort.removeListener('message', this.onMessage);
     this.mainPort.removeListener('close', this.onPortClose);
     this.webContents.removeListener('destroyed', this.onContentsDestroyed);
     try { this.mainPort.close(); } catch { /* The renderer may already have closed its channel. */ }

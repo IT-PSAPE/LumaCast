@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ChildProcessByStdio } from 'node:child_process';
 import type { MessagePortMain, WebContents } from 'electron';
 import { IPC_CHANNELS } from '../../../../apps/stream/main/ipc-channels';
@@ -79,15 +79,16 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: port2 as unknown as MessagePortMain }),
     });
 
-    await capture.start('source-1', webContents, 1240, 'c:/apps/music.exe');
+    await capture.start('source-1', webContents, 1240, 'c:/apps/music.exe', 'test-epoch');
 
-    expect(postMessage).toHaveBeenCalledWith(IPC_CHANNELS.applicationAudioFrame, 'source-1', [port2]);
+    expect(postMessage).toHaveBeenCalledWith(IPC_CHANNELS.applicationAudioFrame, { sourceId: 'source-1', epoch: 'test-epoch' }, [port2]);
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     expect(spawnProcess.mock.calls[0]?.[2]).toMatchObject({ stdio: ['pipe', 'pipe', 'pipe'] });
     expect(spawnProcess.mock.calls[0]?.[1]).toEqual(['capture', '--pid', '1240', '--path', 'c:/apps/music.exe']);
     const pcm = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
-    children[0]?.stdout.emit('data', pcm);
-    const forwarded = port1.postMessage.mock.calls[0]?.[0];
+    children[0]?.stdout.write(pcm);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const forwarded = (port1.postMessage.mock.calls[0]?.[0] as { buffer: ArrayBuffer }).buffer;
     expect(forwarded).toBeInstanceOf(ArrayBuffer);
     expect([...new Uint8Array(forwarded as ArrayBuffer)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -110,14 +111,15 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe');
+    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe', 'test-epoch');
     const stdout = children[0]!.stdout;
-    stdout.emit('data', Buffer.from([1, 2, 3]));
+    stdout.write(Buffer.from([1, 2, 3]));
     expect(port1.postMessage).not.toHaveBeenCalled();
-    stdout.emit('data', Buffer.from([4, 5, 6, 7, 8, 9, 10]));
+    stdout.write(Buffer.from([4, 5, 6, 7, 8, 9, 10]));
+    await new Promise((resolve) => setTimeout(resolve, 25));
 
     expect(port1.postMessage).toHaveBeenCalledTimes(1);
-    expect([...new Uint8Array(port1.postMessage.mock.calls[0]?.[0] as ArrayBuffer)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect([...new Uint8Array((port1.postMessage.mock.calls[0]?.[0] as { buffer: ArrayBuffer }).buffer)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
     capture.stop('source-1');
     children[0]?.emit('exit', 0, null);
@@ -136,8 +138,8 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await expect(capture.start('source-1', webContents, 1240, 'Music.exe')).rejects.toThrow(/Invalid application-audio process identity/);
-    await expect(capture.start('source-1', webContents, 0, 'C:\\Apps\\Music.exe')).rejects.toThrow(/Invalid application-audio process identity/);
+    await expect(capture.start('source-1', webContents, 1240, 'Music.exe', 'test-epoch')).rejects.toThrow(/Invalid application-audio process identity/);
+    await expect(capture.start('source-1', webContents, 0, 'C:\\Apps\\Music.exe', 'test-epoch')).rejects.toThrow(/Invalid application-audio process identity/);
     expect(spawnProcess).not.toHaveBeenCalled();
     expect(children).toHaveLength(0);
   });
@@ -155,8 +157,8 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe');
-    await expect(capture.start('source-1', webContents, 1241, 'C:\\Apps\\Music.exe')).rejects.toThrow(/already active or starting/);
+    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe', 'test-epoch');
+    await expect(capture.start('source-1', webContents, 1241, 'C:\\Apps\\Music.exe', 'test-epoch')).rejects.toThrow(/already active or starting/);
     expect(spawnProcess).toHaveBeenCalledTimes(1);
 
     capture.stop('source-1');
@@ -177,10 +179,10 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe');
+    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe', 'test-epoch');
     children[0]!.emit('exit', 0, null);
 
-    expect(port1.postMessage).toHaveBeenCalledWith({ error: 'The selected application audio process ended.' });
+    expect(port1.postMessage).toHaveBeenCalledWith({ type: 'error', error: 'The selected application audio process ended.' });
     capture.stop('source-1');
   });
 
@@ -198,12 +200,12 @@ describe('application audio process validation', () => {
       createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe');
+    await capture.start('source-1', webContents, 1240, 'C:\\Apps\\Music.exe', 'test-epoch');
     children[0]!.stderr.emit('data', Buffer.from('Process audio capture requires Windows build 20348 or later.'));
     children[0]!.exitCode = 3;
     children[0]!.emit('exit', 3, null);
 
-    expect(port1.postMessage).toHaveBeenCalledWith({ error: 'Process audio capture requires Windows build 20348 or later.' });
+    expect(port1.postMessage).toHaveBeenCalledWith({ type: 'error', error: 'Process audio capture requires Windows build 20348 or later.' });
     capture.stop('source-1');
   });
 });
@@ -225,15 +227,16 @@ describe('system audio capture', () => {
       createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: port2 as unknown as MessagePortMain }),
     });
 
-    await capture.startSystem('system-source', webContents);
+    await capture.startSystem('system-source', webContents, 'test-epoch');
 
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     expect(spawnProcess.mock.calls[0]?.[1]).toEqual(['capture', '--system']);
-    expect(postMessage).toHaveBeenCalledWith(IPC_CHANNELS.applicationAudioFrame, 'system-source', [port2]);
+    expect(postMessage).toHaveBeenCalledWith(IPC_CHANNELS.applicationAudioFrame, { sourceId: 'system-source', epoch: 'test-epoch' }, [port2]);
 
     const pcm = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
-    children[0]?.stdout.emit('data', pcm);
-    const forwarded = port1.postMessage.mock.calls[0]?.[0];
+    children[0]?.stdout.write(pcm);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    const forwarded = (port1.postMessage.mock.calls[0]?.[0] as { buffer: ArrayBuffer }).buffer;
     expect(forwarded).toBeInstanceOf(ArrayBuffer);
     expect([...new Uint8Array(forwarded as ArrayBuffer)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 
@@ -254,8 +257,8 @@ describe('system audio capture', () => {
       createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.startSystem('system-source', webContents);
-    await expect(capture.startSystem('system-source', webContents)).rejects.toThrow('System audio is already active or starting for this source.');
+    await capture.startSystem('system-source', webContents, 'test-epoch');
+    await expect(capture.startSystem('system-source', webContents, 'test-epoch')).rejects.toThrow('System audio is already active or starting for this source.');
 
     capture.stop('system-source');
     children[0]?.emit('exit', 0, null);
@@ -268,8 +271,8 @@ describe('system audio capture', () => {
       createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await expect(capture.startSystem('', webContents)).rejects.toThrow('Invalid system-audio source ID.');
-    await expect(capture.startSystem('x'.repeat(257), webContents)).rejects.toThrow('Invalid system-audio source ID.');
+    await expect(capture.startSystem('', webContents, 'test-epoch')).rejects.toThrow('Invalid system-audio source ID.');
+    await expect(capture.startSystem('x'.repeat(257), webContents, 'test-epoch')).rejects.toThrow('Invalid system-audio source ID.');
   });
 
   it('ends the helper stdin when system audio capture is stopped', async () => {
@@ -285,7 +288,7 @@ describe('system audio capture', () => {
       createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
     });
 
-    await capture.startSystem('system-source', webContents);
+    await capture.startSystem('system-source', webContents, 'test-epoch');
     capture.stop('system-source');
 
     expect(children[0]?.stdin.writableEnded).toBe(true);
@@ -307,3 +310,75 @@ class FakeMessagePort extends EventEmitter {
   start = vi.fn();
   close = vi.fn(() => this.emit('close'));
 }
+
+describe('bounded application audio credits', () => {
+  afterEach(() => vi.useRealTimers());
+  async function setup() {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const child = new FakeHelperChild();
+    const port = new FakeMessagePort();
+    const capture = new ApplicationAudioCapture('/audio-helper', {
+      spawnProcess: vi.fn(() => child) as any,
+      createMessageChannel: () => ({ port1: port as any, port2: new FakeMessagePort() as any }),
+    });
+    const contents = Object.assign(new EventEmitter(), { isDestroyed: () => false, postMessage: vi.fn() }) as any;
+    await capture.startSystem('source', contents, 'epoch');
+    return { child, port, capture, feed(bytes: Buffer) { child.stdout.write(bytes); child.stdout.emit('readable'); },
+      ack(sequence: number) { port.emit('message', { data: { type: 'consumed', sequence } }); } };
+  }
+  it('pulls only five packets without consumption and terminates once at the original deadline', async () => {
+    const { child, port, feed, ack } = await setup();
+    feed(Buffer.alloc(7680 * 20));
+    expect(port.postMessage.mock.calls).toHaveLength(5);
+    expect(child.stdout.readableLength).toBe(7680 * 15);
+    await vi.advanceTimersByTimeAsync(100);
+    ack(1);
+    expect(port.postMessage.mock.calls).toHaveLength(6);
+    expect(child.stdout.readableLength).toBe(7680 * 14);
+    await vi.advanceTimersByTimeAsync(149);
+    ack(1); // Duplicate credit cannot postpone packet 2's deadline.
+    expect(port.postMessage.mock.calls).toHaveLength(6);
+    await vi.advanceTimersByTimeAsync(1);
+    const terminal = port.postMessage.mock.calls.filter(([packet]) => (packet as any).type === 'error');
+    expect(terminal).toHaveLength(1);
+    expect(port.close).toHaveBeenCalledOnce();
+    expect(child.stdin.writableEnded).toBe(true);
+    ack(2); child.emit('exit', 1, null);
+    expect(port.postMessage.mock.calls).toHaveLength(7);
+  });
+  it('preserves exact fragmented PCM and flushes a short complete frame within20ms', async () => {
+    const { child, port, capture, feed, ack } = await setup();
+    const expected = Buffer.from(Array.from({ length: 7680 + 8 }, (_, i) => i % 251));
+    feed(expected.subarray(0, 3)); feed(expected.subarray(3, 7679));
+    expect(port.postMessage).not.toHaveBeenCalled();
+    feed(expected.subarray(7679));
+    expect(port.postMessage.mock.calls).toHaveLength(1);
+    ack(1);
+    await vi.advanceTimersByTimeAsync(20);
+    const packets = port.postMessage.mock.calls.map(([packet]) => Buffer.from((packet as any).buffer));
+    expect(Buffer.concat(packets)).toEqual(expected);
+    ack(2); await vi.advanceTimersByTimeAsync(500);
+    expect(port.close).not.toHaveBeenCalled();
+    capture.stop('source'); child.emit('exit', 0, null);
+  });
+  it('does not accept an expired receipt merely because the main timer callback was delayed', async () => {
+    const { child, port, feed, ack } = await setup();
+    feed(Buffer.alloc(7680));
+    const now = performance.now();
+    vi.spyOn(performance, 'now').mockReturnValue(now + 251);
+    ack(1);
+    expect(port.postMessage.mock.calls.filter(([packet]) => (packet as any).type === 'error')).toHaveLength(1);
+    expect(port.close).toHaveBeenCalledOnce();
+    child.emit('exit', 0, null);
+    vi.restoreAllMocks();
+  });
+  it.each([{}, { type: 'consumed', sequence: 2 }, { type: 'consumed', sequence: NaN }, { type: 'failed' }])
+  ('invalid/failing controls never grant credit', async (data) => {
+    const { child, port, feed } = await setup();
+    feed(Buffer.alloc(7680 * 6));
+    port.emit('message', { data });
+    expect(port.postMessage.mock.calls.filter(([packet]) => (packet as any).type === 'pcm')).toHaveLength(5);
+    expect(port.close).toHaveBeenCalledOnce();
+    child.emit('exit', 0, null);
+  });
+});

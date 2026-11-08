@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -14,9 +15,7 @@ const appRequire = createRequire(path.resolve('apps/stream/package.json'));
 const playwrightRequire = createRequire(path.resolve('package.json'));
 const { _electron: electron, expect } = playwrightRequire('@playwright/test');
 const sharp = appRequire('sharp');
-const electronPackagePath = appRequire.resolve('electron/package.json');
-const electronPackage = appRequire(electronPackagePath);
-const electronBinary = appRequire('electron');
+const { binaryPath: electronBinary, version: electronVersion, packagePath: electronPackagePath } = resolveAppElectron('stream');
 
 const outputRoot = path.resolve('output/playwright/continuity-e2e');
 const presentationFixtureRoot = path.join(outputRoot, 'fixtures');
@@ -476,9 +475,6 @@ async function closeProperties(page) {
 }
 
 async function main() {
-  if (electronPackage.version !== '44.3.0' || !electronPackagePath.startsWith(path.resolve('apps/stream/node_modules/electron'))) {
-    throw new Error(`Expected Stream's Electron 44.3.0 package, resolved ${electronPackage.version} at ${electronPackagePath}`);
-  }
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
   const runRoot = path.join(outputRoot, `run-${stamp}-${process.pid}`);
   await fs.mkdir(runRoot, { recursive: true });
@@ -769,7 +765,7 @@ async function main() {
     const summary = {
       passed: true,
       runRoot,
-      electron: { version: electronPackage.version, packagePath: electronPackagePath, binary: electronBinary },
+      electron: { version: electronVersion, packagePath: electronPackagePath, binary: electronBinary },
       ports: { browserFixture: browserPort, remoteDebugging: debugPort },
       fixture,
       checks,
@@ -784,7 +780,7 @@ async function main() {
     const failure = {
       passed: false,
       runRoot,
-      electron: { version: electronPackage.version, packagePath: electronPackagePath, binary: electronBinary },
+      electron: { version: electronVersion, packagePath: electronPackagePath, binary: electronBinary },
       ports: { browserFixture: browserPort, remoteDebugging: debugPort },
       fixture,
       checks,

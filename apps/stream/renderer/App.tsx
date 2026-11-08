@@ -372,6 +372,7 @@ export function App() {
     profiles: workspace.profiles,
     activeProfileId: workspace.activeProfileId,
     openSettings: openSettingsDialog,
+    onQuit: () => { void api.quit().catch((error) => setActionError(`Stream could not quit: ${friendlyError(error)}`)); },
     importCollectionFromFile: workspace.importCollectionFromFile,
     exportActiveCollection: workspace.exportActiveCollection,
     showRecordingsFolder: recording.showRecordingsFolder,
@@ -399,11 +400,24 @@ export function App() {
     setAboutDialogOpen,
     setShortcutsDialogOpen,
   });
-  const appMenus = useMemo(() => buildAppMenus(appMenuContext), [appMenuContext]);
+  const appMenus = useMemo(() => project ? buildAppMenus(appMenuContext) : [{
+    id: 'file', label: 'File', entries: [{ id: 'file.quit', label: 'Quit', onSelect: appMenuContext.actions.quit }],
+  }], [appMenuContext, project]);
   useNativeMenu({ api, platform, menus: appMenus });
 
-  if (workspace.loadingError) return <main className="fatal"><div className="fatal-mark"><Radio size={24} /></div><h1>Stream could not start</h1><p>{workspace.loadingError}</p></main>;
-  if (!project || !activeScene || !liveScene) return <main className="loading"><div className="brand-pulse"><Radio size={22} /></div><span>Starting Stream</span></main>;
+  if (!project || !activeScene || !liveScene) return <TooltipProvider>
+    <main className="app-shell" style={{ gridTemplateRows: '36px minmax(0, 1fr)' }}>
+      <TitleBar platform={platform} menuMode={platform === 'darwin' ? 'native' : 'hamburger'} title="LumaStream" menus={appMenus} />
+      {workspace.loadingError ? <section className="fatal" aria-labelledby="workspace-load-error">
+        <div className="fatal-mark"><Radio size={24} /></div>
+        <h1 id="workspace-load-error">Stream could not start</h1>
+        <p role="alert">{workspace.loadingError}</p>
+        <ReacstButton onClick={workspace.retryLoad}>Retry</ReacstButton>
+      </section> : <section className="loading" aria-live="polite">
+        <div className="brand-pulse"><Radio size={22} /></div><span>Starting Stream</span>
+      </section>}
+    </main>
+  </TooltipProvider>;
 
   const selectedSourceFrames = visibleSelectedSourceRoots(activeScene.sources, sources.selectedSourceIds).map((source) => ({
     source,

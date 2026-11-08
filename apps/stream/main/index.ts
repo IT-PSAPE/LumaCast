@@ -1,4 +1,4 @@
-import { app, protocol, session, shell, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, protocol, session, shell, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
@@ -25,6 +25,7 @@ import { createMainWindow } from './window';
 import { applicationAudioHelperFilename, toStreamPlatform } from '../shared/platform-capabilities';
 import { registerNdiIpc } from './ndi-bridge';
 import { PresentationImporter } from './presentation-import';
+import { WorkspaceShutdown } from './workspace-shutdown';
 
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES }]);
 app.setName('LumaStream');
@@ -76,17 +77,28 @@ const ndiIpc = registerNdiIpc(
   path.join(__dirname, 'ndi-host.js'),
 );
 
+const workspaceShutdown = new WorkspaceShutdown(ipcMain, () => mainWindow?.webContents ?? null, isTrustedUrl, () => projectStore.flush());
 let shutdownComplete = false;
+let shutdownTask: Promise<void> | null = null;
+let closeTask: Promise<void> | null = null;
+let reloadTask: Promise<void> | null = null;
+let closeApproved = false;
+let reloadApproved = false;
+const showSaveError = (error: unknown) => {
+  dialog.showErrorBox('Stream could not save project settings', error instanceof Error ? error.message : 'Project settings could not be saved. Try closing Stream again.');
+};
 app.on('before-quit', (event) => {
   if (shutdownComplete) return;
   event.preventDefault();
-  browserSources.closeAll();
-  applicationAudio.stopAll();
-  void Promise.all([youtubeLive.stopAll(), streamOutput.stopAll(), recordings.closeAll(), ndiIpc.close()]).finally(() => {
+  if (shutdownTask) return;
+  shutdownTask = workspaceShutdown.flush().then(async () => {
+    browserSources.closeAll();
+    applicationAudio.stopAll();
+    await Promise.allSettled([youtubeLive.stopAll(), streamOutput.stopAll(), recordings.closeAll(), ndiIpc.close()]);
     zoomStreaming.stopAll();
     shutdownComplete = true;
     app.quit();
-  });
+  }).catch(showSaveError).finally(() => { shutdownTask = null; });
 });
 
 if (app.requestSingleInstanceLock()) {
@@ -130,6 +142,34 @@ if (app.requestSingleInstanceLock()) {
     });
     capture.register();
     mainWindow = createMainWindow();
+    mainWindow.on('close', (event) => {
+      if (closeApproved || shutdownComplete) return;
+      event.preventDefault();
+      if (closeTask || shutdownTask) return;
+      closeTask = workspaceShutdown.flush().then(() => {
+        closeApproved = true;
+        mainWindow?.close();
+      }).catch(showSaveError).finally(() => { closeTask = null; });
+    });
+    // Windows session shutdown skips app's before-quit; cancel the session
+    // close and enter the same graceful persistence/output teardown path.
+    mainWindow.on('query-session-end', (event) => { event.preventDefault(); app.quit(); });
+    mainWindow.webContents.on('will-prevent-unload', (event) => {
+      // Ignore the renderer's app-owned beforeunload prevention only after
+      // persistence has approved this close, quit, or one reload.
+      if (closeApproved || shutdownComplete || reloadApproved) {
+        reloadApproved = false;
+        event.preventDefault();
+        return;
+      }
+      if (reloadTask || closeTask || shutdownTask) return;
+      const contents = mainWindow?.webContents;
+      reloadTask = workspaceShutdown.flush().then(() => {
+        if (closeTask || shutdownTask || !contents || contents.isDestroyed() || contents !== mainWindow?.webContents) return;
+        reloadApproved = true;
+        contents.reload();
+      }).catch(showSaveError).finally(() => { reloadTask = null; });
+    });
     mainWindow.on('closed', () => { mainWindow = null; });
     // Replaces Electron's generic default application menu immediately; the
     // renderer sends its real File/Edit/.../Help template (see

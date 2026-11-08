@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
@@ -8,11 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 process.chdir(fileURLToPath(new URL('../../../../', import.meta.url)));
 const root = process.cwd();
-const appRequire = createRequire(path.resolve('apps/stream/package.json'));
 const playwrightRequire = createRequire(path.resolve('package.json'));
 const { _electron: electron, expect } = playwrightRequire('@playwright/test');
-const electronBinary = appRequire('electron');
-const electronVersion = appRequire('electron/package.json').version;
+const { binaryPath: electronBinary, version: electronVersion } = resolveAppElectron('stream');
 const outputRoot = path.resolve('output/playwright/provider-docks-review');
 
 const channels = {
@@ -360,7 +359,6 @@ require(${JSON.stringify(mainEntry)});
 }
 
 async function main() {
-  assert.equal(electronVersion, '44.3.0', 'Use the Stream workspace Electron.');
   const runRoot = path.join(outputRoot, `run-${new Date().toISOString().replaceAll(':', '-')}-${process.pid}`);
   await fs.mkdir(runRoot, { recursive: true });
   const { bootstrap } = await writeFixtureBootstrap(runRoot);

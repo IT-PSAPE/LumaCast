@@ -30,16 +30,18 @@ if (process.platform === 'win32') {
   // Plain clang, no Swift: one invocation yields a universal binary for Apple silicon and Intel Macs.
   const helperDirectory = path.join(appDirectory, 'native', 'audio-tap');
   const source = path.join(helperDirectory, 'main.m');
+  const writerSource = path.join(helperDirectory, 'pcm-writer.c');
+  const inputs = [source, writerSource, path.join(helperDirectory, 'pcm-writer.h')];
   const buildDirectory = path.join(helperDirectory, 'build');
   const output = path.join(buildDirectory, 'lumastream-audio-tap');
   mkdirSync(buildDirectory, { recursive: true });
-  if (existsSync(output) && statSync(output).mtimeMs >= statSync(source).mtimeMs) {
+  if (existsSync(output) && inputs.every((input) => statSync(output).mtimeMs >= statSync(input).mtimeMs)) {
     console.log('Stream application-audio helper is up to date for macOS.');
   } else {
     run('clang', [
       '-fobjc-arc', '-O2', '-Wall', '-Wextra', '-Wno-unused-parameter',
       '-mmacosx-version-min=13.0', '-arch', 'arm64', '-arch', 'x86_64',
-      source, '-o', output,
+      source, writerSource, '-o', output,
       '-framework', 'Foundation', '-framework', 'AppKit', '-framework', 'CoreAudio', '-framework', 'AVFoundation',
     ], 'The macOS audio tap helper');
     console.log('Stream application-audio helper is ready for macOS (universal).');

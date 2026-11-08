@@ -20,6 +20,7 @@ export interface UseAppMenuParams {
   activeProfileId: string | null;
 
   openSettings: () => void;
+  onQuit: () => void;
   importCollectionFromFile: () => Promise<void>;
   exportActiveCollection: () => Promise<void>;
   showRecordingsFolder: () => void;
@@ -58,7 +59,7 @@ export function useAppMenu(params: UseAppMenuParams): AppMenuContext {
   const {
     platform, project, multiviewWindowOpen, undoAvailable, redoAvailable, selectedSource, sourceClipboardAvailable,
     workbenchLayout, collections, activeCollectionId, profiles, activeProfileId,
-    openSettings, importCollectionFromFile, exportActiveCollection, showRecordingsFolder, remuxRecording,
+    openSettings, onQuit, importCollectionFromFile, exportActiveCollection, showRecordingsFolder, remuxRecording,
     undoSceneEdit, redoSceneEdit, copySelectedSource, pasteSource, removeSelectedSource,
     fitSource, stretchSource, centerSource, resetSourceTransform, toggleStudioMode, toggleMultiviewWindow, openProjector,
     toggleDock, resetUi, activateCollection, openCollectionDialog, activateProfile, openProfileDialog,
@@ -82,7 +83,7 @@ export function useAppMenu(params: UseAppMenuParams): AppMenuContext {
     activeProfileId,
     actions: {
       openSettings: () => openSettings(),
-      quit: () => window.close(),
+      quit: onQuit,
       importCollection: () => void importCollectionFromFile(),
       exportCollection: () => void exportActiveCollection(),
       showRecordings: showRecordingsFolder,

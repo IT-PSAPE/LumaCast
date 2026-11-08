@@ -3,40 +3,40 @@ class StreamApplicationAudioInput extends AudioWorkletProcessor {
     super();
     this.buffers = [];
     this.offset = 0;
-    this.pendingSamples = 0;
-    this.maxPendingSamples = sampleRate;
+    this.sequence = 0;
     this.stopped = false;
+    this.ready = false;
     this.port.onmessage = ({ data }) => {
-      if (data?.type === 'stop') {
-        this.stopped = true;
-        this.buffers = [];
-        this.pendingSamples = 0;
-        this.port.close();
+      if (this.stopped) return;
+      if (data?.type === 'stop') { this.stop(); return; }
+      // These wire bounds match shared/application-audio-transport.ts. Keeping
+      // receipts until consumption also bounds undelivered MessagePort tasks.
+      if (data?.type !== 'pcm' || data.sequence !== this.sequence + 1
+        || !(data.buffer instanceof ArrayBuffer) || data.buffer.byteLength === 0
+        || data.buffer.byteLength > 7680 || data.buffer.byteLength % 8
+        || this.buffers.length >= 5 || sampleRate !== 48000) {
+        this.port.postMessage({ type: 'error' });
+        this.stop();
         return;
       }
-      if (!(data instanceof ArrayBuffer) || data.byteLength === 0 || data.byteLength % 8 !== 0) return;
-      let samples = new Float32Array(data);
-      if (samples.length > this.maxPendingSamples) samples = samples.slice(samples.length - this.maxPendingSamples);
-      this.buffers.push(samples);
-      this.pendingSamples += samples.length;
-      while (this.pendingSamples > this.maxPendingSamples && this.buffers.length > 0) {
-        const oldest = this.buffers[0];
-        const excess = this.pendingSamples - this.maxPendingSamples;
-        const available = oldest.length - this.offset;
-        if (available <= excess) {
-          this.buffers.shift();
-          this.pendingSamples -= available;
-          this.offset = 0;
-        } else {
-          this.offset += excess;
-          this.pendingSamples -= excess;
-        }
-      }
+      this.sequence = data.sequence;
+      this.buffers.push({ samples: new Float32Array(data.buffer), sequence: data.sequence });
     };
+  }
+
+  stop() {
+    this.stopped = true;
+    this.buffers = [];
+    this.offset = 0;
+    this.port.close();
   }
 
   process(_inputs, outputs) {
     if (this.stopped) return false;
+    if (!this.ready) {
+      this.ready = true;
+      this.port.postMessage({ type: 'ready' });
+    }
     const output = outputs[0];
     const left = output?.[0];
     const right = output?.[1];
@@ -44,16 +44,16 @@ class StreamApplicationAudioInput extends AudioWorkletProcessor {
     left.fill(0);
     right?.fill(0);
     for (let frame = 0; frame < left.length; frame += 1) {
-      while (this.buffers.length > 0 && this.offset >= this.buffers[0].length) {
+      const packet = this.buffers[0];
+      if (!packet) break;
+      left[frame] = packet.samples[this.offset++];
+      if (right) right[frame] = packet.samples[this.offset++];
+      else this.offset += 1;
+      if (this.offset === packet.samples.length) {
         this.buffers.shift();
         this.offset = 0;
+        this.port.postMessage({ type: 'consumed', sequence: packet.sequence });
       }
-      const samples = this.buffers[0];
-      if (!samples) break;
-      left[frame] = samples[this.offset++] ?? 0;
-      if (right) right[frame] = samples[this.offset++] ?? 0;
-      else this.offset += 1;
-      this.pendingSamples -= 2;
     }
     return true;
   }

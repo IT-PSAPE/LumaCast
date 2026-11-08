@@ -11,7 +11,7 @@
 // privacy permission.
 //
 // Built with plain clang (no Swift runtime, no third-party code):
-//   clang -fobjc-arc -O2 -mmacosx-version-min=13.0 -arch arm64 -arch x86_64 main.m \
+//   clang -fobjc-arc -O2 -mmacosx-version-min=13.0 -arch arm64 -arch x86_64 main.m pcm-writer.c \
 //     -framework Foundation -framework AppKit -framework CoreAudio -framework AVFoundation \
 //     -o build/lumastream-audio-tap
 
@@ -26,7 +26,9 @@
 #include <libproc.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <string.h>
 #include <unistd.h>
+#include "pcm-writer.h"
 
 static NSString *const kFailureDomain = @"lumastream.audio-tap";
 static const double kOutputSampleRate = 48000.0;
@@ -324,7 +326,15 @@ API_AVAILABLE(macos(14.2))
 - (instancetype)initWithDescriptionBuilder:(TapDescriptionBuilder)builder onFailure:(void (^)(NSError *))onFailure;
 - (BOOL)startWithError:(NSError **)error;
 - (void)stop;
+- (void)outputFailed:(PCMWriterState)state errorNumber:(int)errorNumber;
 @end
+
+API_AVAILABLE(macos(14.2))
+static void OutputFailed(PCMWriterState state, int errorNumber, void *context) {
+  @autoreleasepool {
+    [(__bridge TapSession *)context outputFailed:state errorNumber:errorNumber];
+  }
+}
 
 @implementation TapSession {
   TapDescriptionBuilder _builder;
@@ -335,10 +345,12 @@ API_AVAILABLE(macos(14.2))
   AVAudioFormat *_inputFormat;
   AVAudioFormat *_outputFormat;
   AVAudioConverter *_converter;
-  dispatch_queue_t _writeQueue;
+  PCMWriter *_writer;
+  int _writerCreationError;
   dispatch_source_t _refreshTimer;
   NSArray<NSNumber *> *_currentProcesses;
   atomic_bool _stopped;
+  atomic_bool _failed;
 }
 
 - (instancetype)initWithDescriptionBuilder:(TapDescriptionBuilder)builder onFailure:(void (^)(NSError *))onFailure {
@@ -348,8 +360,10 @@ API_AVAILABLE(macos(14.2))
     _tapID = kAudioObjectUnknown;
     _aggregateID = kAudioObjectUnknown;
     _outputFormat = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32 sampleRate:kOutputSampleRate channels:kOutputChannels interleaved:YES];
-    _writeQueue = dispatch_queue_create("lumastream.audio-tap.write", DISPATCH_QUEUE_SERIAL);
     atomic_init(&_stopped, false);
+    atomic_init(&_failed, false);
+    _writer = PCMWriterCreate(STDOUT_FILENO, OutputFailed, (__bridge void *)self);
+    _writerCreationError = _writer ? 0 : errno;
   }
   return self;
 }
@@ -362,6 +376,10 @@ API_AVAILABLE(macos(14.2))
 }
 
 - (BOOL)startWithError:(NSError **)error {
+  if (!_writer) {
+    *error = Failure(ExitFailure, [NSString stringWithFormat:@"Could not start audio output: %s.", strerror(_writerCreationError)]);
+    return NO;
+  }
   CATapDescription *description = [self buildDescription];
   _currentProcesses = description.processes ?: @[];
   if ((*error = CheckStatus(AudioHardwareCreateProcessTap(description, &_tapID), @"Creating the audio tap"))) return NO;
@@ -400,7 +418,9 @@ API_AVAILABLE(macos(14.2))
   if ((*error = CheckStatus(status, @"Attaching the capture callback"))) return NO;
   if ((*error = CheckStatus(AudioDeviceStart(_aggregateID, _ioProcID), @"Starting the capture device"))) return NO;
 
-  _refreshTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_queue_create("lumastream.audio-tap.refresh", DISPATCH_QUEUE_SERIAL));
+  // Refresh and teardown share main, so cancelling the timer cannot leave a
+  // running refresh touching a tap that stop has already destroyed.
+  _refreshTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
   dispatch_source_set_timer(_refreshTimer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 10);
   dispatch_source_set_event_handler(_refreshTimer, ^{ [weakSelf refreshProcesses]; });
   dispatch_resume(_refreshTimer);
@@ -425,6 +445,7 @@ API_AVAILABLE(macos(14.2))
 
 - (void)handleInput:(const AudioBufferList *)inputData {
   if (atomic_load(&_stopped) || !_inputFormat || !_converter || !inputData || inputData->mNumberBuffers == 0) return;
+  if (atomic_load(&_failed)) return;
   UInt32 expectedBufferCount = _inputFormat.isInterleaved ? 1 : _inputFormat.channelCount;
   UInt32 expectedChannelsPerBuffer = _inputFormat.isInterleaved ? _inputFormat.channelCount : 1;
   if (inputData->mNumberBuffers != expectedBufferCount) {
@@ -481,29 +502,38 @@ API_AVAILABLE(macos(14.2))
   }
   if (outputBuffer.frameLength == 0 || !outputBuffer.floatChannelData) return;
   NSUInteger byteCount = outputBuffer.frameLength * _outputFormat.streamDescription->mBytesPerFrame;
-  NSData *data = [NSData dataWithBytes:outputBuffer.floatChannelData[0] length:byteCount];
-  __weak TapSession *weakSelf = self;
-  dispatch_async(_writeQueue, ^{ [weakSelf writeData:data]; });
+  if (_writer) (void)PCMWriterEnqueue(_writer, outputBuffer.floatChannelData[0], byteCount);
 }
 
-- (void)writeData:(NSData *)data {
-  if (atomic_load(&_stopped)) return;
-  const uint8_t *bytes = data.bytes;
-  NSUInteger offset = 0;
-  while (offset < data.length) {
-    ssize_t written = write(STDOUT_FILENO, bytes + offset, data.length - offset);
-    if (written < 0) {
-      if (errno == EINTR || errno == EAGAIN) continue;
-      // The parent closed its end: a clean shutdown, not an error.
+- (void)outputFailed:(PCMWriterState)state errorNumber:(int)errorNumber {
+  switch (state) {
+    case PCMWriterParentClosed:
       [self failWith:Failure(0, @"")];
-      return;
-    }
-    offset += (NSUInteger)written;
+      break;
+    case PCMWriterOverflow:
+      [self failWith:Failure(ExitFailure, @"Audio output exceeded its 250 ms buffer budget. Restart the audio source to try again.")];
+      break;
+    case PCMWriterStalled:
+      [self failWith:Failure(ExitFailure, @"Audio output made no progress for 250 ms. Restart the audio source to try again.")];
+      break;
+    case PCMWriterInvalidInput:
+      [self failWith:Failure(ExitFailure, @"Audio output did not contain complete stereo float32 frames.")];
+      break;
+    case PCMWriterWriteError:
+      [self failWith:Failure(ExitFailure, [NSString stringWithFormat:@"Audio output failed: %s.", strerror(errorNumber)])];
+      break;
+    case PCMWriterRunning:
+    case PCMWriterStopped:
+      break;
   }
 }
 
 - (void)failWith:(NSError *)error {
   if (atomic_load(&_stopped)) return;
+  bool expected = false;
+  if (!atomic_compare_exchange_strong(&_failed, &expected, true)) return;
+  // RunCapture schedules teardown on main; never stop CoreAudio synchronously
+  // from its IO callback, or join the writer from its own failure callback.
   _onFailure(error);
 }
 
@@ -527,6 +557,10 @@ API_AVAILABLE(macos(14.2))
     AudioHardwareDestroyProcessTap(_tapID);
     _tapID = kAudioObjectUnknown;
   }
+  // AudioDeviceStop/DestroyIOProc quiesced the producer before its ring/wake
+  // descriptors are freed. Stop aborts pending output rather than draining it.
+  PCMWriterDestroy(_writer);
+  _writer = NULL;
 }
 
 @end
@@ -547,20 +581,16 @@ static int ExitWithError(NSError *error) {
 static int RunCapture(TapDescriptionBuilder builder, pid_t watchedProcess, NSString *banner) {
   if (@available(macOS 14.2, *)) {
     signal(SIGPIPE, SIG_IGN);
-    NSLock *finishLock = [[NSLock alloc] init];
     __block BOOL finished = NO;
     __block TapSession *session = nil;
     void (^finish)(NSError *) = ^(NSError *error) {
-      [finishLock lock];
-      if (finished) {
-        [finishLock unlock];
-        return;
-      }
-      finished = YES;
-      [session stop];
-      [finishLock unlock];
-      if (error.localizedDescription.length > 0) WriteStderr(error.localizedDescription);
-      exit(error ? (int)error.code : 0);
+      dispatch_async(dispatch_get_main_queue(), ^{
+        if (finished) return;
+        finished = YES;
+        [session stop];
+        if (error.localizedDescription.length > 0) WriteStderr(error.localizedDescription);
+        exit(error ? (int)error.code : 0);
+      });
     };
     session = [[TapSession alloc] initWithDescriptionBuilder:builder onFailure:finish];
     NSError *error = nil;

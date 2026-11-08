@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -6,12 +7,9 @@ const root = fileURLToPath(new URL('../../../../', import.meta.url));
 process.chdir(root);
 const { _electron: electron } = require('@playwright/test');
 const fs = require('node:fs/promises');
-const fsSync = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
-const streamRequire = createRequire(path.join(root, 'apps/stream/package.json'));
-const electronPath = streamRequire('electron');
-const electronVersion = JSON.parse(fsSync.readFileSync(streamRequire.resolve('electron/package.json'), 'utf8')).version;
+const { binaryPath: electronPath, version: electronVersion } = resolveAppElectron('stream');
 const TARGET_TITLE = 'LumaStream External Capture Fixture';
 const GREEN = '#1ca671';
 const EXPECTED = [28, 166, 113];
@@ -183,7 +181,6 @@ function matching(pixel) {
   let targetApp = null;
   let receiverApp = null;
   try {
-    if (electronVersion !== '44.3.0') throw new Error(`Expected Electron 44.3.0, got ${electronVersion}.`);
     await fs.writeFile(targetBootstrapPath, targetBootstrap(path.join(targetRoot, 'app-data')), 'utf8');
     await fs.writeFile(receiverBootstrapPath, receiverBootstrap(path.join(receiverRoot, 'app-data'), tracePath, TARGET_TITLE, GREEN), 'utf8');
     const launch = (bootstrap, port) => electron.launch({ executablePath: electronPath, args: [`--remote-debugging-port=${port}`, bootstrap], env: electronEnv(), timeout: 30000 });

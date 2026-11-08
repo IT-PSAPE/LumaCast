@@ -1468,3 +1468,20 @@ describe('LumaStream output profile persistence', () => {
       .rejects.toThrow('Project contains invalid video settings.');
   });
 });
+
+describe('LumaStream shutdown persistence drain', () => {
+  it('waits for accepted revisions and loads after queued writes in a temporary profile', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-shutdown-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const original = await store.load();
+    const first = { ...original.project, studioMode: true };
+    const latest = { ...first, scenes: first.scenes.map((scene) => ({ ...scene, name: 'Newest revision' })) };
+    const writes = [store.save(original.activeCollectionId, original.activeProfileId, first), store.save(original.activeCollectionId, original.activeProfileId, latest)];
+    const loaded = store.load();
+    await store.flush();
+    await Promise.all(writes);
+    expect((await loaded).project.scenes[0]?.name).toBe('Newest revision');
+    expect((await new ProjectStore(directory).load()).project).toMatchObject({ studioMode: true, scenes: [{ name: 'Newest revision' }] });
+  });
+});

@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
@@ -8,7 +9,7 @@ const fs=require('node:fs/promises');const os=require('node:os');const path=requ
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'stream-camera-ui-'));const bootstrap=path.join(root,'bootstrap.cjs');
  await fs.writeFile(bootstrap,`const {app}=require('electron');app.setPath('appData',${JSON.stringify(root)});require(${JSON.stringify(path.resolve('apps/stream/out/main/index.js'))});`);
  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;delete env.ELECTRON_RENDERER_URL;
- const app=await electron.launch({executablePath:require('electron'),args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream',bootstrap],env});
+ const app=await electron.launch({executablePath:resolveAppElectron('stream').binaryPath,args:['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream',bootstrap],env});
  const errors=[];
  try{
   const page=await app.firstWindow();page.on('pageerror',error=>errors.push(error.message));

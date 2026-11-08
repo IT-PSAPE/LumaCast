@@ -2,14 +2,28 @@
 import { mkdtemp, readdir, rm, truncate, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
+import type { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as pptx from '@office-kit/pptx';
 import sharp from 'sharp';
-import { fromBuffer, type ZipFile as ZipReader } from 'yauzl';
 import { ZipFile } from 'yazl';
 import { MAX_PRESENTATION_BYTES, presentationRasterSize, renderPresentation } from '../../../../apps/stream/main/presentation-render';
 
 const temporaryDirectories: string[] = [];
+
+interface ZipEntry { fileName: string }
+interface ZipReader extends EventEmitter {
+  readEntry(): void;
+  openReadStream(entry: ZipEntry, callback: (error: Error | null, stream?: Readable) => void): void;
+}
+
+// Use Stream's declared ZIP reader, independent of Electron's transitive packages.
+const streamRequire = createRequire(new URL('../../../../apps/stream/package.json', import.meta.url));
+const { fromBuffer } = streamRequire('yauzl') as {
+  fromBuffer(bytes: Buffer, options: { lazyEntries: boolean }, callback: (error: Error | null, reader?: ZipReader) => void): void;
+};
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -76,7 +90,7 @@ async function changeZip(bytes: Uint8Array, edit: (name: string, bytes: Buffer) 
   await new Promise<void>((resolve, reject) => {
     reader.on('error', reject);
     reader.on('end', resolve);
-    reader.on('entry', (entry) => {
+    reader.on('entry', (entry: ZipEntry) => {
       reader.openReadStream(entry, (error, stream) => {
         if (error) { reject(error); return; }
         const chunks: Buffer[] = [];

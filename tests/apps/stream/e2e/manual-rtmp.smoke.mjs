@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
@@ -9,11 +10,9 @@ import { fileURLToPath } from 'node:url';
 
 process.chdir(fileURLToPath(new URL('../../../../', import.meta.url)));
 const root = process.cwd();
-const appRequire = createRequire(path.resolve('apps/stream/package.json'));
 const playwrightRequire = createRequire(path.resolve('package.json'));
 const { _electron: electron, expect } = playwrightRequire('@playwright/test');
-const electronBinary = appRequire('electron');
-const electronVersion = appRequire('electron/package.json').version;
+const { binaryPath: electronBinary, version: electronVersion } = resolveAppElectron('stream');
 const ffmpegExecutable = path.resolve('apps/stream/vendor/ffmpeg/bin/ffmpeg');
 const outputRoot = path.resolve('output/playwright/manual-rtmp-smoke');
 const observationMs = 9000;
@@ -366,7 +365,6 @@ function mediaRecorderInitSource() {
 }
 
 async function main() {
-  assert.equal(electronVersion, '44.3.0', `Expected Stream Electron 44.3.0, resolved ${electronVersion}.`);
   assert.equal(process.platform, 'darwin', 'This probe is scoped to the active macOS failure.');
   await fs.access(ffmpegExecutable);
   const versionOutput = execFileSync(ffmpegExecutable, ['-hide_banner', '-version'], { encoding: 'utf8', timeout: 10000 });

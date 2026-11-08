@@ -2,13 +2,27 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { StreamAPI } from '../shared/desktop-api';
 import type { NdiSendSettings, NdiSource } from '../shared/ndi';
 import { IPC_CHANNELS } from './ipc-channels';
+import { ApplicationAudioRelay } from './application-audio-relay';
 import { toStreamPlatform } from '../shared/platform-capabilities';
+
+const applicationAudioRelay = new ApplicationAudioRelay(ipcRenderer);
 
 const api: StreamAPI = {
   platform: toStreamPlatform(process.platform),
   readClipboardText: () => ipcRenderer.invoke(IPC_CHANNELS.readClipboardText),
+  quit: () => ipcRenderer.invoke(IPC_CHANNELS.quit),
   loadProject: () => ipcRenderer.invoke(IPC_CHANNELS.loadProject),
   saveProject: (collectionId, profileId, project) => ipcRenderer.invoke(IPC_CHANNELS.saveProject, collectionId, profileId, project),
+  onProjectFlush(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, requestId: number, closing = true) => {
+      void Promise.resolve().then(() => listener(closing)).then(
+        () => { if (closing) ipcRenderer.send(IPC_CHANNELS.projectFlushed, requestId, true); },
+        () => { if (closing) ipcRenderer.send(IPC_CHANNELS.projectFlushed, requestId, false); },
+      );
+    };
+    ipcRenderer.on(IPC_CHANNELS.flushProject, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.flushProject, handler);
+  },
   loadAudioSettings: () => ipcRenderer.invoke(IPC_CHANNELS.loadAudioSettings),
   saveAudioSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.saveAudioSettings, settings),
   loadRecordingPreferences: () => ipcRenderer.invoke(IPC_CHANNELS.loadRecordingPreferences),
@@ -32,38 +46,10 @@ const api: StreamAPI = {
   resolveDesktopCapture: (kind, captureId, target, legacySourceName) => ipcRenderer.invoke(IPC_CHANNELS.resolveDesktopCapture, kind, captureId, target, legacySourceName),
   prepareDesktopCapture: (sourceId, includeSystemAudio, mode) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio, mode),
   listAudioApplications: () => ipcRenderer.invoke(IPC_CHANNELS.listAudioApplications),
-  startApplicationAudioCapture: (sourceId, pid, applicationPath) => ipcRenderer.invoke(IPC_CHANNELS.startApplicationAudioCapture, sourceId, pid, applicationPath),
-  startSystemAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.startSystemAudioCapture, sourceId),
-  stopApplicationAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.stopApplicationAudioCapture, sourceId),
-  onApplicationAudioFrame(listener) {
-    const ports = new Set<MessagePort>();
-    const handler = (event: Electron.IpcRendererEvent, sourceId: string) => {
-      const port = event.ports[0];
-      if (!port) return;
-      ports.add(port);
-      port.onmessage = ({ data }) => {
-        if (data instanceof ArrayBuffer) listener(sourceId, data);
-        else if (data && typeof data === 'object' && typeof data.error === 'string') {
-          listener(sourceId, { error: data.error });
-          ports.delete(port);
-          port.close();
-        }
-      };
-      port.onmessageerror = () => {
-        ports.delete(port);
-        listener(sourceId, { error: 'Application audio capture could not transfer audio.' });
-        port.close();
-      };
-      port.addEventListener('close', () => ports.delete(port), { once: true });
-      port.start();
-    };
-    ipcRenderer.on(IPC_CHANNELS.applicationAudioFrame, handler);
-    return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.applicationAudioFrame, handler);
-      for (const port of ports) port.close();
-      ports.clear();
-    };
-  },
+  startApplicationAudioCapture: (sourceId, pid, applicationPath) => applicationAudioRelay.start(IPC_CHANNELS.startApplicationAudioCapture, sourceId, [pid, applicationPath]),
+  startSystemAudioCapture: (sourceId) => applicationAudioRelay.start(IPC_CHANNELS.startSystemAudioCapture, sourceId, []),
+  stopApplicationAudioCapture: (sourceId) => applicationAudioRelay.stop(sourceId),
+  onApplicationAudioFrame: (listener) => applicationAudioRelay.subscribe(listener),
   importMedia: (kind) => ipcRenderer.invoke(IPC_CHANNELS.importMedia, kind),
   importSlideshowImages: (maxImages) => ipcRenderer.invoke(IPC_CHANNELS.importSlideshowImages, maxImages),
   importPresentation: () => ipcRenderer.invoke(IPC_CHANNELS.importPresentation),

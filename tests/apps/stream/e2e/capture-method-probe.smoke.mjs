@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -9,9 +10,7 @@ const fs = require('node:fs/promises');
 const fsSync = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
-const streamRequire = createRequire(path.join(root, 'apps/stream/package.json'));
-const electronPath = streamRequire('electron');
-const electronVersion = JSON.parse(fsSync.readFileSync(streamRequire.resolve('electron/package.json'), 'utf8')).version;
+const { binaryPath: electronPath, version: electronVersion } = resolveAppElectron('stream');
 const FIXTURE_TITLE = 'LumaStream Capture Method Fixture';
 const BACKGROUND = '#1ca671';
 const EXPECTED = [28, 166, 113];
@@ -190,7 +189,6 @@ function matches(pixel) {
   const report = { electronVersion, electronPath, port, runRoot, fixtureTitle: FIXTURE_TITLE, expectedColor: EXPECTED, results, rendererErrors };
 
   try {
-    if (electronVersion !== '44.3.0') throw new Error(`Expected Electron 44.3.0, got ${electronVersion} at ${electronPath}`);
     await fs.writeFile(bootstrap, bootstrapBody(appData, tracePath, resultPath), 'utf8');
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;

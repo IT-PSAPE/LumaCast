@@ -59,6 +59,9 @@ function createFakeApplicationAudioInput(): ApplicationAudioInput {
   return {
     stream,
     node: { port: { postMessage: vi.fn() } } as unknown as AudioWorkletNode,
+    push: vi.fn(async () => true),
+    ready: vi.fn(async () => true),
+    onError: vi.fn(() => () => {}),
     close: vi.fn(() => stream.getTracks().forEach((track) => track.stop())),
   };
 }
@@ -197,6 +200,69 @@ describe('useCapture runtime ownership and Program audio routing', () => {
     if (originalMediaDevices) Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices);
     else Reflect.deleteProperty(navigator, 'mediaDevices');
     mediaDevices = null;
+  });
+
+  it('resumes before native start and stale unmounted startup cannot stop its successor', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const source = { ...makeSource('display', { id: 'same-native-source' }), kind: 'application-audio' } as StreamSource;
+    const nativeStart = deferred<void>();
+    const api = { ...makeApi(), startApplicationAudioCapture: vi.fn().mockReturnValueOnce(nativeStart.promise).mockResolvedValue(undefined) } as StreamAPI;
+    const params = makeHookParams(source, { api, activeSourceIds: new Set(), programSourceIds: new Set() });
+    const first = renderHook(() => useCapture(params));
+    act(() => { first.result.current.ensureMixer(); });
+    const processorReady = deferred<boolean>();
+    const waitingInput = createFakeApplicationAudioInput();
+    waitingInput.ready = vi.fn(() => processorReady.promise);
+    mixerMock.instances[0]!.createApplicationAudioInput.mockResolvedValueOnce(waitingInput);
+    const resume = deferred<void>();
+    mixerMock.instances[0]!.resume.mockReturnValueOnce(resume.promise);
+    let starting!: Promise<void>;
+    act(() => { starting = first.result.current.startApplicationAudioRuntime(source, { pid: 42, path: '/app', name: 'App' }); });
+    const observed = starting.catch((error) => error);
+    await waitFor(() => expect(mixerMock.instances[0]!.resume).toHaveBeenCalled());
+    expect(api.startApplicationAudioCapture).not.toHaveBeenCalled();
+    await act(async () => { resume.resolve(); await resume.promise; });
+    expect(api.startApplicationAudioCapture).not.toHaveBeenCalled();
+    await act(async () => { processorReady.resolve(true); await processorReady.promise; });
+    await waitFor(() => expect(api.startApplicationAudioCapture).toHaveBeenCalledOnce());
+    first.unmount();
+    const second = renderHook(() => useCapture(params));
+    await act(async () => { await second.result.current.startApplicationAudioRuntime(source, { pid: 42, path: '/app', name: 'App' }); });
+    const runtimeId = params.allSources[0]!.id;
+    const successor = second.result.current.applicationAudioInputs.current.get(runtimeId);
+    expect(successor).toBeDefined();
+    const stopped = vi.mocked(api.stopApplicationAudioCapture).mock.calls.length;
+    await act(async () => { nativeStart.resolve(); await observed; });
+    expect(api.stopApplicationAudioCapture).toHaveBeenCalledTimes(stopped);
+    expect(second.result.current.applicationAudioInputs.current.get(runtimeId)).toBe(successor);
+    expect(successor!.close).not.toHaveBeenCalled();
+  });
+
+  it('idle processor failure stops only its captured input and leaves a later replacement alone', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const source = { ...makeSource('display', { id: 'idle-audio' }), kind: 'application-audio' } as StreamSource;
+    const params = makeHookParams(source);
+    const application = { pid: 42, path: '/app', name: 'App' };
+    const { result } = renderHook(() => useCapture(params));
+    await act(async () => { await result.current.startApplicationAudioRuntime(source, application); });
+    const id = params.allSources[0]!.id;
+    const first = result.current.applicationAudioInputs.current.get(id)!;
+    const oldFailure = vi.mocked(first.onError).mock.calls[0]![0];
+    await act(async () => { await result.current.startApplicationAudioRuntime(source, { ...application, pid: 43, path: '/replacement' }); });
+    const next = result.current.applicationAudioInputs.current.get(id)!;
+    expect(next).not.toBe(first);
+    const stopped = vi.mocked(params.api.stopApplicationAudioCapture).mock.calls.length;
+    await act(async () => { oldFailure(new Error('obsolete')); });
+    expect(next.close).not.toHaveBeenCalled();
+    expect(params.api.stopApplicationAudioCapture).toHaveBeenCalledTimes(stopped);
+    const fail = vi.mocked(next.onError).mock.calls[0]![0];
+    await act(async () => { fail(new Error('Idle processor failed')); });
+    expect(next.close).toHaveBeenCalledOnce();
+    expect(result.current.applicationAudioInputs.current.has(id)).toBe(false);
+    expect(params.api.stopApplicationAudioCapture).toHaveBeenCalledTimes(stopped + 1);
+    expect(result.current.sourceStatuses[id]).toMatchObject({ state: 'unavailable', message: 'Idle processor failed' });
   });
 
   it('lazily restores a visible camera and publishes its ready status', async () => {
@@ -1488,7 +1554,7 @@ describe('useCapture runtime ownership and Program audio routing', () => {
       const addCapture = result.current.addDesktopCapture(option);
       await nativeStartCalled.promise;
       runtimeId = (api.startApplicationAudioCapture as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![0] as string;
-      onAudioFrame?.(runtimeId, { error: 'Native helper failed to start' });
+      await onAudioFrame?.(runtimeId, { error: 'Native helper failed to start' });
       nativeStart.resolve();
       await addCapture;
     });
@@ -1544,7 +1610,7 @@ describe('useCapture runtime ownership and Program audio routing', () => {
     const clonedVideo = previousRuntime.getVideoTracks()[0]!;
     const clonedAudio = previousRuntime.getAudioTracks()[0]!;
 
-    act(() => onAudioFrame?.(runtimeId, { error: 'Native helper exited' }));
+    await act(async () => { await onAudioFrame?.(runtimeId, { error: 'Native helper exited' }); });
     await waitFor(() => expect(result.current.runtimes.current.get(runtimeId)?.getAudioTracks()).toHaveLength(0));
     await waitFor(() => expect(result.current.sourceStatuses[runtimeId]?.state).toBe('warning'));
 

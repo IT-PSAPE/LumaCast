@@ -1,3 +1,4 @@
+import { isApplicationAudioEpoch } from '../shared/application-audio-transport';
 import { clipboard, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { app, BrowserWindow, dialog, shell } from 'electron';
 import { mkdir, open, writeFile } from 'node:fs/promises';
@@ -84,6 +85,7 @@ export function registerStreamIpc(
   };
   const handlers: Array<[string, (event: IpcMainInvokeEvent, ...args: any[]) => unknown]> = [
     [IPC_CHANNELS.readClipboardText, (event) => { authorize(event); return clipboard.readText(); }],
+    [IPC_CHANNELS.quit, (event) => { authorize(event); app.quit(); }],
     [IPC_CHANNELS.loadProject, (event) => { authorize(event); return projectStore.load(); }],
     [IPC_CHANNELS.saveProject, (event, collectionId: string, profileId: string, project: StreamProject) => {
       authorize(event);
@@ -215,18 +217,18 @@ export function registerStreamIpc(
       return capture.prepare(contents.id, sourceId, includeSystemAudio, mode);
     }],
     [IPC_CHANNELS.listAudioApplications, (event) => { authorize(event); return applicationAudio.list(); }],
-    [IPC_CHANNELS.startApplicationAudioCapture, (event, sourceId: string, pid: number, executablePath: string) => {
+    [IPC_CHANNELS.startApplicationAudioCapture, (event, sourceId: string, pid: number, executablePath: string, epoch: string) => {
       const contents = authorize(event);
-      if (typeof sourceId !== 'string' || sourceId.length > 256 || !Number.isSafeInteger(pid) || pid < 1
+      if (!isApplicationAudioEpoch(epoch) || typeof sourceId !== 'string' || sourceId.length > 256 || !Number.isSafeInteger(pid) || pid < 1
         || typeof executablePath !== 'string' || executablePath.length < 1 || executablePath.length > 32768) {
         throw new Error('Invalid application-audio capture request.');
       }
-      return applicationAudio.start(sourceId, contents, pid, executablePath);
+      return applicationAudio.start(sourceId, contents, pid, executablePath, epoch);
     }],
-    [IPC_CHANNELS.startSystemAudioCapture, (event, sourceId: string) => {
+    [IPC_CHANNELS.startSystemAudioCapture, (event, sourceId: string, epoch: string) => {
       const contents = authorize(event);
-      if (typeof sourceId !== 'string' || sourceId.length > 256) throw new Error('Invalid system-audio capture request.');
-      return applicationAudio.startSystem(sourceId, contents);
+      if (!isApplicationAudioEpoch(epoch) || typeof sourceId !== 'string' || sourceId.length > 256) throw new Error('Invalid system-audio capture request.');
+      return applicationAudio.startSystem(sourceId, contents, epoch);
     }],
     [IPC_CHANNELS.stopApplicationAudioCapture, (event, sourceId: string) => {
       authorize(event);

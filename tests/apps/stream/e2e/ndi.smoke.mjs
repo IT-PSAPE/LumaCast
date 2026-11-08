@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
@@ -16,7 +17,7 @@ if (process.env.NDI_LOCAL_LOOPBACK_TEST !== '1') { console.log('NDI UI smoke ski
  const bootstrap = path.join(root, 'bootstrap.cjs');
  await fs.writeFile(bootstrap, `const fs=require('node:fs');const {app,ipcMain}=require('electron');app.setPath('appData',${JSON.stringify(root)});const handle=ipcMain.handle.bind(ipcMain);ipcMain.handle=(channel,listener)=>handle(channel,async(event,...args)=>{const trace=channel==='stream:ndi-start-send'||channel==='stream:ndi-stop-send';if(trace)fs.appendFileSync(${JSON.stringify(path.join(root,'ndi-ipc.log'))},JSON.stringify({phase:'request',channel,args})+'\\n');try{const result=await listener(event,...args);if(channel==='stream:ndi-start-send')fs.appendFileSync(${JSON.stringify(path.join(root,'ndi-ipc.log'))},JSON.stringify({phase:'result',channel,result})+'\\n');return result;}catch(error){if(trace)fs.appendFileSync(${JSON.stringify(path.join(root,'ndi-ipc.log'))},JSON.stringify({phase:'error',channel,error:String(error)})+'\\n');throw error;}});require(${JSON.stringify(path.resolve('apps/stream/out/main/index.js'))});`);
  const env = { ...process.env }; delete env.ELECTRON_RUN_AS_NODE; delete env.ELECTRON_RENDERER_URL;
- const app = await electron.launch({ executablePath: require('electron'), args:[bootstrap], env, timeout:30000 }).catch(error=>{fixture.stdin.end('stop');throw error;});
+ const app = await electron.launch({ executablePath: resolveAppElectron('stream').binaryPath, args:[bootstrap], env, timeout:30000 }).catch(error=>{fixture.stdin.end('stop');throw error;});
  const errors=[];
 
  app.process().stderr.on('data',data=>console.log('APP',String(data)));

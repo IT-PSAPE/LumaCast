@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -10,9 +11,7 @@ const fsSync = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const net = require('node:net');
-const streamRequire = createRequire(path.join(root, 'apps/stream/package.json'));
-const electronPath = streamRequire('electron');
-const electronVersion = JSON.parse(fsSync.readFileSync(streamRequire.resolve('electron/package.json'), 'utf8')).version;
+const { binaryPath: electronPath, version: electronVersion } = resolveAppElectron('stream');
 
 const TARGET_TITLE = 'LumaStream Capture Restore Fixture';
 const TARGET_COLOR = { r: 28, g: 166, b: 113 };
@@ -497,7 +496,6 @@ async function countRestorePrepares(tracePath) {
   let streamPage = null;
   let fixture = null;
   try {
-    if (electronVersion !== '44.3.0') throw new Error(`Expected apps/stream Electron 44.3.0, got ${electronVersion} at ${electronPath}`);
     if (!fsSync.existsSync(BINARY)) throw new Error(`Built Stream entry not found: ${BINARY}`);
 
     await writeBootstrap(targetBootstrap, `
@@ -638,7 +636,7 @@ async function countRestorePrepares(tracePath) {
     report.rendererErrors = rendererErrors;
     report.passed = true;
     report.checks = [
-      'Electron 44.3.0 built Stream main launched with isolated appData',
+      `Electron ${electronVersion} built Stream main launched with isolated appData`,
       'separate visible fixture window selected by exact target title only',
       'saved target metadata and captureBindingId restored on startup',
       'Program keeps a live track bound to the exact fresh fixture source ID',

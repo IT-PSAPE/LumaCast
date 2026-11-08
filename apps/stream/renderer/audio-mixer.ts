@@ -1,3 +1,4 @@
+import { ApplicationAudioInputTransport } from './application-audio-input';
 import { AUDIO_TRACKS, type AudioMonitoring, type AudioTrack, type StreamSource } from '../shared/desktop-api';
 import { RnnoiseWorkletNode, loadRnnoise } from '@sapphi-red/web-noise-suppressor';
 import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
@@ -74,8 +75,9 @@ export class AudioMixerEngine {
 
   destinationFor(track: AudioTrack): MediaStreamAudioDestinationNode { return this.destinations[track - 1]!; }
 
-  async createApplicationAudioInput(): Promise<{ stream: MediaStream; node: AudioWorkletNode; close: () => void }> {
+  async createApplicationAudioInput(): Promise<{ stream: MediaStream; node: AudioWorkletNode; push: (frame: ArrayBuffer) => Promise<boolean>; ready: () => Promise<boolean>; onError: (listener: (error: Error) => void) => () => void; close: () => void }> {
     if (!await this.applicationAudioInputReady) throw new Error('Application audio capture is unavailable in this audio runtime.');
+    if (this.context.sampleRate !== 48_000) throw new Error('Application audio requires a 48 kHz audio context.');
     const node = new AudioWorkletNode(this.context, 'stream-application-audio-input', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
@@ -85,11 +87,18 @@ export class AudioMixerEngine {
     });
     const destination = this.context.createMediaStreamDestination();
     node.connect(destination);
+    const transport = new ApplicationAudioInputTransport(node);
+    let closed = false;
     return {
       stream: destination.stream,
       node,
+      push: (frame) => transport.push(frame),
+      ready: () => transport.waitUntilReady(),
+      onError: (listener) => transport.onError(listener),
       close: () => {
-        node.port.postMessage({ type: 'stop' });
+        if (closed) return;
+        closed = true;
+        transport.close();
         node.disconnect();
         destination.stream.getTracks().forEach((track) => track.stop());
         destination.disconnect();

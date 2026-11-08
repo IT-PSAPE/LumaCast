@@ -1,3 +1,4 @@
+import { resolveAppElectron } from '../../../../tool/app-electron.mjs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
@@ -11,9 +12,7 @@ const appRequire = createRequire(path.resolve('apps/stream/package.json'));
 const playwrightRequire = createRequire(path.resolve('package.json'));
 const { _electron: electron, expect } = playwrightRequire('@playwright/test');
 const sharp = appRequire('sharp');
-const electronPackagePath = appRequire.resolve('electron/package.json');
-const electronPackage = appRequire(electronPackagePath);
-const electronBinary = appRequire('electron');
+const { binaryPath: electronBinary, version: electronVersion } = resolveAppElectron('stream');
 
 const outputRoot = path.resolve('output/playwright/canvas-interaction-e2e');
 const canvas = { width: 1920, height: 1080 };
@@ -240,9 +239,6 @@ async function closeElectron(app) {
 }
 
 async function main() {
-  assert.equal(electronPackage.version, '44.3.0', `Expected Stream Electron 44.3.0, resolved ${electronPackage.version} at ${electronPackagePath}`);
-  assert.ok(electronPackagePath.startsWith(path.resolve('apps/stream/node_modules/electron')),
-    `Expected Stream's Electron dependency, resolved ${electronPackagePath}`);
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
   const runRoot = path.join(outputRoot, `run-${stamp}-${process.pid}`);
   await fs.mkdir(runRoot, { recursive: true });
@@ -427,7 +423,7 @@ async function main() {
       failure,
       checks,
       rendererErrors,
-      electronVersion: electronPackage.version,
+      electronVersion,
       platform: process.platform,
       debugPort,
       canvas, output, outputLetterbox: viewport(),
