@@ -6,8 +6,8 @@ name: CI
 # those apps' pipelines run. A change under apps/<app> selects that app; a
 # change under packages/<pkg> selects every app that imports the package,
 # directly or through other packages; shared tooling selects every app; and
-# documentation selects none. The per-app pipeline itself lives in
-# ci-release.yml and is never triggered directly.
+# documentation selects none. ci-validate.yml owns read-only validation;
+# release-enabled apps wrap it with ci-release.yml. Neither is triggered directly.
 #
 # Baseline for a push: the head of the last successful push run of this
 # workflow on the branch, so an app whose run failed is retried by the next
@@ -16,7 +16,7 @@ name: CI
 #
 # Manual runs choose their apps: `all` (default), a comma-separated list such as
 # `cast,flux`, or `affected` to apply the same detection as a push. A manual run
-# on main also packages and publishes each selected app whose manifest version
+# on main also packages and publishes each selected release-enabled app whose manifest version
 # is unpublished and newer than its latest release, but only when `release` is
 # checked; otherwise it is CI-only.
 
@@ -28,12 +28,12 @@ on:
   workflow_dispatch:
     inputs:
       apps:
-        description: Apps to validate — "all", "affected", or a comma-separated list (cast,cloud,flux,chord).
+        description: Apps to validate — "all", "affected", or a comma-separated list (cast,cloud,flux,chord,soundboard,stream).
         required: false
         default: all
         type: string
       release:
-        description: Package and publish each selected app whose manifest version is not yet released (main only).
+        description: Publish eligible selected apps on main (Cast, Cloud, Flux, Chord).
         required: false
         default: false
         type: boolean
@@ -56,6 +56,8 @@ jobs:
       cloud: ${{ steps.affected.outputs.cloud }}
       flux: ${{ steps.affected.outputs.flux }}
       chord: ${{ steps.affected.outputs.chord }}
+      soundboard: ${{ steps.affected.outputs.soundboard }}
+      stream: ${{ steps.affected.outputs.stream }}
       apps: ${{ steps.affected.outputs.apps }}
       any: ${{ steps.affected.outputs.any }}
 
@@ -206,6 +208,34 @@ jobs:
       group: app-chord-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+  # These apps share validation, while their native packaging and release
+  # policies remain outside the automatic publishing pipeline.
+  soundboard:
+    name: Soundboard
+    needs: detect
+    if: needs.detect.outputs.soundboard == 'true'
+    uses: ./.github/workflows/ci-validate.yml
+    with:
+      app: soundboard
+    permissions:
+      contents: read
+    concurrency:
+      group: app-soundboard-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  stream:
+    name: Stream
+    needs: detect
+    if: needs.detect.outputs.stream == 'true'
+    uses: ./.github/workflows/ci-validate.yml
+    with:
+      app: stream
+    permissions:
+      contents: read
+    concurrency:
+      group: app-stream-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
   # A single required status for branch protection: green when every selected
   # app passed, and also when nothing was selected (documentation-only change).
   summary:
@@ -216,32 +246,21 @@ jobs:
       - cloud
       - flux
       - chord
+      - soundboard
+      - stream
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
       - name: Evaluate app results
         shell: bash
         env:
-          APPS: ${{ needs.detect.outputs.apps }}
-          DETECT: ${{ needs.detect.result }}
-          CAST: ${{ needs.cast.result }}
-          CLOUD: ${{ needs.cloud.result }}
-          FLUX: ${{ needs.flux.result }}
-          CHORD: ${{ needs.chord.result }}
-        run: |
-          set -euo pipefail
-          echo "Selected apps: ${APPS:-[]}"
-          echo "detect=$DETECT cast=$CAST cloud=$CLOUD flux=$FLUX chord=$CHORD"
-          if [ "$DETECT" != "success" ]; then
-            echo "::error::Affected-app detection failed."
-            exit 1
-          fi
-          for result in "$CAST" "$CLOUD" "$FLUX" "$CHORD"; do
-            case "$result" in
-              success|skipped) ;;
-              *)
-                echo "::error::An app pipeline ended with '$result'."
-                exit 1
-                ;;
-            esac
-          done
+          CI_JOB_RESULTS: ${{ toJSON(needs) }}
+        run: node tool/ci/check-results.mjs

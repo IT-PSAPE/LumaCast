@@ -14,6 +14,9 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 
+# Reproducible dependency patch/license artifacts also keep LF on Windows.
+tool/patches/mediabunny-1.60.0/** text eol=lf
+
 # Native binaries
 *.node binary
 *.dll binary

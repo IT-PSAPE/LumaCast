@@ -23,7 +23,11 @@ const TEST_TIMEOUT_MS = 30_000;
 
 let host = null;
 let window = null;
-let temporaryDirectory = null;
+const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-ndi-transport-'));
+const profilePath = process.env.NDI_FRAME_TRANSPORT_PROFILE_DIR ?? path.join(temporaryDirectory, 'profile');
+fs.mkdirSync(profilePath, { recursive: true });
+app.setPath('userData', profilePath);
+app.setPath('sessionData', profilePath);
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -72,17 +76,23 @@ function createHostObserver(child) {
   };
 }
 
-async function waitForRendererResult(browserWindow) {
+async function waitForRendererResult(browserWindow, pageErrors) {
   const deadline = Date.now() + TEST_TIMEOUT_MS;
   while (Date.now() < deadline) {
+    if (pageErrors.length) throw new Error(`renderer/preload failed: ${pageErrors.join('; ')}`);
     const result = await browserWindow.webContents.executeJavaScript(
       'window.__ndiTransportResult ?? null',
       true,
     );
+    if (pageErrors.length) throw new Error(`renderer/preload failed: ${pageErrors.join('; ')}`);
     if (result) return result;
     await delay(50);
   }
-  throw new Error('timed out waiting for renderer Worker transport result');
+  const state = await browserWindow.webContents.executeJavaScript(
+    '({ href: location.href, origin: location.origin, api: typeof window.castApi, transport: window.__ndiTransportDiagnostics })',
+    true,
+  );
+  throw new Error(`timed out waiting for renderer Worker transport result: ${JSON.stringify(state)}`);
 }
 
 function validateFrameReport(reportPath) {
@@ -119,7 +129,6 @@ function validateFrameReport(reportPath) {
 }
 
 async function run() {
-  temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-ndi-transport-'));
   const frameReportPath = path.join(temporaryDirectory, 'frames.ndjson');
   const pacingReportPath = path.join(temporaryDirectory, 'pacing.json');
   const mockRuntimePath = path.join(
@@ -206,11 +215,17 @@ async function run() {
     },
   });
   const pageErrors = [];
+  window.webContents.on('preload-error', (_event, file, error) => {
+    pageErrors.push(`preload ${file}: ${error.message}`);
+  });
+  window.webContents.on('render-process-gone', (_event, details) => {
+    pageErrors.push(`renderer exited: ${details.reason}`);
+  });
   window.webContents.on('console-message', (details) => {
     if (details.level === 'error') pageErrors.push(details.message);
   });
   await window.loadFile(rendererPath);
-  const result = await waitForRendererResult(window);
+  const result = await waitForRendererResult(window, pageErrors);
   assert.equal(result.ok, true, result.error ?? 'renderer Worker integration failed');
   assert.equal(result.generation, 4, 'expected replacement, fallback, and recovery transport generations');
   assert.equal(attachedChannels, 4, 'expected four MessageChannelMain attachments');

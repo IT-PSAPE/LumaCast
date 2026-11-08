@@ -1,0 +1,1041 @@
+{
+  "format": 1,
+  "package": {
+    "name": "mediabunny",
+    "version": "1.60.0",
+    "manifestSha256": "e0b0a3428b3cdb0fe6e754b7d0903fd1435420fc909bb6476687d41660c7c4e9",
+    "exports": {
+      ".": {
+        "types": "./dist/modules/src/index.d.ts",
+        "browser": {
+          "import": "./dist/modules/src/index.js",
+          "require": "./dist/bundles/mediabunny.cjs"
+        },
+        "node": {
+          "import": "./dist/modules/src/index.js",
+          "require": "./dist/bundles/mediabunny.node.cjs"
+        },
+        "default": "./dist/modules/src/index.js"
+      }
+    },
+    "esmEntry": "dist/modules/src/index.js",
+    "typesEntry": "dist/modules/src/index.d.ts"
+  },
+  "unchangedFiles": [
+    {
+      "path": "LICENSE",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "dist/modules/src/index.js",
+      "sha256": "9236aa229772332a4f5ed04e453d8794a84311468012a9dd0de78e35301d39c0"
+    },
+    {
+      "path": "dist/modules/src/index.d.ts",
+      "sha256": "d26b8d5ea6123048e59bda1ce05f853a764fd0b34244b017a0762414481064d4"
+    }
+  ],
+  "files": [
+    {
+      "path": "dist/mediabunny.d.ts",
+      "originalSha256": "46ae7b09e20d89ce20301f9a097f0601575944c4460100d52ee4594dfb6eccf0",
+      "patchedSha256": "c018903fb11c8045bd8bc58e16e031fcb0b8990db9403c709592600dd73b4828",
+      "edits": [
+        {
+          "atLine": 3201,
+          "remove": [
+            "    close(): void;"
+          ],
+          "insert": [
+            "    close(): Promise<void>;"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/conversion.d.ts",
+      "originalSha256": "285db24cbecfa15b8fcee8ed6451538e1de6569ef73de42b30139478299307b3",
+      "patchedSha256": "3de3df1204d5e56de28ee9c3c03be808f2a89a686820f55b0174773b196933f5",
+      "edits": [
+        {
+          "atLine": 453,
+          "remove": [
+            "//# sourceMappingURL=conversion.d.ts.map"
+          ],
+          "insert": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/conversion.js",
+      "originalSha256": "eea00b74f5544381e5d49b6fc0e4bdb199becaabdde487f4cdf530aa2aa4e4a7",
+      "patchedSha256": "d89e04d66a27a14f5ea4f84c56fc7917d02858bd2494440f96b5460b754f6587",
+      "edits": [
+        {
+          "atLine": 245,
+          "remove": [],
+          "insert": [
+            "        /** @internal */",
+            "        this._cancelPromise = null;"
+          ]
+        },
+        {
+          "atLine": 730,
+          "remove": [],
+          "insert": [
+            "            await this.cancel().catch(() => { });"
+          ]
+        },
+        {
+          "atLine": 752,
+          "remove": [
+            "        for (const pump of this._trackPumps) {",
+            "            if (!pump.done) {",
+            "                pump.resolvers = promiseWithResolvers();"
+          ],
+          "insert": [
+            "        try {",
+            "            for (const pump of this._trackPumps) {",
+            "                if (!pump.done) {",
+            "                    pump.resolvers = promiseWithResolvers();",
+            "                }"
+          ]
+        },
+        {
+          "atLine": 756,
+          "remove": [
+            "        }",
+            "        if (!this._executed) {",
+            "            this._executed = true;",
+            "            for (const id of this._outputTrackIds) {",
+            "                this._synchronizer.declareTrack(id);"
+          ],
+          "insert": [
+            "            if (!this._executed) {",
+            "                this._executed = true;",
+            "                for (const id of this._outputTrackIds) {",
+            "                    this._synchronizer.declareTrack(id);",
+            "                }",
+            "                if (this.onProgress) {",
+            "                    // Compute duration using only the utilized tracks",
+            "                    const uniqueUtilizedTracks = new Set(this.utilizedTracks);",
+            "                    const durationPromises = [...uniqueUtilizedTracks].map(async (track) => {",
+            "                        if (await track.isLive()) {",
+            "                            return Infinity; // Upper bound (assuming no universe heat death)",
+            "                        }",
+            "                        return (await track.getDurationFromMetadata()) ?? (await track.computeDuration());",
+            "                    });",
+            "                    const duration = Math.max(0, ...await Promise.all(durationPromises));",
+            "                    if (this._state === 'canceled') throw new ConversionCanceledError();",
+            "                    this._computeProgress = true;",
+            "                    this._totalDuration = Math.min(duration - this._startTimestamp, this._endTimestamp - this._startTimestamp);",
+            "                    for (const id of this._outputTrackIds) {",
+            "                        // Used for progress calculation. We start these at 0 which is technically not always the first",
+            "                        // timestamp, but this is how we choose to model what \"progress\" means: it's how far we are done",
+            "                        // with the trim region.",
+            "                        this._maxTimestamps.set(id, 0);",
+            "                    }",
+            "                    this.onProgress?.(0, 0);",
+            "                }",
+            "                if (this._state === 'canceled') throw new ConversionCanceledError();",
+            "                if (!this._composable) {",
+            "                    await this.output.start();",
+            "                }",
+            "                if (this._state === 'canceled') throw new ConversionCanceledError();",
+            "                for (const pump of this._trackPumps) {",
+            "                    pump.start();",
+            "                }"
+          ]
+        },
+        {
+          "atLine": 762,
+          "remove": [
+            "            if (this.onProgress) {",
+            "                // Compute duration using only the utilized tracks",
+            "                const uniqueUtilizedTracks = new Set(this.utilizedTracks);",
+            "                const durationPromises = [...uniqueUtilizedTracks].map(async (track) => {",
+            "                    if (await track.isLive()) {",
+            "                        return Infinity; // Upper bound (assuming no universe heat death)",
+            "                    }",
+            "                    return (await track.getDurationFromMetadata()) ?? (await track.computeDuration());",
+            "                });",
+            "                const duration = Math.max(0, ...await Promise.all(durationPromises));",
+            "                this._computeProgress = true;",
+            "                this._totalDuration = Math.min(duration - this._startTimestamp, this._endTimestamp - this._startTimestamp);",
+            "                for (const id of this._outputTrackIds) {",
+            "                    // Used for progress calculation. We start these at 0 which is technically not always the first",
+            "                    // timestamp, but this is how we choose to model what \"progress\" means: it's how far we are done",
+            "                    // with the trim region.",
+            "                    this._maxTimestamps.set(id, 0);"
+          ],
+          "insert": [
+            "            else {",
+            "                // Wake all suspended track pumps",
+            "                for (const pump of this._trackPumps) {",
+            "                    pump.wake?.();"
+          ]
+        },
+        {
+          "atLine": 780,
+          "remove": [
+            "                this.onProgress?.(0, 0);"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 782,
+          "remove": [
+            "            if (!this._composable) {",
+            "                await this.output.start();",
+            "            }",
+            "            for (const pump of this._trackPumps) {",
+            "                pump.start();",
+            "            }",
+            "        }",
+            "        else {",
+            "            // Wake all suspended track pumps",
+            "            for (const pump of this._trackPumps) {",
+            "                pump.wake?.();",
+            "            }",
+            "        }",
+            "        try {"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 797,
+          "remove": [],
+          "insert": [
+            "            if (this._state === 'canceled') throw new ConversionCanceledError();"
+          ]
+        },
+        {
+          "atLine": 799,
+          "remove": [
+            "            if (this._state !== 'canceled') {",
+            "                // Make sure to cancel to stop other encoding processes and clean up resources",
+            "                void this.cancel();",
+            "            }"
+          ],
+          "insert": [
+            "            // Join the owned cleanup operation while retaining this execution's primary failure.",
+            "            await this.cancel().catch(() => { });"
+          ]
+        },
+        {
+          "atLine": 807,
+          "remove": [
+            "        }",
+            "        if (this._state === 'canceled') {",
+            "            throw new ConversionCanceledError();"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 828,
+          "remove": [],
+          "insert": [
+            "        if (this._cancelPromise) {",
+            "            return this._cancelPromise;",
+            "        }"
+          ]
+        },
+        {
+          "atLine": 831,
+          "remove": [
+            "        if (this._state === 'canceled') {",
+            "            Logging._warn('Conversion already canceled.');",
+            "            return;",
+            "        }"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 836,
+          "remove": [
+            "        // Wake all suspended track pumps so they can wind down",
+            "        for (const pump of this._trackPumps) {",
+            "            pump.wake?.();",
+            "        }",
+            "        this._synchronizer.resolveAll();",
+            "        if (!this._composable) {",
+            "            await this.output.cancel();",
+            "        }"
+          ],
+          "insert": [
+            "        return this._cancelPromise = (async () => {",
+            "            // Wake all suspended track pumps so they can wind down.",
+            "            for (const pump of this._trackPumps) {",
+            "                pump.wake?.();",
+            "            }",
+            "            this._synchronizer.resolveAll();",
+            "            if (!this._composable) {",
+            "                await this.output.cancel();",
+            "            }",
+            "        })();"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/isobmff/isobmff-muxer.js",
+      "originalSha256": "f6dd74e749ad8bf84745ad85022ae7759755a3c869638042ceb277ccbdfa5186",
+      "patchedSha256": "13f15756f8325deaa0529956823c275fa8ffcb1b0441d72a79663e091a926c01",
+      "edits": [
+        {
+          "atLine": 1034,
+          "remove": [],
+          "insert": [
+            "        try {"
+          ]
+        },
+        {
+          "atLine": 1049,
+          "remove": [
+            "        release();"
+          ],
+          "insert": [
+            "        } finally {",
+            "            release();",
+            "        }"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/matroska/matroska-muxer.js",
+      "originalSha256": "24d1da703fb475a099bb0982808b56f78ee09d4078eaf67763c10bdd3d36037b",
+      "patchedSha256": "01fc6fcc9f7a6b0a725d7f9be36ea8bde3bdfb360022c16e7df04d2523ad112c",
+      "edits": [
+        {
+          "atLine": 1105,
+          "remove": [],
+          "insert": [
+            "        try {"
+          ]
+        },
+        {
+          "atLine": 1114,
+          "remove": [
+            "        release();"
+          ],
+          "insert": [
+            "        } finally {",
+            "            release();",
+            "        }"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/media-source.d.ts",
+      "originalSha256": "8942405de79c2f70d784b3fe6a78b86b50b4ef606c34153c5f08360bcea11dd8",
+      "patchedSha256": "fc6ee2db764d595cfa87a07a6b6762bfe9660a5374f5e13e1c1d92130795594a",
+      "edits": [
+        {
+          "atLine": 22,
+          "remove": [
+            "    close(): void;"
+          ],
+          "insert": [
+            "    close(): Promise<void>;"
+          ]
+        },
+        {
+          "atLine": 321,
+          "remove": [
+            "//# sourceMappingURL=media-source.d.ts.map"
+          ],
+          "insert": [
+            ""
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/media-source.js",
+      "originalSha256": "62708d7f81d77c5684487cfbc542edffd480d8432902331b3392902e3374dddf",
+      "patchedSha256": "42c2a2c497470f6639bcffbec7ed2dd0bbd1f656585f999c40f2fea55ba00183",
+      "edits": [
+        {
+          "atLine": 120,
+          "remove": [
+            "            return;"
+          ],
+          "insert": [
+            "            return this._closingPromise;"
+          ]
+        },
+        {
+          "atLine": 130,
+          "remove": [
+            "            await this._flushAndClose(false);"
+          ],
+          "insert": [
+            "            await this._flushAndClose(connectedTrack.output.state === 'canceled');"
+          ]
+        },
+        {
+          "atLine": 132,
+          "remove": [
+            "            if (connectedTrack.output.state === 'finalizing' || connectedTrack.output.state === 'finalized') {"
+          ],
+          "insert": [
+            "            if (connectedTrack.output.state !== 'started') {"
+          ]
+        },
+        {
+          "atLine": 135,
+          "remove": [
+            "            connectedTrack.output._muxer.onTrackClose(connectedTrack);"
+          ],
+          "insert": [
+            "            await connectedTrack.output._muxer.onTrackClose(connectedTrack);"
+          ]
+        },
+        {
+          "atLine": 137,
+          "remove": [],
+          "insert": [
+            "        // Existing unawaited callers retain a handled promise; awaiters still observe the original error.",
+            "        void this._closingPromise.catch(() => {});",
+            "        return this._closingPromise;"
+          ]
+        },
+        {
+          "atLine": 837,
+          "remove": [
+            "                await this.customEncoderCallSerializer.call(() => this.customEncoder.close())",
+            "                    .catch((error) => this.setError(error));"
+          ],
+          "insert": [
+            "                await this.customEncoderCallSerializer.currentPromise.catch((error) => this.setError(error));",
+            "                try {",
+            "                    await this.customEncoder.close();",
+            "                } catch (error) {",
+            "                    this.setError(error);",
+            "                }"
+          ]
+        },
+        {
+          "atLine": 2022,
+          "remove": [
+            "                await this.customEncoderCallSerializer.call(() => this.customEncoder.close())",
+            "                    .catch((error) => this.setError(error));"
+          ],
+          "insert": [
+            "                await this.customEncoderCallSerializer.currentPromise.catch((error) => this.setError(error));",
+            "                try {",
+            "                    await this.customEncoder.close();",
+            "                } catch (error) {",
+            "                    this.setError(error);",
+            "                }"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "dist/modules/src/output.js",
+      "originalSha256": "699dae1192ee789c32577a0cf2e9980d41845af4e66b8ba626e6ba87f9b511b3",
+      "patchedSha256": "9a12c472b17a1d337971185c426b35a0c8e02f4645d677aa5a9a5ac14f2f0102",
+      "edits": [
+        {
+          "atLine": 622,
+          "remove": [
+            "                const promises = this.tracks.map(x => x.source._flushOrWaitForOngoingClose(true)); // Force close",
+            "                await Promise.all(promises);",
+            "                await Promise.all([...this._unfinalizedTargets].map(target => target._close()));"
+          ],
+          "insert": [
+            "                let failed = false;",
+            "                let firstError;",
+            "                const rememberFailure = (error) => {",
+            "                    if (!failed) {",
+            "                        failed = true;",
+            "                        firstError = error;",
+            "                    }",
+            "                };",
+            "                await Promise.allSettled(this.tracks.map(x => Promise.resolve()",
+            "                    .then(() => x.source._flushOrWaitForOngoingClose(true)).catch(rememberFailure)));",
+            "                await Promise.allSettled([...this._unfinalizedTargets].map(target => Promise.resolve()",
+            "                    .then(() => target._close()).catch(rememberFailure)));"
+          ]
+        },
+        {
+          "atLine": 626,
+          "remove": [],
+          "insert": [
+            "                if (failed) throw firstError;"
+          ]
+        },
+        {
+          "atLine": 651,
+          "remove": [
+            "                const promises = this.tracks.map(x => x.source._flushOrWaitForOngoingClose(false));",
+            "                await Promise.all(promises);"
+          ],
+          "insert": [
+            "                let failed = false;",
+            "                let firstError;",
+            "                const rememberFailure = (error) => {",
+            "                    if (!failed) {",
+            "                        failed = true;",
+            "                        firstError = error;",
+            "                    }",
+            "                };",
+            "                await Promise.allSettled(this.tracks.map(x => Promise.resolve()",
+            "                    .then(() => x.source._flushOrWaitForOngoingClose(false)).catch(rememberFailure)));",
+            "                if (failed) throw firstError;"
+          ]
+        },
+        {
+          "atLine": 671,
+          "remove": [
+            "                await Promise.all([...this._unfinalizedTargets].map(target => target._close().catch(() => { })));"
+          ],
+          "insert": [
+            "                await Promise.allSettled([...this._unfinalizedTargets].map(target => Promise.resolve()",
+            "                    .then(() => target._close())));"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/conversion.ts",
+      "originalSha256": "9b2181bd6f3a32ac975268d7741838de689fb8892ecbbf323303f22ca66ffd19",
+      "patchedSha256": "d131203787b675687b79bf7a61b72c8323f4410faa8a234e4a0af63089d2869a",
+      "edits": [
+        {
+          "atLine": 684,
+          "remove": [],
+          "insert": [
+            "\t_cancelPromise: Promise<void> | null = null;",
+            "\t/** @internal */"
+          ]
+        },
+        {
+          "atLine": 1298,
+          "remove": [],
+          "insert": [
+            "\t\t\tawait this.cancel().catch(() => {});"
+          ]
+        },
+        {
+          "atLine": 1329,
+          "remove": [
+            "\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\tif (!pump.done) {",
+            "\t\t\t\tpump.resolvers = promiseWithResolvers();",
+            "\t\t\t}",
+            "\t\t}",
+            "",
+            "\t\tif (!this._executed) {",
+            "\t\t\tthis._executed = true;",
+            "",
+            "\t\t\tfor (const id of this._outputTrackIds) {",
+            "\t\t\t\tthis._synchronizer.declareTrack(id);"
+          ],
+          "insert": [
+            "\t\ttry {",
+            "\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\tif (!pump.done) {",
+            "\t\t\t\t\tpump.resolvers = promiseWithResolvers();",
+            "\t\t\t\t}"
+          ]
+        },
+        {
+          "atLine": 1342,
+          "remove": [
+            "\t\t\tif (this.onProgress) {",
+            "\t\t\t\t// Compute duration using only the utilized tracks",
+            "\t\t\t\tconst uniqueUtilizedTracks = new Set(this.utilizedTracks);",
+            "\t\t\t\tconst durationPromises = [...uniqueUtilizedTracks].map(async (track) => {",
+            "\t\t\t\t\tif (await track.isLive()) {",
+            "\t\t\t\t\t\treturn Infinity; // Upper bound (assuming no universe heat death)"
+          ],
+          "insert": [
+            "\t\t\tif (!this._executed) {",
+            "\t\t\t\tthis._executed = true;",
+            "",
+            "\t\t\t\tfor (const id of this._outputTrackIds) {",
+            "\t\t\t\t\tthis._synchronizer.declareTrack(id);",
+            "\t\t\t\t}",
+            "",
+            "\t\t\t\tif (this.onProgress) {",
+            "\t\t\t\t\t// Compute duration using only the utilized tracks",
+            "\t\t\t\t\tconst uniqueUtilizedTracks = new Set(this.utilizedTracks);",
+            "\t\t\t\t\tconst durationPromises = [...uniqueUtilizedTracks].map(async (track) => {",
+            "\t\t\t\t\t\tif (await track.isLive()) {",
+            "\t\t\t\t\t\t\treturn Infinity; // Upper bound (assuming no universe heat death)",
+            "\t\t\t\t\t\t}",
+            "",
+            "\t\t\t\t\t\treturn (await track.getDurationFromMetadata()) ?? (await track.computeDuration());",
+            "\t\t\t\t\t});",
+            "\t\t\t\t\tconst duration = Math.max(0, ...await Promise.all(durationPromises));",
+            "\t\t\t\t\tif ((this._state as Conversion['_state']) === 'canceled') throw new ConversionCanceledError();",
+            "",
+            "\t\t\t\t\tthis._computeProgress = true;",
+            "\t\t\t\t\tthis._totalDuration = Math.min(",
+            "\t\t\t\t\t\tduration - this._startTimestamp,",
+            "\t\t\t\t\t\tthis._endTimestamp - this._startTimestamp,",
+            "\t\t\t\t\t);",
+            "",
+            "\t\t\t\t\tfor (const id of this._outputTrackIds) {",
+            "\t\t\t\t\t\t// Used for progress calculation. We start these at 0 which is technically not always the first",
+            "\t\t\t\t\t\t// timestamp, but this is how we choose to model what \"progress\" means: it's how far we are done",
+            "\t\t\t\t\t\t// with the trim region.",
+            "\t\t\t\t\t\tthis._maxTimestamps.set(id, 0);"
+          ]
+        },
+        {
+          "atLine": 1350,
+          "remove": [
+            "\t\t\t\t\treturn (await track.getDurationFromMetadata()) ?? (await track.computeDuration());",
+            "\t\t\t\t});",
+            "\t\t\t\tconst duration = Math.max(0, ...await Promise.all(durationPromises));",
+            "",
+            "\t\t\t\tthis._computeProgress = true;",
+            "\t\t\t\tthis._totalDuration = Math.min(",
+            "\t\t\t\t\tduration - this._startTimestamp,",
+            "\t\t\t\t\tthis._endTimestamp - this._startTimestamp,",
+            "\t\t\t\t);",
+            "",
+            "\t\t\t\tfor (const id of this._outputTrackIds) {",
+            "\t\t\t\t\t// Used for progress calculation. We start these at 0 which is technically not always the first",
+            "\t\t\t\t\t// timestamp, but this is how we choose to model what \"progress\" means: it's how far we are done",
+            "\t\t\t\t\t// with the trim region.",
+            "\t\t\t\t\tthis._maxTimestamps.set(id, 0);"
+          ],
+          "insert": [
+            "\t\t\t\t\tthis.onProgress?.(0, 0);"
+          ]
+        },
+        {
+          "atLine": 1367,
+          "remove": [
+            "\t\t\t\tthis.onProgress?.(0, 0);"
+          ],
+          "insert": [
+            "\t\t\t\tif ((this._state as Conversion['_state']) === 'canceled') throw new ConversionCanceledError();",
+            "\t\t\t\tif (!this._composable) {",
+            "\t\t\t\t\tawait this.output.start();",
+            "\t\t\t\t}",
+            "\t\t\t\tif ((this._state as Conversion['_state']) === 'canceled') throw new ConversionCanceledError();",
+            "",
+            "\t\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\t\tpump.start();",
+            "\t\t\t\t}",
+            "\t\t\t} else {",
+            "\t\t\t\t// Wake all suspended track pumps",
+            "\t\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\t\tpump.wake?.();",
+            "\t\t\t\t}"
+          ]
+        },
+        {
+          "atLine": 1370,
+          "remove": [
+            "\t\t\tif (!this._composable) {",
+            "\t\t\t\tawait this.output.start();",
+            "\t\t\t}",
+            "",
+            "\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\tpump.start();",
+            "\t\t\t}",
+            "\t\t} else {",
+            "\t\t\t// Wake all suspended track pumps",
+            "\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\tpump.wake?.();",
+            "\t\t\t}",
+            "\t\t}",
+            "",
+            "\t\ttry {"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 1386,
+          "remove": [],
+          "insert": [
+            "\t\t\tif ((this._state as Conversion['_state']) === 'canceled') throw new ConversionCanceledError();"
+          ]
+        },
+        {
+          "atLine": 1387,
+          "remove": [
+            "\t\t\tif ((this._state as Conversion['_state']) !== 'canceled') {",
+            "\t\t\t\t// Make sure to cancel to stop other encoding processes and clean up resources",
+            "\t\t\t\tvoid this.cancel();",
+            "\t\t\t}",
+            ""
+          ],
+          "insert": [
+            "\t\t\t// Join the owned cleanup operation while retaining this execution's primary failure.",
+            "\t\t\tawait this.cancel().catch(() => {});"
+          ]
+        },
+        {
+          "atLine": 1395,
+          "remove": [
+            "\t\t}",
+            "",
+            "\t\tif ((this._state as Conversion['_state']) === 'canceled') {",
+            "\t\t\tthrow new ConversionCanceledError();"
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 1421,
+          "remove": [],
+          "insert": [
+            "\t\tif (this._cancelPromise) {",
+            "\t\t\treturn this._cancelPromise;",
+            "\t\t}"
+          ]
+        },
+        {
+          "atLine": 1424,
+          "remove": [
+            "",
+            "\t\tif (this._state === 'canceled') {",
+            "\t\t\tLogging._warn('Conversion already canceled.');",
+            "\t\t\treturn;",
+            "\t\t}",
+            ""
+          ],
+          "insert": []
+        },
+        {
+          "atLine": 1431,
+          "remove": [
+            "",
+            "\t\t// Wake all suspended track pumps so they can wind down",
+            "\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\tpump.wake?.();",
+            "\t\t}",
+            "",
+            "\t\tthis._synchronizer.resolveAll();",
+            "",
+            "\t\tif (!this._composable) {",
+            "\t\t\tawait this.output.cancel();",
+            "\t\t}"
+          ],
+          "insert": [
+            "\t\treturn this._cancelPromise = (async () => {",
+            "\t\t\t// Wake all suspended track pumps so they can wind down.",
+            "\t\t\tfor (const pump of this._trackPumps) {",
+            "\t\t\t\tpump.wake?.();",
+            "\t\t\t}",
+            "\t\t\tthis._synchronizer.resolveAll();",
+            "\t\t\tif (!this._composable) {",
+            "\t\t\t\tawait this.output.cancel();",
+            "\t\t\t}",
+            "\t\t})();"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/isobmff/isobmff-muxer.ts",
+      "originalSha256": "8a1d5cf1a9f689ed75be84397485c071c7c2f18180be8d8ccfc0f56f648eb362",
+      "patchedSha256": "ced3bae4cab109d137e830dfca4ccc1846a07ec4580ed8d8272688c9e043c595",
+      "edits": [
+        {
+          "atLine": 1489,
+          "remove": [],
+          "insert": [
+            "\t\ttry {",
+            "\t\t\tconst trackData = this.trackDatas.find(x => x.track === track);",
+            "\t\t\tif (trackData) {",
+            "\t\t\t\ttrackData.closed = true;"
+          ]
+        },
+        {
+          "atLine": 1490,
+          "remove": [
+            "\t\tconst trackData = this.trackDatas.find(x => x.track === track);",
+            "\t\tif (trackData) {",
+            "\t\t\ttrackData.closed = true;"
+          ],
+          "insert": [
+            "\t\t\t\tif (trackData.type === 'subtitle' && track.source._codec === 'webvtt') {",
+            "\t\t\t\t\tawait this.processWebVTTCues(trackData, Infinity);",
+            "\t\t\t\t}"
+          ]
+        },
+        {
+          "atLine": 1494,
+          "remove": [
+            "\t\t\tif (trackData.type === 'subtitle' && track.source._codec === 'webvtt') {",
+            "\t\t\t\tawait this.processWebVTTCues(trackData, Infinity);"
+          ],
+          "insert": [
+            "\t\t\t\tthis.processTimestamps(trackData);"
+          ]
+        },
+        {
+          "atLine": 1498,
+          "remove": [
+            "\t\t\tthis.processTimestamps(trackData);"
+          ],
+          "insert": [
+            "\t\t\tif (this.allTracksAreKnown()) {",
+            "\t\t\t\tthis.allTracksKnown.resolve();",
+            "\t\t\t}",
+            "",
+            "\t\t\tif (this.isFragmented) {",
+            "\t\t\t\t// Since a track is now closed, we may be able to write out chunks that were previously waiting",
+            "\t\t\t\tawait this.interleaveSamples();",
+            "\t\t\t}",
+            "",
+            "\t\t} finally {",
+            "\t\t\trelease();"
+          ]
+        },
+        {
+          "atLine": 1500,
+          "remove": [
+            "",
+            "\t\tif (this.allTracksAreKnown()) {",
+            "\t\t\tthis.allTracksKnown.resolve();",
+            "\t\t}",
+            "",
+            "\t\tif (this.isFragmented) {",
+            "\t\t\t// Since a track is now closed, we may be able to write out chunks that were previously waiting",
+            "\t\t\tawait this.interleaveSamples();",
+            "\t\t}",
+            "",
+            "\t\trelease();"
+          ],
+          "insert": []
+        }
+      ]
+    },
+    {
+      "path": "src/matroska/matroska-muxer.ts",
+      "originalSha256": "947c9955f6df0292fc6c60d126e2f289e306e67b26a020abdfaa99059a174b80",
+      "patchedSha256": "3884ff7a616bf44133aaafea39fd0f7c284883c016176a9915d74437a3d15541",
+      "edits": [
+        {
+          "atLine": 1399,
+          "remove": [],
+          "insert": [
+            "\t\ttry {",
+            "\t\t\tconst trackData = this.trackDatas.find(x => x.track === track);",
+            "\t\t\tif (trackData) {",
+            "\t\t\t\ttrackData.closed = true;",
+            "\t\t\t}"
+          ]
+        },
+        {
+          "atLine": 1400,
+          "remove": [
+            "\t\tconst trackData = this.trackDatas.find(x => x.track === track);",
+            "\t\tif (trackData) {",
+            "\t\t\ttrackData.closed = true;"
+          ],
+          "insert": [
+            "\t\t\tif (this.allTracksAreKnown()) {",
+            "\t\t\t\tthis.allTracksKnown.resolve();",
+            "\t\t\t}",
+            "",
+            "\t\t\t// Since a track is now closed, we may be able to write out chunks that were previously waiting",
+            "\t\t\tawait this.interleaveChunks();",
+            "",
+            "\t\t} finally {",
+            "\t\t\trelease();"
+          ]
+        },
+        {
+          "atLine": 1404,
+          "remove": [
+            "",
+            "\t\tif (this.allTracksAreKnown()) {",
+            "\t\t\tthis.allTracksKnown.resolve();",
+            "\t\t}",
+            "",
+            "\t\t// Since a track is now closed, we may be able to write out chunks that were previously waiting",
+            "\t\tawait this.interleaveChunks();",
+            "",
+            "\t\trelease();"
+          ],
+          "insert": []
+        }
+      ]
+    },
+    {
+      "path": "src/media-source.ts",
+      "originalSha256": "eb4df7450982b0feb1083555302498bac2e559b91d289d62fd34f339b867a82e",
+      "patchedSha256": "630defc09798e9c1210c067126b618f5566421fb9e4ddc26d3b3264b0a3f1bc5",
+      "edits": [
+        {
+          "atLine": 128,
+          "remove": [
+            "\tclose() {"
+          ],
+          "insert": [
+            "\tclose(): Promise<void> {"
+          ]
+        },
+        {
+          "atLine": 130,
+          "remove": [
+            "\t\t\treturn;"
+          ],
+          "insert": [
+            "\t\t\treturn this._closingPromise;"
+          ]
+        },
+        {
+          "atLine": 144,
+          "remove": [
+            "\t\t\tawait this._flushAndClose(false);"
+          ],
+          "insert": [
+            "\t\t\tawait this._flushAndClose(connectedTrack.output.state === 'canceled');"
+          ]
+        },
+        {
+          "atLine": 148,
+          "remove": [
+            "\t\t\tif (connectedTrack.output.state === 'finalizing' || connectedTrack.output.state === 'finalized') {"
+          ],
+          "insert": [
+            "\t\t\tif (connectedTrack.output.state !== 'started') {"
+          ]
+        },
+        {
+          "atLine": 152,
+          "remove": [
+            "\t\t\tconnectedTrack.output._muxer.onTrackClose(connectedTrack);"
+          ],
+          "insert": [
+            "\t\t\tawait connectedTrack.output._muxer.onTrackClose(connectedTrack);"
+          ]
+        },
+        {
+          "atLine": 154,
+          "remove": [],
+          "insert": [
+            "\t\t// Existing unawaited callers retain a handled promise; awaiters still observe the original error.",
+            "\t\tvoid this._closingPromise.catch(() => {});",
+            "\t\treturn this._closingPromise;"
+          ]
+        },
+        {
+          "atLine": 986,
+          "remove": [
+            "\t\t\t\tawait this.customEncoderCallSerializer.call(() => this.customEncoder!.close())",
+            "\t\t\t\t\t.catch((error: unknown) => this.setError(error));"
+          ],
+          "insert": [
+            "\t\t\t\tawait this.customEncoderCallSerializer.currentPromise.catch((error: unknown) => this.setError(error));",
+            "\t\t\t\ttry {",
+            "\t\t\t\t\tawait this.customEncoder.close();",
+            "\t\t\t\t} catch (error) {",
+            "\t\t\t\t\tthis.setError(error);",
+            "\t\t\t\t}"
+          ]
+        },
+        {
+          "atLine": 2446,
+          "remove": [
+            "\t\t\t\tawait this.customEncoderCallSerializer.call(() => this.customEncoder!.close())",
+            "\t\t\t\t\t.catch((error: unknown) => this.setError(error));"
+          ],
+          "insert": [
+            "\t\t\t\tawait this.customEncoderCallSerializer.currentPromise.catch((error: unknown) => this.setError(error));",
+            "\t\t\t\ttry {",
+            "\t\t\t\t\tawait this.customEncoder.close();",
+            "\t\t\t\t} catch (error) {",
+            "\t\t\t\t\tthis.setError(error);",
+            "\t\t\t\t}"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/output.ts",
+      "originalSha256": "64aceef0cac1ce51cfe1ea83e612abc80e279a7e0f56b636098935b0fe44cd46",
+      "patchedSha256": "5e6cd65aff83e9405ff506366a63061da6f76a03ee981c4a45f8bb53f9d315e8",
+      "edits": [
+        {
+          "atLine": 988,
+          "remove": [
+            "\t\t\t\tconst promises = this.tracks.map(x => x.source._flushOrWaitForOngoingClose(true)); // Force close",
+            "\t\t\t\tawait Promise.all(promises);",
+            "",
+            "\t\t\t\tawait Promise.all([...this._unfinalizedTargets].map(target => target._close()));"
+          ],
+          "insert": [
+            "\t\t\t\tlet failed = false;",
+            "\t\t\t\tlet firstError: unknown;",
+            "\t\t\t\tconst rememberFailure = (error: unknown) => {",
+            "\t\t\t\t\tif (!failed) {",
+            "\t\t\t\t\t\tfailed = true;",
+            "\t\t\t\t\t\tfirstError = error;",
+            "\t\t\t\t\t}",
+            "\t\t\t\t};",
+            "\t\t\t\tawait Promise.allSettled(this.tracks.map(x => Promise.resolve()",
+            "\t\t\t\t\t.then(() => x.source._flushOrWaitForOngoingClose(true)).catch(rememberFailure)));",
+            "\t\t\t\tawait Promise.allSettled([...this._unfinalizedTargets].map(target => Promise.resolve()",
+            "\t\t\t\t\t.then(() => target._close()).catch(rememberFailure)));"
+          ]
+        },
+        {
+          "atLine": 993,
+          "remove": [],
+          "insert": [
+            "\t\t\t\tif (failed) throw firstError;"
+          ]
+        },
+        {
+          "atLine": 1021,
+          "remove": [
+            "\t\t\t\tconst promises = this.tracks.map(x => x.source._flushOrWaitForOngoingClose(false));",
+            "\t\t\t\tawait Promise.all(promises);"
+          ],
+          "insert": [
+            "\t\t\t\tlet failed = false;",
+            "\t\t\t\tlet firstError: unknown;",
+            "\t\t\t\tconst rememberFailure = (error: unknown) => {",
+            "\t\t\t\t\tif (!failed) {",
+            "\t\t\t\t\t\tfailed = true;",
+            "\t\t\t\t\t\tfirstError = error;",
+            "\t\t\t\t\t}",
+            "\t\t\t\t};",
+            "\t\t\t\tawait Promise.allSettled(this.tracks.map(x => Promise.resolve()",
+            "\t\t\t\t\t.then(() => x.source._flushOrWaitForOngoingClose(false)).catch(rememberFailure)));",
+            "\t\t\t\tif (failed) throw firstError;"
+          ]
+        },
+        {
+          "atLine": 1043,
+          "remove": [
+            "\t\t\t\tawait Promise.all([...this._unfinalizedTargets].map(target => target._close().catch(() => {})));"
+          ],
+          "insert": [
+            "\t\t\t\tawait Promise.allSettled([...this._unfinalizedTargets].map(target => Promise.resolve()",
+            "\t\t\t\t\t.then(() => target._close())));"
+          ]
+        }
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "LICENSE",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "NOTICE.md",
+      "sha256": "a5d74ad83ec71d5f1d091fa1ce7dc6e1a66544f8f1d04c016a3939a9a9064ff8"
+    },
+    {
+      "path": "upstream.diff",
+      "sha256": "2a61e0eadd60b4c125cc2533d4694eada6f5ff73294c4c21f46110e8678f162a"
+    }
+  ]
+}

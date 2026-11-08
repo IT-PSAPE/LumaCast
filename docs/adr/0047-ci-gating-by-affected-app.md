@@ -4,7 +4,8 @@
 
 Accepted. Refines ADR-0043: the per-app pipeline in `ci-release.yml` stands;
 the per-app trigger wrappers (`cast.yml`, `cloud.yml`, `flux.yml`, `chord.yml`)
-are replaced by one gating workflow.
+are replaced by one gating workflow. The validation-only refinement below
+extends this gate to all six current apps.
 
 ## Date
 
@@ -62,3 +63,18 @@ accumulated unnoticed until every app's run went red on the same push.
   self-sufficient and its result meaningful on its own.
 - Packaging for Windows and Linux still needs the hosted runners; everything
   before packaging runs identically on a developer machine.
+
+## Validation-only apps (2026-11-08)
+
+The detector recognizes six apps, while only Cast, Cloud, Flux, and Chord are
+enabled by the release policy. Stream and Soundboard must validate even though
+they cannot enter the publishing pipeline. A selected but skipped or missing
+caller job now fails the required summary.
+
+Extract the unchanged common validation job into `ci-validate.yml` and reuse it
+from `ci-release.yml` and the two validation-only callers. Giving those callers
+write permissions to a release workflow would unnecessarily widen their access;
+copying validation into their jobs would let local and hosted checks drift.
+The extracted workflow requires only `contents: read`. `isReleaseApp` supplies
+an explicit eligibility output that gates publishing on pushes as well as
+manual releases; passing `release: false` alone does not disable push releases.

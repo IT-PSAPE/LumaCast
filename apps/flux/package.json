@@ -36,14 +36,14 @@
     "@lumacast/photo-model": "file:../../packages/photo-model",
     "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "exif-reader": "^2.0.3",
     "libraw-wasm": "1.6.0",
     "lucide-react": "^0.577.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "sharp": "0.35.4",
-    "zod": "^4.3.6"
+    "sharp": "0.35.5",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -51,11 +51,11 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "44.3.0",
-    "electron-builder": "^26.0.12",
+    "electron": "44.10.2",
+    "electron-builder": "^26.15.0",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
-    "vite": "^5.4.14"
+    "vite": "6.4.5"
   }
 }

@@ -195,7 +195,50 @@ describe('ndi-audio-capture', () => {
     expect(worklet.port.postMessage).toHaveBeenCalledWith({ type: 'reset-transport', name: 'audience' });
   });
 
-  it('gives each ready direct output its own transferred buffer in FIFO emission order', async () => {
+  it.each([
+    { label: 'file serialized null', protocol: 'file:', origin: 'file://', messageOrigin: 'null', accepted: true },
+    { label: 'exact HTTP origin', protocol: 'https:', origin: 'https://localhost:4173', messageOrigin: 'https://localhost:4173', accepted: true },
+    { label: 'foreign window', protocol: 'file:', origin: 'file://', messageOrigin: 'null', foreign: true, accepted: false },
+    { label: 'unserialized file origin', protocol: 'file:', origin: 'file://', messageOrigin: 'file://', accepted: false },
+    { label: 'opaque origin on HTTP', protocol: 'https:', origin: 'https://localhost:4173', messageOrigin: 'null', accepted: false },
+    { label: 'wrong HTTP origin', protocol: 'https:', origin: 'https://localhost:4173', messageOrigin: 'https://localhost:4174', accepted: false },
+    { label: 'invalid announcement', protocol: 'file:', origin: 'file://', messageOrigin: 'null', invalid: true, accepted: false },
+    { label: 'multiple ports', protocol: 'file:', origin: 'file://', messageOrigin: 'null', multiple: true, accepted: false },
+    { label: 'disabled output', protocol: 'file:', origin: 'file://', messageOrigin: 'null', disabled: true, accepted: false },
+  ])('keeps the exact audio announcement boundary: $label', async (scenario) => {
+    const api = window.castApi;
+    let listener: EventListener | undefined;
+    const frameWindow = {
+      location: { protocol: scenario.protocol, origin: scenario.origin },
+      castApi: api,
+      addEventListener: (_type: string, next: EventListener) => { listener = next; },
+      removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('window', frameWindow);
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
+    module.setNdiAudioEnabledOutputs(new Set(['audience']));
+    module.addNdiAudioElement(document.createElement('audio'));
+    await flushAsyncAudioSetup();
+    const ports = [{ close: vi.fn() }, ...(scenario.multiple ? [{ close: vi.fn() }] : [])];
+    listener?.({
+      source: scenario.foreign ? {} : frameWindow,
+      origin: scenario.messageOrigin,
+      data: { type: scenario.invalid ? 'foreign-message' : 'lumacast:ndi-audio-transport-port', version: 1,
+        name: scenario.disabled ? 'stage' : 'audience' },
+      ports,
+    } as unknown as Event);
+    const attached = MockWorkletNode.latest!.port.postMessage.mock.calls.filter(([value]) => value.type === 'attach-transport');
+    expect(attached).toHaveLength(scenario.accepted ? 1 : 0);
+    if (scenario.accepted) {
+      expect(attached[0]).toEqual([{ type: 'attach-transport', name: 'audience', port: ports[0] }, [ports[0]]]);
+      expect(ports[0]!.close).not.toHaveBeenCalled();
+    } else {
+      for (const port of ports) expect(port.close).toHaveBeenCalledOnce();
+    }
+    module.setNdiAudioEnabledOutputs(new Set());
+  });
+
+  it('gives each ready direct output its own cloneable buffer in FIFO emission order', async () => {
     const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
     module.addNdiAudioElement(document.createElement('audio'));
     await flushAsyncAudioSetup();
@@ -243,6 +286,10 @@ describe('ndi-audio-capture', () => {
     expect(audienceFrame.buffer).not.toBe(stageFrame.buffer);
     expect([...new Float32Array(audienceFrame.buffer)]).toEqual([1, 2, 3, 4]);
     expect([...new Float32Array(stageFrame.buffer)]).toEqual([1, 2, 3, 4]);
+    expect(audience.postMessage.mock.calls.at(-1)).toHaveLength(1);
+    expect(stage.postMessage.mock.calls.at(-1)).toHaveLength(1);
+    expect(audienceFrame.buffer.byteLength).toBe(16);
+    expect(stageFrame.buffer.byteLength).toBe(16);
     expect(processor.port.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'fallback-audio' }), expect.anything());
   });
 });

@@ -7,6 +7,7 @@ import { NdiGpuOutput } from '../../../../../apps/cast/main/ndi/ndi-gpu-output';
 const mocks = vi.hoisted(() => {
   class MockWindow {
     webContents = {
+      mainFrame: { url: 'file:///cast/renderer/index.html?view=ndi-output&output=audience' },
       setZoomFactor: vi.fn(), setFrameRate: vi.fn(), setWindowOpenHandler: vi.fn(),
       on: vi.fn(), send: vi.fn(), startPainting: vi.fn(), stopPainting: vi.fn(),
     };
@@ -16,9 +17,10 @@ const mocks = vi.hoisted(() => {
     constructor() { windows.push(this); }
   }
   const windows: MockWindow[] = [];
-  return { MockWindow, windows, on: vi.fn(), removeListener: vi.fn() };
+  return { MockWindow, windows, on: vi.fn(), removeListener: vi.fn(), packaged: false };
 });
 vi.mock('electron', () => ({
+  app: { get isPackaged() { return mocks.packaged; } },
   BrowserWindow: mocks.MockWindow,
   ipcMain: { on: mocks.on, removeListener: mocks.removeListener },
 }));
@@ -38,10 +40,12 @@ function snapshot(revisionId = 'scene:1', takeSequenceId = 1): NdiGpuSceneSnapsh
 let output: NdiGpuOutput;
 let state: NdiOutputState;
 let stateChanged: (state: NdiOutputState) => void;
-let ready: (event: { sender: unknown }, revisionId: string) => void;
+let ready: (event: { sender: unknown; senderFrame?: unknown }, revisionId?: string) => void;
 let reportError: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); mocks.windows.length = 0;
+  mocks.packaged = false;
+  vi.stubEnv('ELECTRON_RENDERER_URL', undefined);
   state = { audience: true, stage: false };
   reportError = vi.fn();
   const service = {
@@ -52,10 +56,11 @@ beforeEach(() => {
   output = new NdiGpuOutput(service, '/cast/main');
   ready = mocks.on.mock.calls[0]![1];
 });
-afterEach(async () => { await output.stop(); vi.restoreAllMocks(); vi.useRealTimers(); });
+afterEach(async () => { await output.stop(); vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllEnvs(); });
 function commit(value: NdiGpuSceneSnapshot) {
   output.publish(value);
-  ready({ sender: mocks.windows[0]!.webContents }, value.revisionId);
+  const contents = mocks.windows[0]!.webContents;
+  ready({ sender: contents, senderFrame: contents.mainFrame }, value.revisionId);
 }
 
 describe('NDI GPU capture lifecycle', () => {
@@ -103,11 +108,61 @@ describe('NDI GPU capture lifecycle', () => {
     expect(discard).toHaveBeenCalledTimes(1);
     // An obsolete draw acknowledgement cannot resume the old scene.
     const contents = mocks.windows[0]!.webContents;
-    ready({ sender: contents }, 'scene:1');
+    ready({ sender: contents, senderFrame: contents.mainFrame }, 'scene:1');
     expect(contents.startPainting).toHaveBeenCalledTimes(1);
-    ready({ sender: contents }, 'scene:2');
+    ready({ sender: contents, senderFrame: contents.mainFrame }, 'scene:2');
     expect(contents.startPainting).toHaveBeenCalledTimes(2);
     state.audience = false; stateChanged(state);
     expect(discard).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('NDI renderer trust', () => {
+  it('ignores missing and same-URL child readiness messages until the owned main frame acknowledges', () => {
+    output.publish(snapshot());
+    const contents = mocks.windows[0]!.webContents;
+    ready({ sender: contents }, 'scene:1');
+    ready({ sender: contents, senderFrame: null }, 'scene:1');
+    ready({ sender: contents, senderFrame: { ...contents.mainFrame } }, 'scene:1');
+
+    expect(contents.send).not.toHaveBeenCalled();
+    expect(contents.startPainting).not.toHaveBeenCalled();
+    ready({ sender: contents, senderFrame: contents.mainFrame });
+    expect(contents.send).toHaveBeenCalledTimes(1);
+    ready({ sender: contents, senderFrame: contents.mainFrame }, 'scene:1');
+    expect(contents.startPainting).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the configured development origin and NDI output query', () => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'https://localhost:8443/renderer?theme=dark');
+    output.publish(snapshot());
+
+    const url = new URL(String(mocks.windows[0]!.loadURL.mock.calls[0]![0]));
+    expect(url.origin).toBe('https://localhost:8443');
+    expect(url.pathname).toBe('/renderer');
+    expect(url.searchParams.get('theme')).toBe('dark');
+    expect(url.searchParams.get('view')).toBe('ndi-output');
+    expect(url.searchParams.get('output')).toBe('audience');
+  });
+
+  it('loads the bundled output renderer in packaged mode despite a development environment variable', () => {
+    mocks.packaged = true;
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173/');
+    output.publish(snapshot());
+
+    const url = new URL(String(mocks.windows[0]!.loadURL.mock.calls[0]![0]));
+    expect(url.protocol).toBe('file:');
+    expect(url.pathname).toBe('/cast/renderer/index.html');
+    expect(url.searchParams.get('view')).toBe('ndi-output');
+    expect(url.searchParams.get('output')).toBe('audience');
+  });
+
+  it('falls back to the bundled renderer for an invalid remote development configuration', () => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', 'https://untrusted.example/');
+    output.publish(snapshot());
+
+    const url = new URL(String(mocks.windows[0]!.loadURL.mock.calls[0]![0]));
+    expect(url.protocol).toBe('file:');
+    expect(url.pathname).toBe('/cast/renderer/index.html');
   });
 });

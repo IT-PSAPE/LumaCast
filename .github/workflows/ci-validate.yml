@@ -1,0 +1,89 @@
+name: App CI
+
+# Read-only validation shared by all application workspaces. Publishing wraps
+# this workflow separately in ci-release.yml and owns its write permissions.
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: Application workspace to validate (cast, cloud, flux, chord, soundboard, or stream).
+        required: true
+        type: string
+    outputs:
+      release_app:
+        description: Whether the workspace is enabled by the release policy.
+        value: ${{ jobs.validate.outputs.release_app }}
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  validate:
+    name: ${{ inputs.app }} validate
+    runs-on: ubuntu-latest
+    outputs:
+      release_app: ${{ steps.app.outputs.release_app }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Resolve app manifest
+        id: app
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          set -euo pipefail
+          case "$APP" in
+            cast|cloud|flux|chord|soundboard|stream) ;;
+            *)
+              echo "::error::Unsupported app '$APP'; expected cast, cloud, flux, chord, soundboard, or stream."
+              exit 1
+              ;;
+          esac
+          if [ ! -f "apps/$APP/package.json" ]; then
+            echo "::error::apps/$APP/package.json is missing; the app manifest owns the release version."
+            exit 1
+          fi
+          node --input-type=module -e 'import { isReleaseApp } from "./tool/release-version.mjs"; console.log("release_app=" + isReleaseApp(process.env.APP));' >> "$GITHUB_OUTPUT"
+
+      - name: Select declared npm
+        run: npm run ci:setup-npm
+
+      - name: Install dependencies
+        run: npm run ci:install
+
+      - name: Install Playwright browser dependencies
+        if: inputs.app == 'cast'
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare app Electron
+        id: runtime
+        env:
+          APP: ${{ inputs.app }}
+        run: node tool/ci/prepare-electron.mjs --github-output
+
+      - name: Configure Electron sandbox helper
+        if: inputs.app == 'cast'
+        env:
+          ELECTRON_SANDBOX: ${{ steps.runtime.outputs.sandbox_path }}
+        run: |
+          test -n "$ELECTRON_SANDBOX"
+          sudo chown root:root "$ELECTRON_SANDBOX"
+          sudo chmod 4755 "$ELECTRON_SANDBOX"
+
+      # The same typecheck, architecture, scoped unit, native, build, and
+      # end-to-end steps run locally through `npm run ci -- --app <app> --e2e`.
+      - name: Validate ${{ inputs.app }}
+        run: node tool/ci/run.mjs --app ${{ inputs.app }} --e2e

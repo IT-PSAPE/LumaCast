@@ -32,7 +32,7 @@
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   },
@@ -43,13 +43,13 @@
     "@types/react-dom": "^19.2.3",
     "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "44.3.0",
-    "electron-builder": "^26.0.12",
+    "electron": "44.10.2",
+    "electron-builder": "^26.15.0",
     "electron-vite": "^3.1.0",
     "node-addon-api": "^8.9.2",
     "node-gyp": "^12.4.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
-    "vite": "^5.4.14"
+    "vite": "6.4.5"
   }
 }

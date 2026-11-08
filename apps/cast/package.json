@@ -14,17 +14,17 @@
   "engines": {
     "node": ">=22.13.0"
   },
-  "packageManager": "npm@11.6.2",
+  "packageManager": "npm@11.21.2",
   "main": "out/main/index.js",
   "scripts": {
     "ensure:native-deps": "node ../../scripts/ensure-rollup-native.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "predev": "npm run ensure:native-deps",
-    "dev": "electron-vite dev",
+    "dev": "node script/dev.mjs dev",
     "prebuild": "npm run ensure:native-deps",
     "build": "electron-vite build",
     "prepreview": "npm run ensure:native-deps",
-    "preview": "electron-vite preview",
+    "preview": "node script/dev.mjs preview",
     "prepack": "npm run ensure:native-deps",
     "pack": "electron-vite build && electron-builder --dir",
     "predist": "npm run ensure:native-deps",
@@ -54,12 +54,12 @@
     "@lumacast/protocol": "file:../../packages/protocol",
     "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@tanstack/react-virtual": "^3.13.24",
     "konva": "^10.2.0",
     "lucide-react": "^1.7.0",
     "mammoth": "^1.12.3",
-    "music-metadata": "^11.12.3",
+    "music-metadata": "^11.16.0",
     "openai": "^7.15.0",
     "pdf-parse": "^1.1.1",
     "react": "^19.2.4",
@@ -76,11 +76,11 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "35.7.5",
-    "electron-builder": "^26.0.12",
+    "electron": "44.10.2",
+    "electron-builder": "^26.15.0",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
-    "vite": "^5.4.14"
+    "vite": "6.4.5"
   }
 }

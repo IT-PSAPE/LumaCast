@@ -32,8 +32,16 @@ fail-safe, trust-boundary validation, and the established A/V timing contract.
   identity, and the exact planar float32 byte length before calling the engine.
 - Preserve FIFO delivery. A worklet port emits complete 1024-sample planar
   frames in capture order. When audience and stage are both ready, each output
-  receives its own transferred buffer so ownership for one port cannot detach
-  or mutate the other output's frame.
+  receives its own planar buffer, structured-cloned to the utility receiver.
+  With Electron 44, including that buffer in an ArrayBuffer transfer list makes
+  the utility payload fail validation. Transfer the channel's MessagePort
+  at attachment, but omit the transfer list on its audio data messages. The
+  separate buffers preserve output ownership and ordering.
+- Validate announcements against the current document's serialized message
+  origin: `null` for `file:` and the exact origin for HTTP(S). Electron reports
+  `location.origin` as `file://` for a file document, while its MessageEvent
+  origin is `null`. Same-window identity, the typed single-port announcement,
+  and enabled-output ownership remain required.
 - Retain `sendNdiAudio` as a per-output fail-safe. An enabled output uses IPC
   until its direct handshake succeeds and returns to IPC after channel failure;
   an output with a ready direct port is excluded from the fallback message so a
@@ -50,8 +58,9 @@ fail-safe, trust-boundary validation, and the established A/V timing contract.
 - Direct channel setup, status, and retry control still use renderer/main event
   loops, but captured audio continues through IPC while that control path is
   delayed or unavailable.
-- The worklet performs one owned planar copy per ready output. This is small
-  compared with video frame traffic and is required for safe transferable
-  ownership when both outputs are enabled.
+- The worklet creates one owned planar buffer per ready output, and Electron
+  clones it across the utility port. This retains an explicit transport copy
+  compatible with the utility receiver. The DOM
+  worklet-to-renderer fallback still transfers its buffer.
 - Utility teardown closes both frame and audio ports before destroying the NDI
   service; native sender teardown still drains and joins its audio worker.

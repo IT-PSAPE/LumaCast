@@ -132,6 +132,7 @@
       const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
       const worker = new Worker(workerUrl);
       window.__ndiTransportResult = null;
+      window.__ndiTransportDiagnostics = { announcements: 0, rejected: 0, lastOrigin: null };
       let nextTransportMode = 'valid';
 
       async function cycleOutputAndRequestFallback() {
@@ -163,7 +164,12 @@
       };
 
       window.addEventListener('message', (event) => {
-        if (event.source !== window || event.origin !== window.location.origin) {
+        const diagnostics = window.__ndiTransportDiagnostics;
+        diagnostics.announcements += 1;
+        diagnostics.lastOrigin = event.origin;
+        const serializedOrigin = window.location.protocol === 'file:' ? 'null' : window.location.origin;
+        if (event.source !== window || event.origin !== serializedOrigin) {
+          diagnostics.rejected += 1;
           for (const candidate of event.ports) candidate.close();
           return;
         }
@@ -171,6 +177,7 @@
         if (announcement?.type !== 'lumacast:ndi-frame-transport-port' ||
             announcement.version !== 1 || announcement.name !== 'audience' ||
             event.ports.length !== 1) {
+          diagnostics.rejected += 1;
           for (const candidate of event.ports) candidate.close();
           return;
         }

@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { NDI_OUTPUT_HEIGHT, NDI_OUTPUT_WIDTH } from '@lumacast/protocol';
+import { readGpuFrameMetadata } from './gpu-texture-metadata';
 
 export interface GpuFrameResult {
   conversionDurationMs: number;
@@ -8,25 +8,9 @@ export interface GpuFrameResult {
 }
 
 interface FrameLease { release(): void }
-interface TextureMetadata {
-  widgetType: string;
-  pixelFormat: string;
-  codedSize: { width: number; height: number };
-  visibleRect: { x: number; y: number; width: number; height: number };
-  sharedTextureHandle?: Buffer;
-  planes?: Array<{ fd: number; stride: number; offset: number; size: number }>;
-}
-
 /** Only trusted Electron paint events may supply a same-process native pointer. */
-export function isFullGpuFrame(info: TextureMetadata, platform: string = 'darwin'): boolean {
-  return info.widgetType === 'frame'
-    && (info.pixelFormat === 'bgra' || info.pixelFormat === 'rgba')
-    && info.codedSize.width === NDI_OUTPUT_WIDTH && info.codedSize.height === NDI_OUTPUT_HEIGHT
-    && info.visibleRect.x === 0 && info.visibleRect.y === 0
-    && info.visibleRect.width === NDI_OUTPUT_WIDTH && info.visibleRect.height === NDI_OUTPUT_HEIGHT
-    && (platform === 'linux'
-      ? !!info.planes && info.planes.length > 0 && info.planes.length <= 4 && info.planes.every((plane) => Number.isInteger(plane.fd) && plane.fd >= 0 && plane.stride > 0 && plane.size > plane.offset)
-      : Buffer.isBuffer(info.sharedTextureHandle) && info.sharedTextureHandle.length === 8);
+export function isFullGpuFrame(info: unknown, platform: string = 'darwin'): boolean {
+  return readGpuFrameMetadata(info, platform) !== null;
 }
 
 function p95(samples: readonly number[]): number {

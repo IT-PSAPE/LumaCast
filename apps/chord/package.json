@@ -34,11 +34,11 @@
     "@mediabunny/mp3-encoder": "^1.60.0",
     "konva": "^10.2.0",
     "lucide-react": "^1.7.0",
-    "mediabunny": "^1.60.0",
+    "mediabunny": "1.60.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-konva": "^19.2.3",
-    "zod": "^4.3.6",
+    "zod": "^4.6.6",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
@@ -47,12 +47,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "35.7.5",
-    "electron-builder": "^26.0.12",
+    "electron": "44.10.2",
+    "electron-builder": "^26.15.0",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
-    "vite": "^5.4.14"
+    "vite": "6.4.5"
   },
   "productName": "LumaChord"
 }

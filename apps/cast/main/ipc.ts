@@ -711,9 +711,9 @@ export const registerIpcHandlers = (
   // map, and this fails to compile before `registerRpcHandlers` ever runs.
   const rpcHandlers: RpcHandlerMap = {
     readClipboardText: () => clipboard.readText(),
-    writeClipboardText: (_event, text: string) => {
+    writeClipboardText: async (_event, text: string) => {
       expectRpcPrimitiveArgs([text], [{ name: 'text', kind: 'string' }], rpcContext('writeClipboardText'));
-      clipboard.writeText(text);
+      await clipboard.writeText(text);
     },
     getInlineWindowMenuItems: (): InlineWindowMenuItem[] => getInlineWindowMenuItems(),
     popupInlineWindowMenu: async (event, menuId: string, bounds: InlineWindowMenuBounds) => {

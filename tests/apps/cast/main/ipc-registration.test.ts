@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { clipboard } from 'electron';
 import type { IpcMainInvokeEvent, MessagePortMain } from 'electron';
 
 /**
@@ -228,6 +229,31 @@ describe('main IPC registration (issue #152)', () => {
     }
 
     await expect(invoke(bogusChannel)).rejects.toThrow(`No handler registered for '${bogusChannel}'`);
+  });
+
+  it('acknowledges clipboard writes only after the operating system finishes', async () => {
+    let finishWrite!: () => void;
+    vi.mocked(clipboard.writeText).mockReturnValueOnce(new Promise<void>((resolve) => { finishWrite = resolve; }));
+    const handler = handleRegistrations.get(IPC.writeClipboardText)!;
+    let acknowledged = false;
+    const result = handler(fakeEvent(), 'Slide title').then(() => { acknowledged = true; });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(clipboard.writeText).toHaveBeenCalledWith('Slide title');
+    expect(acknowledged).toBe(false);
+
+    finishWrite();
+    await result;
+    expect(acknowledged).toBe(true);
+  });
+
+  it('returns asynchronous clipboard write failures to the caller', async () => {
+    const write = Promise.reject(new Error('Clipboard is unavailable'));
+    void write.catch(() => undefined);
+    vi.mocked(clipboard.writeText).mockReturnValueOnce(write);
+
+    await expect(handleRegistrations.get(IPC.writeClipboardText)!(fakeEvent(), 'Slide title'))
+      .rejects.toThrow('Clipboard is unavailable');
   });
 
   it('registers the four NDI frame channels via ipcMain.on only, never through the RPC handle path', () => {

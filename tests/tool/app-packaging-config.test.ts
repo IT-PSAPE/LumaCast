@@ -1,8 +1,11 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 import { parseStableVersion } from '../../tool/release-version.mjs';
 
 const require = createRequire(import.meta.url);
@@ -31,6 +34,7 @@ interface BuilderConfig {
   publish: { provider: string; url: string };
   linux: { executableName: string };
   deb: { packageName: string; depends?: string[] };
+  electronVersion?: string;
 }
 
 function readBuilderConfig(appDir: string): BuilderConfig {
@@ -40,7 +44,7 @@ function readBuilderConfig(appDir: string): BuilderConfig {
   return doc as BuilderConfig;
 }
 
-function readPackageJson(appDir: string): { name: string; version: string; productName?: string } {
+function readPackageJson(appDir: string): { name: string; version: string; productName?: string; devDependencies: { electron: string } } {
   return JSON.parse(
     fs.readFileSync(path.join(repoRoot, 'apps', appDir, 'package.json'), 'utf8'),
   );
@@ -51,6 +55,68 @@ function readPackageJson(appDir: string): { name: string; version: string; produ
 const LEGACY_CAST_LINUX_IDENTITY = 'lumacast';
 
 describe('app packaging config', () => {
+  it('resolves every pinned Electron runtime to its installed native ABI', async () => {
+    const { getAbi } = require('node-abi') as { getAbi(version: string, runtime: string): string };
+    const { resolveAppElectron } = await import('../../tool/app-electron.mjs');
+    for (const app of ['cast', 'cloud', 'flux', 'chord', 'soundboard', 'stream']) {
+      const runtime = resolveAppElectron(app);
+      const installedAbi = execFileSync(runtime.binaryPath, ['-p', 'process.versions.modules'], {
+        encoding: 'utf8', timeout: 5_000,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      }).trim();
+      expect(getAbi(runtime.version, 'electron')).toBe(installedAbi);
+    }
+  });
+
+  it('keeps resolved native rebuild tooling on the root override policy', () => {
+    const rootPackage = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+    const lock = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package-lock.json'), 'utf8'));
+    const expected = rootPackage.overrides['@electron/rebuild'];
+    expect(expected).toMatch(/^\d+\.\d+\.\d+$/);
+    const resolved = Object.entries(lock.packages)
+      .filter(([location]) => location.endsWith('node_modules/@electron/rebuild'))
+      .map(([, entry]) => (entry as { version: string }).version);
+    expect(resolved.length).toBeGreaterThan(0);
+    expect(resolved.every((version) => version === expected)).toBe(true);
+  });
+
+  it('generates AppRun without adding empty library or executable search paths', () => {
+    const { generateAppRunScript } = require('app-builder-lib/out/targets/appimage/appImageUtil.js');
+    const dir = fs.mkdtempSync(path.join(tmpdir(), 'lumacast-apprun-'));
+    try {
+      const script = path.join(dir, 'AppRun');
+      fs.writeFileSync(script, generateAppRunScript({ ExecutableName: 'probe', ProductName: 'Probe', ProductFilename: 'probe' }));
+      fs.writeFileSync(path.join(dir, 'probe'), '#!/bin/sh\nprintf \'%s\\n\' "$LD_LIBRARY_PATH" "$PATH" "$GSETTINGS_SCHEMA_DIR"\n', { mode: 0o755 });
+      for (const previous of [undefined, '', '/existing/search']) {
+        const env: NodeJS.ProcessEnv = { ...process.env, APPDIR: dir };
+        for (const key of ['LD_LIBRARY_PATH', 'PATH', 'GSETTINGS_SCHEMA_DIR']) {
+          if (previous === undefined) delete env[key];
+          else env[key] = previous;
+        }
+        // Bash supplies its own default PATH when the variable is absent.
+        const inheritedPath = execFileSync('/bin/bash', ['-c', 'printf \'%s\' "$PATH"'], { env, encoding: 'utf8' });
+        const output = execFileSync('/bin/bash', [script, '--no-sandbox'], { env, encoding: 'utf8', timeout: 5_000 }).trim().split('\n');
+        expect(output).toEqual([
+          `${dir}/usr/lib${previous ? `:${previous}` : ''}`,
+          `${dir}:${dir}/usr/sbin${inheritedPath ? `:${inheritedPath}` : ''}`,
+          `${dir}/usr/share/glib-2.0/schemas${previous ? `:${previous}` : ''}`,
+        ]);
+        for (const searchPath of output) expect(searchPath.split(':')).not.toContain('');
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('keeps all six apps and the explicit Flux builder pin on the same exact runtime', () => {
+    const baseline = readPackageJson('cast').devDependencies.electron;
+    expect(baseline).toMatch(/^\d+\.\d+\.\d+$/);
+    const lock = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package-lock.json'), 'utf8'));
+    for (const app of ['cast', 'cloud', 'flux', 'chord', 'soundboard', 'stream']) {
+      expect(readPackageJson(app).devDependencies.electron).toBe(baseline);
+      expect(lock.packages[`apps/${app}`].devDependencies.electron).toBe(baseline);
+    }
+    expect(readBuilderConfig('flux').electronVersion).toBe(baseline);
+  });
+
   it('gives every app a unique appId', () => {
     const appIds = APPS.map((app) => readBuilderConfig(app.appDir).appId);
 

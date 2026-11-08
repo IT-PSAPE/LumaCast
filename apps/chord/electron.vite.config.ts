@@ -2,6 +2,7 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+import { mediaBunnyPatchPlugin } from '../../tool/patch-mediabunny.mjs';
 
 // Every path in this config is app-local: builds land in apps/chord/out and
 // installers in apps/chord/dist, so the Chord build never shares state with
@@ -102,6 +103,6 @@ export default defineConfig({
         { find: '@renderer', replacement: path.resolve(__dirname, 'renderer') },
       ],
     },
-    plugins: [tailwindcss(), react()]
+    plugins: [mediaBunnyPatchPlugin({ rootDir: path.resolve(__dirname, '../..') }), tailwindcss(), react()]
   }
 });

@@ -19,6 +19,7 @@
 //
 // Steps, in order. Shared steps run once per invocation, app steps once per app:
 //   deps          ensure native packages (shared)
+//   runtime       provision and verify the app's pinned Electron
 //   typecheck     root tsc plus the app workspace tsconfig
 //   architecture  boundary check and the checker's own fixtures (shared)
 //   unit          Vitest, scoped to the app's tests, its packages' tests, and
@@ -30,11 +31,11 @@
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildDependencyGraph, decideApps, testPathsFor } from './affected-apps.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const STEPS = ['deps', 'typecheck', 'architecture', 'unit', 'native', 'build', 'e2e'];
+const STEPS = ['deps', 'runtime', 'typecheck', 'architecture', 'unit', 'native', 'build', 'e2e'];
 const SHARED_STEPS = new Set(['deps', 'architecture']);
 const IS_WINDOWS = process.platform === 'win32';
 const IN_ACTIONS = process.env.GITHUB_ACTIONS === 'true';
@@ -96,9 +97,9 @@ function defaultBaseline() {
   return '';
 }
 
-function commandFor(executable) {
-  if (!IS_WINDOWS) return executable;
-  return executable === 'npm' || executable === 'npx' ? `${executable}.cmd` : executable;
+function commandSpec(executable, args, platform = process.platform) {
+  const shell = platform === 'win32' && (executable === 'npm' || executable === 'npx');
+  return { command: shell ? `${executable}.cmd` : executable, args, shell };
 }
 
 function hasCommand(name) {
@@ -110,10 +111,11 @@ function run(label, executable, args, env = {}) {
   const started = Date.now();
   if (IN_ACTIONS) process.stdout.write(`::group::${label}\n`);
   process.stdout.write(`\n$ ${[executable, ...args].join(' ')}\n`);
-  const result = spawnSync(commandFor(executable), args, {
+  const command = commandSpec(executable, args);
+  const result = spawnSync(command.command, command.args, {
     cwd: ROOT,
     stdio: 'inherit',
-    shell: IS_WINDOWS,
+    shell: command.shell,
     env: { ...process.env, ...env },
   });
   if (IN_ACTIONS) process.stdout.write('::endgroup::\n');
@@ -133,6 +135,13 @@ function stepEnabled(step, options, app) {
 function planFor(app, graph, options) {
   const plan = [];
   const add = (step, label, executable, args, env) => plan.push({ step, label, executable, args, env });
+  const requiresRuntime = stepEnabled('native', options, app) || stepEnabled('e2e', options, app);
+  if (requiresRuntime && options.skip.has('runtime')) {
+    throw new Error(`${app}: runtime is required before native or end-to-end tests.`);
+  }
+  if (stepEnabled('runtime', options, app) || requiresRuntime) {
+    add('runtime', `${app}: provision Electron`, process.execPath, ['tool/ci/prepare-electron.mjs', '--app', app]);
+  }
   if (stepEnabled('typecheck', options, app)) {
     add('typecheck', `${app}: root typecheck`, 'npx', ['tsc', '--noEmit']);
     add('typecheck', `${app}: workspace typecheck`, 'npm', ['run', 'typecheck', '--workspace', `apps/${app}`, '--if-present']);
@@ -211,6 +220,8 @@ function main(argv) {
   }
 
   const results = [];
+  // Validate dependencies in the plan before running even shared steps.
+  const appPlans = apps.map((app) => planFor(app, graph, options));
   let failed = false;
   const execute = (entry) => {
     if (failed) {
@@ -226,18 +237,18 @@ function main(argv) {
   };
 
   for (const entry of sharedPlan(options)) execute(entry);
-  for (const app of apps) {
-    for (const entry of planFor(app, graph, options)) execute(entry);
-  }
+  for (const plan of appPlans) for (const entry of plan) execute(entry);
   printSummary(results);
   return failed ? 1 : 0;
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
+  try {
+    process.exitCode = main(process.argv.slice(2));
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }
 
-export { STEPS, SHARED_STEPS };
+export { STEPS, SHARED_STEPS, parseArgs, planFor, commandSpec, main };

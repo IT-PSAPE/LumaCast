@@ -5,10 +5,12 @@ import type * as NdiNative from '@lumacast/ndi-native';
 function nativeModule(): typeof NdiNative { return require('@lumacast/ndi-native') as typeof NdiNative; }
 import { NDI_GPU_SCENE_CHANNEL, NDI_GPU_SCENE_READY_CHANNEL, NDI_OUTPUT_HEIGHT, NDI_OUTPUT_WIDTH, type NdiGpuSceneSnapshot, type NdiOutputName } from '@lumacast/protocol';
 import { NdiServiceProxy } from './ndi-service-proxy';
-import { GpuFrameQueue, isFullGpuFrame } from './gpu-frame-queue';
+import { GpuFrameQueue } from './gpu-frame-queue';
+import { readGpuFrameMetadata, type GpuFrameMetadata } from './gpu-texture-metadata';
 import { GpuFrameRefresh } from './gpu-frame-refresh';
+import { getDevServerUrl } from '../security';
 
-interface Lease { texture: OffscreenSharedTexture; snapshot: NdiGpuSceneSnapshot; refreshId: number; release(): void }
+interface Lease { texture: OffscreenSharedTexture; frame: GpuFrameMetadata; snapshot: NdiGpuSceneSnapshot; refreshId: number; release(): void }
 interface Output { window: BrowserWindow; refresh: GpuFrameRefresh; queue: GpuFrameQueue<Lease>; snapshot: NdiGpuSceneSnapshot; committed: NdiGpuSceneSnapshot | null; ready: boolean }
 
 /** Electron owns texture leases; the utility host owns imported native surfaces. */
@@ -19,6 +21,7 @@ export class NdiGpuOutput {
   private nextAttempt = 0;
   private unsubscribe: () => void;
   private readonly onReady = (event: Electron.IpcMainEvent, revisionId?: string) => {
+    if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) return;
     for (const output of this.outputs.values()) {
       if (output.window.webContents !== event.sender) continue;
       output.ready = true;
@@ -127,7 +130,7 @@ export class NdiGpuOutput {
         throw new Error('Native GPU output unavailable');
       }
       let handle;
-      try { handle = nativeModule().exportSharedTexture(lease.texture.textureInfo, transport.pid, transport.receiverEndpoint); }
+      try { handle = nativeModule().exportSharedTexture(lease.frame.textureInfo, transport.pid, transport.receiverEndpoint); }
       catch (error) {
         this.service.reportGpuSourceError(error instanceof Error ? error.message : String(error));
         throw error;
@@ -146,7 +149,7 @@ export class NdiGpuOutput {
           attemptId: `${lease.snapshot.revisionId}:${++this.nextAttempt}`,
           captureStartedAtMs: Date.now(), mainReceivedAtMs: Date.now(),
         };
-        const promise = this.service.submitGpuFrame(snapshot.name, handle, lease.texture.textureInfo.pixelFormat, telemetry);
+        const promise = this.service.submitGpuFrame(snapshot.name, handle, lease.frame.pixelFormat, telemetry);
         handedOff = true;
         const result = await promise;
         output.refresh.accept(lease.refreshId);
@@ -169,8 +172,9 @@ export class NdiGpuOutput {
         if (factor > 0 && Number.isFinite(factor)) window.setContentSize(Math.round(NDI_OUTPUT_WIDTH / factor), Math.round(NDI_OUTPUT_HEIGHT / factor));
         texture.release(); return;
       }
-      if (!output.committed || !this.service.getOutputState()[snapshot.name] || !isFullGpuFrame(texture.textureInfo, process.platform)) { texture.release(); return; }
-      queue.offer({ texture, snapshot: output.committed, refreshId: refresh.id, release: () => texture.release() });
+      const frame = readGpuFrameMetadata(info, process.platform);
+      if (!output.committed || !this.service.getOutputState()[snapshot.name] || !frame) { texture.release(); return; }
+      queue.offer({ texture, frame, snapshot: output.committed, refreshId: refresh.id, release: () => texture.release() });
     });
     window.webContents.on('render-process-gone', () => {
       refresh.stop();
@@ -184,8 +188,9 @@ export class NdiGpuOutput {
     window.webContents.on('did-fail-load', (_event, _code, description) => this.service.reportGpuSourceError(`NDI ${snapshot.name} renderer failed: ${description}`));
     window.webContents.on('preload-error', (_event, _path, error) => this.service.reportGpuSourceError(`NDI ${snapshot.name} preload failed: ${error.message}`));
     window.webContents.on('console-message', (event) => console.log(`[ndi-gpu:${snapshot.name}] ${event.message}`));
-    const url = process.env.ELECTRON_RENDERER_URL
-      ? new URL(process.env.ELECTRON_RENDERER_URL)
+    const devServerUrl = getDevServerUrl();
+    const url = devServerUrl
+      ? new URL(devServerUrl)
       : pathToFileURL(path.join(this.mainDirectory, '../renderer/index.html'));
     url.searchParams.set('view', 'ndi-output');
     url.searchParams.set('output', snapshot.name);

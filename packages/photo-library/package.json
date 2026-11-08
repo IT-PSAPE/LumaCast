@@ -12,6 +12,6 @@
   "dependencies": {
     "@lumacast/photo-imaging": "*",
     "@lumacast/photo-model": "*",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   }
 }

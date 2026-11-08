@@ -129,6 +129,8 @@ class NdiAudioProcessor extends AudioWorkletProcessor {
       }
       const frame = this.copyPlanarFrame();
       try {
+        // This Electron 44 utility MessagePortMain route receives intact data
+        // by structured clone; transferring this ArrayBuffer produces null.
         transport.port.postMessage({
           type: 'audio',
           name,
@@ -136,7 +138,7 @@ class NdiAudioProcessor extends AudioWorkletProcessor {
           sampleRate: Math.round(sampleRate),
           channels: this.channels,
           samplesPerChannel: this.frameSamples,
-        }, [frame.buffer]);
+        });
       } catch {
         this.failTransport(name, transport);
         fallbackNames.push(name);
@@ -292,7 +294,10 @@ function closeUnexpectedPorts(ports: readonly MessagePort[]): void {
 }
 
 function handleAudioTransportPort(event: MessageEvent<unknown>): void {
-  if (event.source !== window || event.origin !== window.location.origin) {
+  // Chromium serializes a file document's opaque message origin as "null";
+  // Electron's location.origin still reports "file://" for that document.
+  const serializedOrigin = window.location.protocol === 'file:' ? 'null' : window.location.origin;
+  if (event.source !== window || event.origin !== serializedOrigin) {
     closeUnexpectedPorts(event.ports);
     return;
   }

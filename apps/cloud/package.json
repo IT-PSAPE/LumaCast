@@ -11,9 +11,9 @@
   },
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node script/dev.mjs dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "preview": "node script/dev.mjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
@@ -28,11 +28,11 @@
     "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/suite": "file:../../packages/suite",
     "@lumacast/ui": "file:../../packages/ui",
-    "electron-updater": "^6.8.3",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -40,11 +40,11 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "35.7.5",
-    "electron-builder": "^26.0.12",
+    "electron": "44.10.2",
+    "electron-builder": "^26.15.0",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
-    "vite": "^5.4.14"
+    "vite": "6.4.5"
   }
 }

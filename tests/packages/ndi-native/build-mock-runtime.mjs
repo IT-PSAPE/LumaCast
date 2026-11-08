@@ -10,9 +10,9 @@ const source = join(here, 'mock_ndi.cpp');
 let result;
 
 if (process.platform === 'darwin') {
-  result = spawnSync('clang++', ['-shared', '-fPIC', '-o', join(fixtures, 'libndi_mock.dylib'), source], { stdio: 'inherit' });
+  result = spawnSync('clang++', ['-std=c++17', '-shared', '-fPIC', '-o', join(fixtures, 'libndi_mock.dylib'), source], { stdio: 'inherit' });
 } else if (process.platform === 'linux') {
-  result = spawnSync('g++', ['-shared', '-fPIC', '-o', join(fixtures, 'libndi_mock.so'), source], { stdio: 'inherit' });
+  result = spawnSync('g++', ['-std=c++17', '-shared', '-fPIC', '-o', join(fixtures, 'libndi_mock.so'), source], { stdio: 'inherit' });
 } else if (process.platform === 'win32') {
   const vswhere = 'C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe';
   if (!existsSync(vswhere)) {

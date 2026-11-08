@@ -1,6 +1,6 @@
 name: App CI and Release
 
-# Common CI and release pipeline for every application workspace. Only the gating
+# CI and publishing wrapper for release-enabled apps. Only the gating
 # workflow, ci.yml, calls it, once per app the change affects, with the `app` input;
 # nothing else may call it. Each app owns `apps/<app>/package.json` as the single
 # source of its release version and publishes under its own `<app>-v<version>`
@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       app:
-        description: Application workspace to validate and release (cast, cloud, flux, or chord).
+        description: Application workspace to validate (all six apps); publishing remains limited to release-enabled apps.
         required: true
         type: string
       release:
@@ -26,56 +26,9 @@ env:
 
 jobs:
   validate:
-    name: ${{ inputs.app }} validate
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Resolve app manifest
-        shell: bash
-        env:
-          APP: ${{ inputs.app }}
-        run: |
-          set -euo pipefail
-          case "$APP" in
-            cast|cloud|flux|chord) ;;
-            *)
-              echo "::error::Unsupported app '$APP'; expected cast, cloud, flux, or chord."
-              exit 1
-              ;;
-          esac
-          if [ ! -f "apps/$APP/package.json" ]; then
-            echo "::error::apps/$APP/package.json is missing; the app manifest owns the release version."
-            exit 1
-          fi
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browser dependencies
-        if: inputs.app == 'cast'
-        run: npx playwright install --with-deps chromium
-
-      - name: Configure Electron sandbox helper
-        if: inputs.app == 'cast'
-        run: |
-          sudo chown root:root node_modules/electron/dist/chrome-sandbox
-          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-
-      # One definition of "CI passes": tool/ci/run.mjs runs the same typecheck,
-      # architecture, scoped unit, native, build, and end-to-end steps here and
-      # on a developer machine (`npm run ci -- --app <app> --e2e`).
-      - name: Validate ${{ inputs.app }}
-        run: node tool/ci/run.mjs --app ${{ inputs.app }} --e2e
+    uses: ./.github/workflows/ci-validate.yml
+    with:
+      app: ${{ inputs.app }}
 
   native-gpu:
     name: Cast native GPU ${{ matrix.platform }}
@@ -103,8 +56,13 @@ jobs:
       - name: Install Linux graphics headers
         if: matrix.platform == 'linux'
         run: sudo apt-get update && sudo apt-get install -y libegl-dev libgles-dev
+      - name: Select declared npm
+        run: npm run ci:setup-npm
+
       - name: Install dependencies
-        run: npm ci
+        run: npm run ci:install
+      - name: Prepare app Electron
+        run: node tool/ci/prepare-electron.mjs --app cast
       - name: Build native NDI addon
         run: npm run build:ndi-native
       - name: Verify addon exports
@@ -118,6 +76,7 @@ jobs:
     needs: [validate, native-gpu]
     if: >-
       always() && needs.validate.result == 'success' &&
+      needs.validate.outputs.release_app == 'true' &&
       (inputs.app != 'cast' || needs.native-gpu.result == 'success') &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release))
@@ -137,6 +96,11 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
 
       - name: Detect stable version increase
         id: detect
@@ -252,8 +216,14 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Select declared npm
+        run: npm run ci:setup-npm
+
       - name: Install dependencies
-        run: npm ci
+        run: npm run ci:install
+
+      - name: Prepare app Electron
+        run: node tool/ci/prepare-electron.mjs
 
       - name: Ensure native packages
         run: npm run ensure:native-deps
@@ -434,8 +404,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Select declared npm
+        run: npm run ci:setup-npm
+
       - name: Install dependencies
-        run: npm ci
+        run: npm run ci:install
 
       - name: Guard feed update
         id: guard
