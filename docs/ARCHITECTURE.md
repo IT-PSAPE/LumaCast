@@ -1,8 +1,30 @@
 # Architecture Overview
 
-This document describes the actual implemented architecture for theme lifecycle, item creation, duplication, synchronization, and provenance tracking.
+This document records the implemented ownership boundaries and selected domain workflows, including theme lifecycle, item creation, duplication, synchronization, and provenance tracking.
 
 ## Dependency Boundaries
+
+### Ownership and Process Layers
+
+Each app owns its Electron main process, preload, and React renderer. Main owns
+filesystem access, persistence, OS capture, and native modules. Preload exposes
+an app-specific typed IPC contract; the renderer reaches privileged behavior
+only through that contract. App `shared/` modules describe the wire types and
+remain process-neutral.
+
+Inside a renderer, the app root composes independent features. `application/`
+modules connect multiple feature APIs to shell surfaces such as docks; screens
+and `shell/` own page and layout composition. Features expose public `index.ts`
+entries and do not import one another. Shared renderer helpers, contexts, and
+hooks remain below that composition layer.
+
+Workspace packages are shared below apps and cannot import app code. Renderer
+imports use an explicit safe-package allow-list in
+`tool/check_electron_architecture.mjs`; Electron, Node, native, and persistence
+packages stay in main. Package dependencies are also default-deny and follow
+the direction table in that checker. Its TypeScript AST scan covers imports in
+template expressions as well as ordinary module syntax, and the fixture suite
+fails when a scenario has no source files.
 
 `@lumacast/selection` supplies domain-independent selection behavior to every
 app (ADR-0117). Pure string-ID transitions support controlled stores, while
@@ -21,7 +43,7 @@ package never imports an app, in either direction; shared code lives in a
 package. Dependency direction is enforced by
 `tool/check_electron_architecture.mjs` (`npm run check:architecture`), which
 parses static ES imports/exports (`.ts`, `.tsx`, `.mjs`, `.js`, and `.cjs` are
-all code) and applies a frozen allow-list that can only shrink. The legacy
+all code) and applies an exact allow-list, currently empty. The legacy
 root tree `app/` is still checked so an in-flight migration keeps its
 coverage, but every app now lives under `apps/<app>/` (ADR-0043).
 
@@ -550,9 +572,16 @@ per app.
   contexts that wire package ports to concrete app state. It reaches main
   only through the typed `castApi` IPC contract (`@lumacast/protocol`); it
   imports no Electron, main-process, or database code.
-- `<app>/renderer/components`, `utils`, and `types` are UI/rendering primitives
-  and import no feature implementations. Presentation that more than one app
-  needs belongs in `@lumacast/ui` instead.
+- `<app>/renderer/components`, `utils`, `types`, and `rendering` are
+  UI/rendering primitives and import no feature implementations. Presentation
+  that more than one app needs belongs in `@lumacast/ui` instead.
+- `<app>/renderer/shared` contains feature-independent helpers that features
+  may consume; shared helpers do not import features. `<app>/renderer/hooks`
+  contains app-wide hooks and also stays feature-independent. Feature
+  coordination belongs in screens, shell, or application modules.
+- `<app>/renderer/runtime` owns shared browser runtime services. Contexts and
+  features may consume them, but runtime services do not import renderer UI,
+  state, or feature implementations.
 - Renderer UI is composed declaratively from named components. Shared and
   feature-owned primitives expose compound parts where a visual structure has
   meaningful slots (`Tabs.*`, `EmptyState.*`, `Section.*`, `Thumbnail.*`), and
@@ -563,16 +592,26 @@ per app.
   meaning. Control-flow guards remain appropriate for validation, events,
   async work, algorithms, exhaustive domain dispatch, and rendering hot paths
   (ADR 0036).
-- Features (`apps/<app>/renderer/features/*`) have no cross-feature imports
-  except
-  directed, documented public edges; bidirectional feature dependencies must be
-  removed, never allow-listed. Features import no screens or application shell
-  (`App.tsx`, `main.tsx`, `workbench-screen-router.tsx`), which are the
-  composition boundaries. When a feature exposes a public entry point
-  (`index.ts`), external imports must go through it.
-- Observability is consumed through a port; only screens, the shell, and the
+- Features (`apps/<app>/renderer/features/*`) do not import other features.
+  Screens and the shell (`renderer/shell/`, `renderer/application/`,
+  Stream's `renderer/docks/`, `renderer/dialogs/`, and `renderer/chrome/`,
+  `App.tsx`, `main.tsx`, and `workbench-screen-router.tsx`) compose
+  feature-owned pieces. Features import no screens or application shell.
+  Every feature consumed outside its own directory exposes an `index.ts` public
+  API, and screens, the shell, and application modules import through that API.
+  Renderer contexts hold shared state contracts and providers and do not import
+  feature implementations.
+  UI primitives, contexts, hooks, and shared renderer helpers do not import
+  screens or shell modules; dependencies flow toward those composition roots.
+- Stream Scenes duplicates active captures through the Capture-owned
+  `renderer/shared/scene-runtime-port.ts`, which returns a commit/rollback
+  lease; App scopes that capability to visible draft source ids.
+- Observability is consumed through a port; only screens, the shell/application, and the
   observability feature itself may reference
   `apps/<app>/renderer/features/observability` directly.
+- Cast composes that port with `ObservabilityPortProvider`; context owners and
+  user-facing NDI actions receive it through React context rather than a
+  module-level registry.
 - Cast's NDI engine-session boundary is `apps/cast/main/ndi` and
   `packages/engine`. The rest of Cast reaches NDI through `NdiServiceLike`,
   and `ndi-service-proxy.ts` is its sole writer of host commands. Stream has
@@ -588,11 +627,10 @@ The checker runs its fixture graphs via `npm run test:architecture`. Adding an
 architecture exception means editing the checker's allow-list with a reason and
 removal owner; unused entries fail so the allow-list can only shrink.
 
-`feature-isolation` and `feature-cycle` are currently reported as warning-level
-refactor debt (exit 0): the feature web is mid-refactor, so these violations are
-reported and must not be allow-listed. They flip to hard errors once the feature
-web is refactored. All other rules are hard errors; every hard-error violation
-must be covered by the frozen allow-list.
+`feature-isolation` and `feature-cycle` are hard errors and must never be
+allow-listed. Cross-feature composition belongs in screens and the shell. Every
+architecture violation must be covered by an exact frozen allow-list exception
+or removed; unused exceptions fail the check.
 
 ## Workspace Layout and Package Boundaries (issue #223, parent #219)
 
@@ -935,7 +973,7 @@ Each rule is also proven by a committed fixture scenario under
   back through the `agentRespondAction` RPC, decoded at that boundary with
   `decodeAgentActionResponse`. `apps/cast/main/agent/action-broker.ts` correlates the
   two; `getAgentActionBroker()` in `apps/cast/main/ipc.ts` publishes the instance.
-- `apps/cast/renderer/features/agent/use-agent-action-dispatcher.ts` is the single
+- `apps/cast/renderer/application/agent/use-agent-action-dispatcher.ts` is the single
   execution gate. It processes requests sequentially, checks permission,
   flushes the active editor's staged edits before any write, executes — via
   `window.castApi` for `site: 'main'` actions and renderer contexts for
@@ -1451,7 +1489,7 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 
 ## Shared Scene Render Contract (issue #111)
 
-- Editor preview (`apps/cast/renderer/features/canvas/scene-stage.tsx`) and NDI output (`apps/cast/renderer/output/ndi-gpu-view.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`apps/cast/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
+- Editor preview (`apps/cast/renderer/features/canvas/scene-stage.tsx`) and NDI output (`apps/cast/renderer/output/ndi-gpu-view.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`apps/cast/renderer/rendering/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
 - `tests/apps/cast/renderer/rendering/scene-parity.test.tsx` is the structural parity test for this contract: it feeds identical fixtures through both the Konva traversal (`traverseSceneNodes`/`renderSceneNodeContent`) and the resolved-scene builder and asserts equivalent node identity, order, visibility, and geometry, including background kinds.
 - `apps/cast/renderer/rendering/scene-layer.tsx`, an earlier render-only DOM component from #147 (`<div>`/`<img>`/`<video>` with inline styles), never gained a production consumer — both real surfaces render via `react-konva`, not the DOM — and was removed in #207 rather than adopted, to avoid two parallel answers to "what is the shared scene layer."
 - NDI-only texture ownership, backpressure, native conversion and sender cadence remain in the main/engine/native boundary. The renderer scene publisher owns take claims through `apps/cast/renderer/utils/ndi-take-correlation.ts`; `SceneOutputStage` only renders the shared scene.

@@ -1,3 +1,3 @@
-import { castScene } from '@renderer/features/canvas/scene';
+import { castScene } from '@renderer/features/canvas';
 
 export const castRoot = castScene;

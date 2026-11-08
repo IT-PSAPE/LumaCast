@@ -11,18 +11,14 @@
 // uncommitted source is checked too; build output and installed dependencies
 // are skipped.
 //
-// Two severity tiers:
-// - Hard errors (fail the check): every rule except the feature-boundary pair
-//   below. Each hard-error violation must be covered by the frozen allow-list;
-//   every allow-list entry must be in use, so the allow-list can only shrink.
-// - Warnings (exit 0, "refactor debt"): feature-isolation and feature-cycle.
-//   The current feature web is mid-refactor; these are reported and must not be
-//   allow-listed. They flip to hard errors once the feature web is refactored.
+// All architecture rules fail on violations unless an exact, documented
+// exception is in use. Feature dependencies stay directed and cycles are forbidden.
 
 import fs from 'node:fs';
 import { isBuiltin } from "node:module";
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TOOL_DIR, '..');
@@ -89,6 +85,24 @@ const PHOTO_RENDERER_BANNED_PACKAGES = new Set([
   "photo-library",
 ]);
 
+// Renderer imports must opt into a package only when its public API is safe to
+// load in a Chromium process. Packages with Electron, Node, native, or
+// persistence capabilities stay on the main side and are reached over IPC.
+const RENDERER_ALLOWED_PACKAGES = new Set([
+  'automation',
+  'canvas',
+  'commands',
+  'composition',
+  'kernel',
+  'markers',
+  'photo-model',
+  'playback',
+  'protocol',
+  'selection',
+  'suite',
+  'ui',
+]);
+
 // `photo-model` is the one photo package the renderer may hold, so it must be
 // usable in *both* processes: importing a Node builtin there would make the
 // renderer depend on `node:fs` the moment the model is pulled in. The two
@@ -151,9 +165,20 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   engine: ['kernel', 'composition', 'protocol', 'ndi-native'],
 };
 
-// Rules reported as warning-level "refactor debt" (exit 0) until the feature
-// web is refactored, then flipped to hard errors. These are never allow-listed.
-const WARNING_RULES = new Set(['feature-isolation', 'feature-cycle']);
+// Feature edges/cycles are structural rules, not transitional exceptions.
+const NEVER_ALLOW_LISTABLE_RULES = new Set([
+  'feature-isolation',
+  'feature-cycle',
+  'context-purity',
+  'hooks-purity',
+  'renderer-shared-purity',
+  'renderer-other-purity',
+  'renderer-composition-purity',
+  'app-other-boundary',
+  'runtime-purity',
+  'renderer-package-boundary',
+  'public-entry',
+]);
 
 const RULE_TITLES = {
   'core-purity':
@@ -165,21 +190,37 @@ const RULE_TITLES = {
   'main-boundary':
     'Main is the process composition root and must not import renderer or feature code.',
   'renderer-isolation':
-    'The renderer must not import Electron, main-process modules, or the database; it reaches main only through the typed castApi IPC contract in app/core.',
+    'The renderer must not import Electron, main-process modules, or the database; it reaches main only through the typed IPC contract.',
+  'renderer-package-boundary':
+    'Renderer code may import only packages explicitly approved for Chromium; Node, native, Electron, and persistence packages stay in the main process.',
   'ui-purity':
-    'UI/rendering primitives (components, utils, types) must not import feature implementations.',
+    'UI and shared rendering primitives (components, utils, types, rendering) must not import feature implementations.',
+  'context-purity':
+    'Renderer contexts are shared state contracts and providers; they must not import feature implementations. Compose feature behavior at screens or the application root.',
+  'hooks-purity':
+    'App-wide renderer hooks must not import feature implementations; compose feature behavior in screens, shell, or the application root.',
+  'renderer-shared-purity':
+    'Shared renderer modules may be consumed by features, but must not import feature implementations.',
+  'renderer-other-purity':
+    'Unclassified renderer helpers must not import features, screens, or the shell; move composition into a declared screen, shell, or application module.',
+  'renderer-composition-purity':
+    'Reusable renderer layers (UI, contexts, hooks, and shared helpers) must not import screens or the shell; composition flows from those layers toward screens and the application root.',
+  'app-other-boundary':
+    'App-owned source must belong to an explicit architectural zone; unclassified app files cannot import from or be imported by main, data, or renderer code.',
+  'runtime-purity':
+    'Shared renderer runtime services may be consumed by contexts and features, but must not import renderer UI, state, or feature implementations.',
   'feature-isolation':
-    'A feature must not import another feature; allowed feature dependencies are directed and documented public edges only. (Currently warning-level refactor debt — flips to a hard error when the feature web is refactored.)',
+    'A feature must not import another feature; screens and the shell compose independent features.',
   'feature-cycle':
-    'Bidirectional feature dependencies are forbidden; cycles must be removed, not allow-listed. (Currently warning-level refactor debt — flips to a hard error when the feature web is refactored.)',
+    'Bidirectional feature dependencies are forbidden; cycles must be removed, not allow-listed.',
   'composition-boundary':
-    'Features must not import screens or the application shell; screens and the shell are the composition boundaries.',
+    'Features must not import screens or the application shell; screens and renderer/shell are the composition boundaries.',
   'observability-port':
     'Observability is consumed through a port; only screens, the shell, and the observability feature itself may reference it directly.',
   'engine-session':
     'Only the NDI engine-session boundaries may touch the native module or reference raw NDI host commands: apps/cast/main/ndi and packages/engine, plus Stream’s exact utility host files and main proxy. Stream’s ndi-host-runtime.ts alone may load the native module; other Stream main code may not.',
   'public-entry':
-    'Feature imports must go through the feature public entry point when one exists; deep internal imports fail.',
+    'Every feature consumed outside its own directory must expose an index.ts public entry point, and external consumers must import only from that entry point.',
   'allow-list':
     'The frozen architecture allow-list must not grow and every entry must be used.',
   'app-isolation':
@@ -209,56 +250,7 @@ const RULE_TITLES = {
 // permitted, why it exists, and who owns removing it. The checker fails if an
 // entry is no longer exercised by the tree, forcing the list to shrink.
 // ---------------------------------------------------------------------------
-const DEFAULT_ALLOW_LIST = [
-  {
-    from: 'apps/cast/renderer/components/display/lazy-scene-stage.tsx',
-    to: 'apps/cast/renderer/features/canvas/scene-stage.tsx',
-    rules: ['ui-purity'],
-    reason:
-      'SceneStage is a canvas-feature render component consumed by a shared display primitive. Extract the render-only scene layer to shared rendering so shared display components need no feature dependency.',
-    removedBy: 'shared scene-layer (plan 0.11, Atlas)',
-  },
-  {
-    from: 'apps/cast/renderer/components/form/doc-sortable-block.tsx',
-    to: 'apps/cast/renderer/features/items/lyric-text-utils.ts',
-    rules: ['ui-purity'],
-    reason:
-      'Lyric import text parsing lives in the items feature but is used by a shared doc-sortable form component. Move the parser to app/core so shared form components need no feature dependency.',
-    removedBy: 'Atlas (move lyric import parser to app/core)',
-  },
-  {
-    from: 'apps/cast/renderer/features/automation/automation-context.tsx',
-    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
-    rules: ['observability-port'],
-    reason:
-      'Automation records telemetry directly into the observability feature and crosses a feature boundary to do so. Route telemetry through an observability port before this can be removed.',
-    removedBy: 'observability port (plan 1.3, Atlas)',
-  },
-  {
-    from: 'apps/cast/renderer/contexts/app-context.tsx',
-    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
-    rules: ['observability-port'],
-    reason:
-      'App shell wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
-    removedBy: 'observability port (plan 1.3, Atlas)',
-  },
-  {
-    from: 'apps/cast/renderer/contexts/app-store.ts',
-    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
-    rules: ['observability-port'],
-    reason:
-      'The application store records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
-    removedBy: 'observability port (plan 1.3, Atlas)',
-  },
-  {
-    from: 'apps/cast/renderer/contexts/playback/playback-context.tsx',
-    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
-    rules: ['observability-port'],
-    reason:
-      'Playback wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
-    removedBy: 'observability port (plan 1.3, Atlas)',
-  },
-];
+const DEFAULT_ALLOW_LIST = [];
 
 // ---------------------------------------------------------------------------
 // Zones
@@ -275,7 +267,7 @@ const DEFAULT_ALLOW_LIST = [
 const LEGACY_APP_DIR = 'app';
 const LEGACY_APP_ID = 'root';
 
-const RENDERER_ZONES = new Set(['screens', 'shell', 'ui', 'contexts', 'hooks', 'rendererOther']);
+const RENDERER_ZONES = new Set(['screens', 'shell', 'ui', 'contexts', 'hooks', 'rendererOther', 'rendererShared', 'runtime']);
 
 function isRendererZone(zone) {
   return zone != null && (RENDERER_ZONES.has(zone) || zone.startsWith('feature:'));
@@ -349,9 +341,12 @@ function zoneOf(rel) {
     const third = p[app.dir === 'app' ? 2 : 3];
     if (third === 'features') return 'feature:' + p[app.dir === 'app' ? 3 : 4];
     if (third === 'screens') return 'screens';
-    if (third === 'components' || third === 'utils' || third === 'types') return 'ui';
+    if (third === 'shell' || third === 'application' || third === 'docks' || third === 'dialogs' || third === 'chrome') return 'shell';
+    if (third === 'components' || third === 'utils' || third === 'types' || third === 'rendering') return 'ui';
     if (third === 'contexts') return 'contexts';
     if (third === 'hooks') return 'hooks';
+    if (third === 'runtime') return 'runtime';
+    if (third === 'shared') return 'rendererShared';
     // The shell is the composition boundary, whichever extension it is written
     // in: compare the name, not the exact `.tsx` filename.
     if (['App', 'main', 'workbench-screen-router'].includes(third?.replace(/\.(ts|tsx|mjs|js|cjs)$/, ''))) {
@@ -359,218 +354,65 @@ function zoneOf(rel) {
     }
     return 'rendererOther';
   }
-  return null;
+  return 'appOther';
 }
 
 // ---------------------------------------------------------------------------
-// Tokenizer + static import/export scanner
+// Static import/export scanner
 // ---------------------------------------------------------------------------
-function tokenize(source) {
-  const tokens = [];
-  let i = 0;
-  let line = 1;
-  const n = source.length;
-  while (i < n) {
-    const c = source[i];
-    if (c === '\n') {
-      line += 1;
-      i += 1;
-      continue;
+function importedNames(clause) {
+  if (!clause) return ['*'];
+  const names = [];
+  if (clause.name) names.push('default');
+  if (clause.namedBindings) {
+    if (ts.isNamespaceImport(clause.namedBindings)) names.push('*');
+    else {
+      names.push(...clause.namedBindings.elements.map((element) => element.propertyName?.text ?? element.name.text));
     }
-    if (c === ' ' || c === '\t' || c === '\r') {
-      i += 1;
-      continue;
-    }
-    if (c === '/' && source[i + 1] === '/') {
-      while (i < n && source[i] !== '\n') i += 1;
-      continue;
-    }
-    if (c === '/' && source[i + 1] === '*') {
-      i += 2;
-      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) {
-        if (source[i] === '\n') line += 1;
-        i += 1;
-      }
-      i += 2;
-      continue;
-    }
-    if (c === "'" || c === '"') {
-      const start = i;
-      const quote = c;
-      i += 1;
-      while (i < n && source[i] !== quote) {
-        if (source[i] === '\\') i += 2;
-        else {
-          if (source[i] === '\n') line += 1;
-          i += 1;
-        }
-      }
-      i += 1;
-      tokens.push({ type: 'string', value: source.slice(start, i), line });
-      continue;
-    }
-    if (c === '`') {
-      const start = i;
-      i += 1;
-      let depth = 0;
-      while (i < n) {
-        const ch = source[i];
-        if (ch === '\\') {
-          i += 2;
-          continue;
-        }
-        if (ch === '`') {
-          if (depth === 0) {
-            i += 1;
-            break;
-          }
-          depth -= 1;
-          i += 1;
-          continue;
-        }
-        if (ch === '$' && source[i + 1] === '{') {
-          depth += 1;
-          i += 2;
-          continue;
-        }
-        if (ch === '}' && depth > 0) {
-          depth -= 1;
-          i += 1;
-          continue;
-        }
-        if (ch === '\n') line += 1;
-        i += 1;
-      }
-      tokens.push({ type: 'template', value: source.slice(start, i), line });
-      continue;
-    }
-    if (/[A-Za-z_$]/.test(c)) {
-      let j = i;
-      while (j < n && /[A-Za-z0-9_$]/.test(source[j])) j += 1;
-      tokens.push({ type: 'word', value: source.slice(i, j), line });
-      i = j;
-      continue;
-    }
-    if (/[0-9]/.test(c)) {
-      let j = i;
-      while (j < n && /[0-9A-Fa-fxXoObB._]/.test(source[j])) j += 1;
-      tokens.push({ type: 'number', value: source.slice(i, j), line });
-      i = j;
-      continue;
-    }
-    tokens.push({ type: 'punct', value: c, line });
-    i += 1;
   }
-  return tokens;
+  return names.length > 0 ? names : ['*'];
 }
 
-function findMatchingParen(tokens, openIndex) {
-  let depth = 0;
-  for (let i = openIndex; i < tokens.length; i += 1) {
-    const t = tokens[i];
-    if (t.type !== 'punct') continue;
-    if (t.value === '(') depth += 1;
-    else if (t.value === ')') {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-function collectStatement(tokens, start) {
-  const out = [];
-  for (let i = start; i < tokens.length && out.length < 400; i += 1) {
-    const t = tokens[i];
-    if (t.type === 'punct' && t.value === ';') break;
-    out.push(t);
-  }
-  return out;
-}
-
-function stripSpecifierQuotes(value) {
-  if (
-    (value.startsWith("'") && value.endsWith("'")) ||
-    (value.startsWith('"') && value.endsWith('"'))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
-}
-
-function extractNames(tokens) {
-  const clean = tokens.filter((t) => !(t.type === 'word' && (t.value === 'type' || t.value === 'default')));
-  if (clean.some((t) => t.type === 'punct' && t.value === '*')) return ['*'];
-  const openIdx = clean.findIndex((t) => t.type === 'punct' && t.value === '{');
-  const closeIdx = clean.findIndex((t) => t.type === 'punct' && t.value === '}');
-  if (openIdx >= 0 && closeIdx > openIdx) {
-    return clean
-      .slice(openIdx + 1, closeIdx)
-      .filter((t) => t.type === 'word' && t.value !== 'as')
-      .map((t) => t.value);
-  }
-  return clean.filter((t) => t.type === 'word' && t.value !== 'as').map((t) => t.value);
+function exportedNames(clause) {
+  if (!clause || ts.isNamespaceExport(clause)) return ['*'];
+  return clause.elements.map((element) => element.propertyName?.text ?? element.name.text);
 }
 
 function parseImports(source) {
-  const tokens = tokenize(source);
+  // Use the TypeScript parser rather than a handwritten tokenizer so syntax
+  // nested in template interpolation, JSX expressions, comments, and strings
+  // is distinguished by the language grammar.
+  const sourceFile = ts.createSourceFile('architecture-check.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const edges = [];
   const dynamicErrors = [];
-  for (let i = 0; i < tokens.length; i += 1) {
-    const t = tokens[i];
-    if (t.type !== 'word') continue;
-    const w = t.value;
-    if (w === 'import' || w === 'require') {
-      const next = tokens[i + 1];
-      if (next && next.type === 'punct' && next.value === '(') {
-        const closeIdx = findMatchingParen(tokens, i + 1);
-        if (closeIdx === -1) {
-          dynamicErrors.push({ kind: w, line: t.line, detail: 'unterminated call' });
-          continue;
-        }
-        const inner = tokens.slice(i + 2, closeIdx);
-        const literal = inner.length === 1 && inner[0].type === 'string' ? inner[0] : null;
-        if (literal) {
-          edges.push({ kind: w, specifier: stripSpecifierQuotes(literal.value), names: ['*'], line: t.line });
+  const lineOf = (node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  const addLiteralEdge = (kind, specifier, names, node) => {
+    edges.push({ kind, specifier: specifier.text, names, line: lineOf(node) });
+  };
+
+  const visit = (node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      addLiteralEdge('import', node.moduleSpecifier, importedNames(node.importClause), node);
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      addLiteralEdge('export', node.moduleSpecifier, exportedNames(node.exportClause), node);
+    } else if (ts.isCallExpression(node)) {
+      const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? 'import'
+        : ts.isIdentifier(node.expression) && node.expression.text === 'require'
+          ? 'require'
+          : null;
+      if (kind) {
+        const [argument, ...extraArguments] = node.arguments;
+        if (argument && ts.isStringLiteral(argument) && extraArguments.length === 0) {
+          addLiteralEdge(kind, argument, ['*'], node);
         } else {
-          dynamicErrors.push({ kind: w, line: t.line, detail: 'non-literal argument' });
+          dynamicErrors.push({ kind, line: lineOf(node), detail: 'non-literal argument' });
         }
-        i = closeIdx;
-        continue;
       }
-      if (w === 'require') continue;
-      if (next && next.type === 'string') {
-        edges.push({ kind: 'import', specifier: stripSpecifierQuotes(next.value), names: ['*'], line: t.line });
-        continue;
-      }
-      const stmt = collectStatement(tokens, i + 1);
-      const fromIdx = stmt.findIndex((tk) => tk.type === 'word' && tk.value === 'from');
-      const specTok = fromIdx >= 0 ? stmt[fromIdx + 1] : null;
-      if (specTok && specTok.type === 'string') {
-        edges.push({
-          kind: 'import',
-          specifier: stripSpecifierQuotes(specTok.value),
-          names: extractNames(stmt.slice(0, fromIdx)),
-          line: t.line,
-        });
-      }
-      continue;
     }
-    if (w === 'export') {
-      const stmt = collectStatement(tokens, i + 1);
-      const fromIdx = stmt.findIndex((tk) => tk.type === 'word' && tk.value === 'from');
-      const specTok = fromIdx >= 0 ? stmt[fromIdx + 1] : null;
-      if (specTok && specTok.type === 'string') {
-        edges.push({
-          kind: 'export',
-          specifier: stripSpecifierQuotes(specTok.value),
-          names: extractNames(stmt.slice(0, fromIdx)),
-          line: t.line,
-        });
-      }
-      continue;
-    }
-  }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
   return { edges, dynamicErrors };
 }
 
@@ -609,6 +451,13 @@ function bannedPhotoPackageName(res, toZone, specifier) {
   if (!name) return null;
   const pkg = name.slice("@lumacast/".length);
   return PHOTO_RENDERER_BANNED_PACKAGES.has(pkg) ? pkg : null;
+}
+
+function rendererPackageName(res, toZone, specifier) {
+  if (toZone?.startsWith('pkg:')) return toZone.slice(4);
+  if (res.type !== 'external' && res.type !== 'unresolved' && res.type !== 'app-module') return null;
+  const packageName = packageNameOf(specifier);
+  return packageName.startsWith('@lumacast/') ? packageName.slice('@lumacast/'.length) : null;
 }
 
 // Classifies a bare specifier by its package name, so a subpath import such as
@@ -965,6 +814,14 @@ export function check(options = {}) {
 
     const add = (rule, detail) => violations.push({ rule, from: fromRel, line, to: toRel ?? e.specifier, detail });
 
+    const namedRendererPackage = rendererPackageName(res, toZone, e.specifier);
+    if (isRendererZone(fromZone) && namedRendererPackage && !RENDERER_ALLOWED_PACKAGES.has(namedRendererPackage)) {
+      add(
+        'renderer-package-boundary',
+        `imports @lumacast/${namedRendererPackage}, which is not approved for Chromium; renderer-safe packages are ${[...RENDERER_ALLOWED_PACKAGES].map((name) => `@lumacast/${name}`).join(', ')}`,
+      );
+    }
+
     // Two rules have to see a specifier that does not resolve to a file — the
     // `continue`s below for an app-module and an external specifier would
     // otherwise skip them — so both run first and judge the package a specifier
@@ -1125,12 +982,47 @@ export function check(options = {}) {
     if ((fromZone === 'main' || fromZone === 'mainNdi') && isRendererZone(toZone)) {
       add('main-boundary', `imports renderer code ${toRel}`);
     }
+    if (
+      fromApp && fromApp === toApp &&
+      ((fromZone === 'appOther' && toZone !== 'appOther') || (toZone === 'appOther' && fromZone !== 'appOther'))
+    ) {
+      add('app-other-boundary', `crosses into or out of unclassified app code ${toRel}`);
+    }
     if (isRendererZone(fromZone)) {
       if (toZone === 'main' || toZone === 'mainNdi') add('renderer-isolation', `imports main-process code ${toRel}`);
       if (toZone === 'data') add('renderer-isolation', `imports database code ${toRel}`);
     }
     if (fromZone === 'ui' && toZone?.startsWith('feature:')) {
       add('ui-purity', `imports feature code ${toRel}`);
+    }
+    if (fromZone === 'contexts' && toZone?.startsWith('feature:') && fromApp === toApp) {
+      add('context-purity', `imports feature code ${toRel}`);
+    }
+    if (fromZone === 'hooks' && toZone?.startsWith('feature:') && fromApp === toApp) {
+      add('hooks-purity', `imports feature code ${toRel}`);
+    }
+    if (
+      fromZone === 'rendererShared' && toZone?.startsWith('feature:') && fromApp === toApp
+    ) {
+      add('renderer-shared-purity', `imports feature code ${toRel}`);
+    }
+    if (
+      fromZone === 'rendererOther' && fromApp === toApp &&
+      (toZone?.startsWith('feature:') || toZone === 'screens' || toZone === 'shell')
+    ) {
+      add('renderer-other-purity', `imports composition code ${toRel}`);
+    }
+    if (
+      (fromZone === 'ui' || fromZone === 'contexts' || fromZone === 'hooks' || fromZone === 'rendererShared') &&
+      fromApp === toApp && (toZone === 'screens' || toZone === 'shell')
+    ) {
+      add('renderer-composition-purity', `imports composition code ${toRel}`);
+    }
+    if (
+      fromZone === 'runtime' && fromApp === toApp &&
+      (toZone === 'contexts' || toZone === 'hooks' || toZone === 'ui' || toZone === 'screens' || toZone === 'shell' || toZone === 'rendererOther' || toZone?.startsWith('feature:'))
+    ) {
+      add('runtime-purity', `imports renderer state, UI, or feature code ${toRel}`);
     }
     if (fromZone?.startsWith('feature:') && toZone?.startsWith('feature:') && fromFeature !== toFeature) {
       add('feature-isolation', `imports another feature ${toRel}`);
@@ -1139,7 +1031,7 @@ export function check(options = {}) {
       add('composition-boundary', `imports composition code ${toRel}`);
     }
     // Observability is consumed through a port: within one app, only screens,
-    // the shell, and the observability feature itself may reference it. A
+    // shell/application composition and the observability feature may reference it. A
     // cross-app reference is app-isolation, not a port problem.
     if (toApp && toApp === fromApp) {
       const appPrefix = appPrefixOf(toRel);
@@ -1148,7 +1040,8 @@ export function check(options = {}) {
         toRel.startsWith(observabilityPrefix) &&
         !fromRel.startsWith(observabilityPrefix) &&
         fromZone !== 'screens' &&
-        fromZone !== 'shell'
+        fromZone !== 'shell' &&
+        fromZone !== 'application'
       ) {
         add('observability-port', `imports observability implementation ${toRel} outside a port`);
       }
@@ -1167,15 +1060,13 @@ export function check(options = {}) {
         add('engine-session', `references raw NDI host commands (${cmdNames.join(', ')}) outside the NDI engine-session boundary`);
       }
     }
-    if (toZone?.startsWith('feature:') && toApp === fromApp) {
+    if (toZone?.startsWith('feature:') && toApp === fromApp && !fromZone?.startsWith('feature:')) {
       const featurePrefix = `${appPrefixOf(toRel)}/renderer/features/` + toFeature;
       const hasIndex = publicIndexes.has(featurePrefix);
-      if (
-        hasIndex &&
-        toRel !== featurePrefix + '/index.ts' &&
-        toRel !== featurePrefix + '/index.tsx' &&
-        !fromRel.startsWith(featurePrefix + '/')
-      ) {
+      const isPublicEntry = toRel === featurePrefix + '/index.ts' || toRel === featurePrefix + '/index.tsx';
+      if (!hasIndex) {
+        add('public-entry', `consumes feature ${toFeature} without its required public entry point ${featurePrefix}/index.ts`);
+      } else if (!isPublicEntry) {
         add('public-entry', `deep import into feature ${toRel} bypasses its public entry point ${featurePrefix}/index.ts`);
       }
     }
@@ -1239,15 +1130,10 @@ export function check(options = {}) {
   }
 
   const used = new Set();
-  const warnings = [];
   for (const v of violations) {
-    if (WARNING_RULES.has(v.rule)) {
-      const note =
-        v.rule === 'feature-cycle'
-          ? 'Bidirectional feature dependencies must be removed, not allow-listed. Land after refactor; these edges cannot be allow-listed.'
-          : 'Cross-feature imports are reported but do not fail the check. Resolve the feature web before this can become a hard error. Land after refactor; do NOT allow-list this edge.';
-      warnings.push(
-        `${v.from}:${v.line} [${v.rule}] ${v.detail}\n    ${RULE_TITLES[v.rule]}\n    Refactor debt (warn-only): ${note}`,
+    if (NEVER_ALLOW_LISTABLE_RULES.has(v.rule)) {
+      errors.push(
+        `${v.from}:${v.line} [${v.rule}] ${v.detail}\n    ${RULE_TITLES[v.rule]}\n    Feature boundaries and cycles cannot be covered by the frozen allow-list.`,
       );
       continue;
     }
@@ -1268,7 +1154,7 @@ export function check(options = {}) {
   }
 
   stats.exceptionsUsed = used.size;
-  return { ok: errors.length === 0, errors, warnings, stats, violations, used };
+  return { ok: errors.length === 0, errors, stats, violations, used };
 }
 
 // ---------------------------------------------------------------------------
@@ -1284,13 +1170,9 @@ function main() {
   const rootDir = rootArg >= 0 && args[rootArg + 1] ? path.resolve(args[rootArg + 1]) : REPO_ROOT;
   const result = check({ rootDir });
   for (const e of result.errors) console.error(`${e}\n`);
-  if (result.warnings.length > 0) {
-    console.error(`\n${result.warnings.length} refactor-debt warning(s) (reported, not failures — flip to hard errors once the feature web is refactored):\n`);
-    for (const w of result.warnings) console.error(`${w}\n`);
-  }
   if (result.ok) {
     console.log(
-      `Monorepo architecture check passed (${result.stats.apps} app(s), ${result.stats.files} files, ${result.stats.edges} import edges, ${result.stats.exceptionsUsed} frozen allow-list exceptions in use, ${result.warnings.length} warning(s)).`,
+      `Monorepo architecture check passed (${result.stats.apps} app(s), ${result.stats.files} files, ${result.stats.edges} import edges, ${result.stats.exceptionsUsed} frozen allow-list exceptions in use).`,
     );
   } else {
     console.error(`Monorepo architecture check failed with ${result.errors.length} problem(s).`);
@@ -1315,14 +1197,120 @@ function runSelfTests() {
         'composition-boundary',
         'observability-port',
         'engine-session',
+        'context-purity',
+        'public-entry',
+        'feature-isolation',
       ],
-      warnRules: ['feature-isolation'],
       dynamic: true,
     }),
-    scenario('cycle', 'scenarios/cycle', 'pass', { warnRules: ['feature-cycle'] }),
+    scenario('cycle', 'scenarios/cycle', 'fail', { rules: ['feature-isolation', 'feature-cycle'] }),
+    scenario('feature-edge-not-allow-listable', 'scenarios/cycle', 'fail', {
+      rules: ['feature-isolation', 'feature-cycle'],
+      allowList: [
+        {
+          from: 'app/renderer/features/a/a.ts',
+          to: 'app/renderer/features/b/b.ts',
+          rules: ['feature-isolation'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
+    }),
+    scenario('renderer-shell-boundary', 'scenarios/renderer-shell-boundary', 'fail', {
+      rules: ['composition-boundary'],
+    }),
+    scenario('renderer-application-boundary', 'scenarios/renderer-application-boundary', 'fail', {
+      rules: ['composition-boundary'],
+    }),
+    scenario('renderer-rendering-boundary', 'scenarios/renderer-rendering-boundary', 'fail', {
+      rules: ['ui-purity'],
+    }),
+    scenario('renderer-hook-boundary', 'scenarios/renderer-hook-boundary', 'fail', {
+      rules: ['hooks-purity'],
+    }),
+    scenario('hook-edge-not-allow-listable', 'scenarios/renderer-hook-boundary', 'fail', {
+      rules: ['hooks-purity'],
+      allowList: [
+        {
+          from: 'app/renderer/hooks/use-shortcuts.ts',
+          to: 'app/renderer/features/items/index.ts',
+          rules: ['hooks-purity'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
+    }),
+    scenario('renderer-shared-boundary', 'scenarios/renderer-shared-boundary', 'fail', {
+      rules: ['renderer-shared-purity'],
+    }),
+    scenario('renderer-other-boundary', 'scenarios/renderer-other-boundary', 'fail', {
+      rules: ['renderer-other-purity'],
+    }),
+    scenario('renderer-composition-boundary', 'scenarios/renderer-composition-boundary', 'fail', {
+      rules: ['renderer-composition-purity'],
+    }),
+    scenario('unclassified-app-boundary', 'scenarios/unclassified-app-boundary', 'fail', {
+      rules: ['app-other-boundary'],
+    }),
+    scenario('shared-renderer-edge-not-allow-listable', 'scenarios/renderer-shared-boundary', 'fail', {
+      rules: ['renderer-shared-purity'],
+      allowList: [
+        {
+          from: 'app/renderer/shared/source-factory.ts',
+          to: 'app/renderer/features/capture/index.ts',
+          rules: ['renderer-shared-purity'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
+    }),
+    scenario('renderer-runtime-boundary', 'scenarios/renderer-runtime-boundary', 'fail', {
+      rules: ['runtime-purity'],
+    }),
+    scenario('runtime-edge-not-allow-listable', 'scenarios/renderer-runtime-boundary', 'fail', {
+      rules: ['runtime-purity'],
+      allowList: [
+        {
+          from: 'app/renderer/runtime/audio-runtime.ts',
+          to: 'app/renderer/contexts/app-context.ts',
+          rules: ['runtime-purity'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
+    }),
+    scenario('renderer-context-boundary', 'scenarios/renderer-context-boundary', 'fail', {
+      rules: ['context-purity'],
+    }),
+    scenario('context-edge-not-allow-listable', 'scenarios/renderer-context-boundary', 'fail', {
+      rules: ['context-purity'],
+      allowList: [
+        {
+          from: 'app/renderer/contexts/slide-context.ts',
+          to: 'app/renderer/features/automation/events.ts',
+          rules: ['context-purity'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
+    }),
     scenario('mixed/cycle-and-hard', 'scenarios/mixed/cycle-and-hard', 'fail', {
-      rules: ['renderer-isolation'],
-      warnRules: ['feature-cycle'],
+      rules: ['renderer-isolation', 'feature-isolation', 'feature-cycle'],
+    }),
+    scenario('feature-public-entry-required', 'scenarios/feature-public-entry-required', 'fail', {
+      rules: ['public-entry'],
+    }),
+    scenario('missing-feature-entry-not-allow-listable', 'scenarios/feature-public-entry-required', 'fail', {
+      rules: ['public-entry'],
+      allowList: [
+        {
+          from: 'app/renderer/screens/dinner/page.tsx',
+          to: 'app/renderer/features/kitchen/knife.tsx',
+          rules: ['public-entry'],
+          reason: 'fixture',
+          removedBy: 'fixture',
+        },
+      ],
     }),
     scenario('public-entry', 'scenarios/public-entry', 'fail', { rules: ['public-entry'] }),
     // Proves a permitted core -> contracts edge stays clean while a forbidden
@@ -1331,9 +1319,9 @@ function runSelfTests() {
     scenario('allowlist/covered', 'scenarios/allowlist/covered', 'pass', {
       allowList: [
         {
-          from: 'app/renderer/contexts/app-context.tsx',
-          to: 'app/renderer/features/observability/metrics-store.ts',
-          rules: ['observability-port'],
+          from: 'app/renderer/shell/main-boundary-consumer.ts',
+          to: 'app/main/menu.ts',
+          rules: ['renderer-isolation'],
           reason: 'fixture',
           removedBy: 'fixture',
         },
@@ -1370,6 +1358,13 @@ function runSelfTests() {
     }),
     scenario('packages/headless-purity', 'scenarios/packages/headless-purity', 'fail', {
       rules: ['package-purity'],
+    }),
+    scenario('renderer-package-boundary', 'scenarios/renderer-package-boundary', 'fail', {
+      rules: ['renderer-package-boundary'],
+    }),
+    scenario('renderer-packages-allowed', 'scenarios/renderer-packages-allowed', 'pass'),
+    scenario('renderer-template-interpolation', 'scenarios/renderer-template-interpolation', 'fail', {
+      rules: ['renderer-isolation'],
     }),
     // canvas is the sole react/konva-allowed package (issue #219, W9).
     scenario('packages/canvas-react-allowed', 'scenarios/packages/canvas-react-allowed', 'pass'),
@@ -1449,11 +1444,11 @@ function runSelfTests() {
     }),
     // Feature graphs are per app: opposite one-way edges in two apps are not a
     // cycle, while a genuine cycle inside one app still is.
-    scenario('monorepo/feature-graph-per-app', 'scenarios/monorepo/feature-graph-per-app', 'pass', {
-      warnRules: ['feature-isolation'],
+    scenario('monorepo/feature-graph-per-app', 'scenarios/monorepo/feature-graph-per-app', 'fail', {
+      rules: ['feature-isolation'],
     }),
-    scenario('monorepo/feature-cycle-same-app', 'scenarios/monorepo/feature-cycle-same-app', 'pass', {
-      warnRules: ['feature-cycle'],
+    scenario('monorepo/feature-cycle-same-app', 'scenarios/monorepo/feature-cycle-same-app', 'fail', {
+      rules: ['feature-isolation', 'feature-cycle'],
     }),
     // @lumacast/ui: React allowed, Konva/Electron banned, kernel-only
     // direction, and a stylesheet public only through its export map.
@@ -1548,19 +1543,27 @@ function runSelfTests() {
   let failed = 0;
   for (const s of scenarios) {
     const root = path.join(FIXTURES_ROOT, s.dir);
+    if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) {
+      failed += 1;
+      console.error(`FAIL ${s.name}: missing fixture directory ${root}`);
+      continue;
+    }
+    if (walkFiles(root, root).filter((file) => !isTestFile(file)).length === 0) {
+      failed += 1;
+      console.error(`FAIL ${s.name}: fixture directory contains no source files ${root}`);
+      continue;
+    }
     const result = check({ rootDir: root, allowList: s.allowList ?? [] });
     const expectOk = s.expect === 'pass';
     const ok = result.ok === expectOk;
     const rulesOk = (s.rules ?? []).every((r) => result.errors.some((m) => m.includes(`[${r}]`)));
-    const warnRulesOk = (s.warnRules ?? []).every((r) => result.warnings.some((m) => m.includes(`[${r}]`)));
     const dynamicOk = !s.dynamic || result.errors.some((m) => m.includes('unsupported dynamic'));
-    if (ok && rulesOk && warnRulesOk && dynamicOk) {
+    if (ok && rulesOk && dynamicOk) {
       console.log(`ok   ${s.name}`);
     } else {
       failed += 1;
-      console.error(`FAIL ${s.name}: expected=${s.expect} rules=[${(s.rules ?? []).join(',')}] warnRules=[${(s.warnRules ?? []).join(',')}] dynamic=${!!s.dynamic}`);
+      console.error(`FAIL ${s.name}: expected=${s.expect} rules=[${(s.rules ?? []).join(',')}] dynamic=${!!s.dynamic}`);
       for (const e of result.errors) console.error(`  err:   ${e.split('\n')[0]}`);
-      for (const w of result.warnings) console.error(`  warn:  ${w.split('\n')[0]}`);
     }
   }
   if (failed === 0) {

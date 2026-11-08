@@ -1,3 +1,3 @@
-import { cloudScene } from '@renderer/features/canvas/scene';
+import { cloudScene } from '@renderer/features/canvas';
 
 export const home = cloudScene;
