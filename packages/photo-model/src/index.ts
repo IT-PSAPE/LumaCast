@@ -5,6 +5,7 @@ export {
   isRawFile,
 } from './formats.js';
 export { lensProfileSchema, type LensProfile } from './lens-profile.js';
+export type { PhotoAnalysis, AutoToneSuggestion } from './analysis.js';
 export {
   adjustmentControls,
   cropSchema,

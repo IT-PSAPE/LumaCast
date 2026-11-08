@@ -17,7 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { resolveActionIds, resolveSelection } from "@lumacast/selection";
-import type { AppState, Photo, Recipe } from "@lumacast/photo-model";
+import type { Photo, Recipe } from "@lumacast/photo-model";
 import type { DesktopAPI } from "../shared/desktop-api";
 import { adjustmentControls } from "@lumacast/photo-model";
 import {
@@ -30,6 +30,7 @@ import {
   SegmentedControl,
   Select,
   Slider,
+  Spinner,
   StatusBar,
   TextField,
   Toolbar,
@@ -43,6 +44,7 @@ import { Viewer } from "./Viewer";
 import { PhotoFilmstrip } from "./PhotoFilmstrip";
 import { AgentDialog, ExportDialog } from "./Dialogs";
 import type { AppCommand } from "../shared/app-command";
+import { usePhotoCatalog } from "./hooks/use-photo-catalog";
 import { recipeForPhoto, type PhotoDraft } from "./photo-draft";
 import { isTypingTarget, primaryShortcutLabel, resolveShortcut } from "./shortcuts";
 declare global {
@@ -51,9 +53,8 @@ declare global {
   }
 }
 const api = window.lumaflux;
-const empty: AppState = { photos: [], selection: [], jobs: [], activity: [] };
 export function App() {
-  const [state, setState] = useState<AppState>(empty);
+  const { state, status: catalogStatus, error: catalogError, refresh, run, getSnapshot } = usePhotoCatalog(api);
   const confirm = useConfirm();
   const [activeId, setActiveId] = useState<string>();
   const activeIdRef = useRef(activeId);
@@ -118,32 +119,11 @@ export function App() {
   const importPendingRef = useRef(false);
   const metadataPendingRef = useRef(false);
   const relinkPendingRef = useRef(false);
-  const localCommandsRef = useRef(0);
   const [minRating, setMinRating] = useState(0);
-  const [ready, setReady] = useState(false);
   const selectionRef = useRef<string[]>(state.selection);
   const selectionAnchorRef = useRef<string | null>(null);
   const expectedSelectionRef = useRef<string[] | null>(null);
   const selectionIntentRef = useRef(0);
-  const refreshSequenceRef = useRef(0);
-  const refresh = useCallback(async () => {
-    const sequence = ++refreshSequenceRef.current;
-    const next = (await api.command("get_app_state")) as AppState;
-    if (sequence === refreshSequenceRef.current) {
-      setState(next);
-      setReady(true);
-    }
-    return next;
-  }, []);
-  useEffect(() => {
-    refresh().catch((e) => setNotice(e.message));
-    return api.onChange(() => {
-      // Local commands refresh after completion; avoid transferring the full
-      // catalog twice for the same mutation. External updates still refresh.
-      if (localCommandsRef.current > 0) return;
-      refresh().catch((e) => setNotice(e.message));
-    });
-  }, [refresh]);
   useEffect(() => {
     const expected = expectedSelectionRef.current;
     const matchesExpected = expected !== null && expected.length === state.selection.length &&
@@ -156,15 +136,6 @@ export function App() {
     }
     selectionRef.current = state.selection;
   }, [state.selection]);
-  const run = async (name: string, args?: unknown) => {
-    localCommandsRef.current++;
-    try {
-      return await api.command(name, args);
-    } finally {
-      localCommandsRef.current--;
-      await refresh().catch((e) => setNotice((e as Error).message));
-    }
-  };
   const safe = async (fn: () => Promise<unknown>) => {
     try {
       await fn();
@@ -250,10 +221,13 @@ export function App() {
         await run("set_selection", { ids: nextIds });
       } catch (error) {
         if (intent === selectionIntentRef.current) {
-          const latest = await refresh().catch(() => state);
-          selectionRef.current = latest.selection;
-          selectionAnchorRef.current = null;
-          expectedSelectionRef.current = null;
+          await refresh().catch(() => {});
+          const latest = getSnapshot();
+          if (intent === selectionIntentRef.current && latest) {
+            selectionRef.current = latest.selection;
+            selectionAnchorRef.current = null;
+            expectedSelectionRef.current = null;
+          }
         }
         throw error;
       }
@@ -375,7 +349,7 @@ export function App() {
         setMinRating(0);
       }
       setNotice(
-        `${result.imported.length} photo(s) imported.${result.errors.length ? " " + result.errors.map((e: any) => `${e.path.split("/").pop()}: ${e.message}`).join("\n") : ""}`,
+        `${result.imported.length} photo(s) imported.${result.errors.length ? " " + result.errors.map((e) => `${e.path.split("/").pop()}: ${e.message}`).join("\n") : ""}`,
       );
     } finally {
       importPendingRef.current = false;
@@ -404,7 +378,7 @@ export function App() {
       });
     } catch (e) {
       setNotice((e as Error).message);
-      await refresh();
+      await refresh().catch(() => {});
     } finally {
       setDraft((current) => (current?.photoId === photoId ? null : current));
       endWork();
@@ -437,9 +411,9 @@ export function App() {
         });
         setNotice(
           [
-            result.message ??
+            'message' in result ? result.message :
               "Auto light adjustments applied. Review the result with Compare.",
-            ...(result.warnings ?? []),
+            ...result.warnings,
           ].join(" "),
         );
       } finally {
@@ -497,6 +471,9 @@ export function App() {
         endWork();
       }
       return;
+    }
+    if (name !== "undo" && name !== "redo" && name !== "reset_edits") {
+      throw new Error(`UNKNOWN_COMMAND: ${name}`);
     }
     beginWork();
     try {
@@ -734,11 +711,34 @@ export function App() {
           </>
         )}
         <main className="main-area">
-          {section === "jobs" ? (
+          {catalogStatus === "ready" && catalogError ? (
+            <div className="shrink-0 p-2">
+              <Banner
+                tone="error"
+                action={<ReacstButton variant="ghost" aria-label="Retry library" onClick={() => void refresh().catch(() => {})}>Retry</ReacstButton>}
+              >
+                {catalogError}
+              </Banner>
+            </div>
+          ) : null}
+          {catalogStatus === "loading" ? (
+            <EmptyState.Root role="status">
+              <EmptyState.Icon><Spinner /></EmptyState.Icon>
+              <EmptyState.Title>Loading library…</EmptyState.Title>
+            </EmptyState.Root>
+          ) : catalogStatus === "error" ? (
+            <EmptyState.Root role="alert">
+              <EmptyState.Title>Could not open the library</EmptyState.Title>
+              <EmptyState.Description>{catalogError}</EmptyState.Description>
+              <EmptyState.Action>
+                <ReacstButton aria-label="Retry library" onClick={() => void refresh().catch(() => {})}>Retry</ReacstButton>
+              </EmptyState.Action>
+            </EmptyState.Root>
+          ) : section === "jobs" ? (
             <div className="jobs-view">
               <h1>Exports</h1>
               <p className="muted">
-                Edited copies and batch progress from this session.
+                Recent edited copies and batch progress from this session.
               </p>
               {!state.jobs.length && (
                 <p className="empty-jobs">
@@ -1119,7 +1119,7 @@ export function App() {
       <StatusBar label="Flux status">
         <StatusBar.Start>
           <StatusBar.Item busy={busy} live>
-            {busy ? "Working…" : ready ? "Ready" : "Opening library…"}
+            {busy ? "Working…" : catalogStatus === "ready" ? "Ready" : catalogStatus === "error" ? "Library unavailable" : "Opening library…"}
           </StatusBar.Item>
         </StatusBar.Start>
         <StatusBar.End>

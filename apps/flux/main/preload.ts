@@ -12,7 +12,7 @@ import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS, MENU_COMMAND_CHANNEL } from './ip
 // implementation behind it is new.
 const api: DesktopAPI = {
   platform: process.platform,
-  command: (name, args) => ipcRenderer.invoke(IPC_CHANNELS.command, name, args),
+  command: (...request) => ipcRenderer.invoke(IPC_CHANNELS.command, request[0], request[1]),
   chooseImport: (folder) => ipcRenderer.invoke(IPC_CHANNELS.chooseImport, folder),
   chooseDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory),
   chooseRelink: () => ipcRenderer.invoke(IPC_CHANNELS.chooseRelink),

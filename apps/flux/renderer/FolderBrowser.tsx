@@ -1,12 +1,7 @@
 import { useRef, useState } from "react";
 import { FolderOpen, ChevronUp, FileImage } from "lucide-react";
 import { ListRow, ReacstButton } from "@lumacast/ui";
-type Listing = {
-  path: string;
-  parent: string;
-  folders: { name: string; path: string }[];
-  files: { name: string; path: string }[];
-};
+import type { FolderListing } from "../shared/photo-command";
 export function FolderBrowser({
   onImport,
   onError,
@@ -14,7 +9,7 @@ export function FolderBrowser({
   onImport: (paths: string[]) => Promise<unknown>;
   onError: (message: string) => void;
 }) {
-  const [listing, setListing] = useState<Listing | null>(null),
+  const [listing, setListing] = useState<FolderListing | null>(null),
     [loading, setLoading] = useState(false);
   const pending = useRef(false);
   async function perform(operation: () => Promise<void>) {

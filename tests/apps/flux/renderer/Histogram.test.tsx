@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { neutralRecipe, type Photo } from "@lumacast/photo-model";
 import { Histogram } from "../../../../apps/flux/renderer/Histogram";
 import { histogram } from "../../../../apps/flux/renderer/histogram-data";
 
@@ -44,4 +45,69 @@ it("retains channel-specific clipping colours and toggles", () => {
   expect(onClipping).toHaveBeenCalledWith("shadows");
   fireEvent.click(highlight);
   expect(onClipping).toHaveBeenCalledWith("highlights");
+});
+
+it("keeps the active histogram zone focused while work blocks conflicting edits", () => {
+  const photo: Photo = {
+    id: "photo-1",
+    path: "/photos/a.jpg",
+    name: "a.jpg",
+    folder: "/photos",
+    width: 24,
+    height: 16,
+    format: "jpeg",
+    size: 100,
+    importedAt: "2026-01-01T00:00:00.000Z",
+    modifiedAt: "2026-01-01T00:00:00.000Z",
+    rating: 0,
+    favorite: false,
+    recipe: neutralRecipe(),
+    revision: 4,
+    history: [],
+    future: [],
+  };
+  const onCommit = vi.fn();
+  const onDraft = vi.fn();
+  const props = {
+    data: histogram(new Uint8ClampedArray([100, 100, 100, 255])),
+    sample: null,
+    photo,
+    recipe: photo.recipe,
+    busy: false,
+    onDraft,
+    onCommit,
+    clipping: { shadows: false, highlights: false },
+    onClipping: vi.fn(),
+    onHover: vi.fn(),
+  };
+  const view = render(<Histogram {...props} />);
+  const exposure = screen.getByRole("slider", { name: "Histogram Exposure" });
+  act(() => exposure.focus());
+  fireEvent.keyDown(exposure, { key: "ArrowRight" });
+  expect(onCommit).toHaveBeenCalledWith({ exposure: 0.05 }, 4, "photo-1");
+
+  view.rerender(<Histogram {...props} busy />);
+  expect(exposure).toHaveFocus();
+  expect(exposure).not.toBeDisabled();
+  expect(exposure).toHaveAttribute("aria-disabled", "true");
+  fireEvent.keyDown(exposure, { key: "ArrowRight" });
+  fireEvent.doubleClick(exposure);
+  fireEvent.pointerDown(exposure, { button: 0, pointerId: 1, clientX: 10 });
+  fireEvent.pointerMove(exposure, { pointerId: 1, clientX: 30 });
+  fireEvent.pointerUp(exposure, { pointerId: 1, clientX: 30 });
+  expect(onCommit).toHaveBeenCalledTimes(1);
+  expect(onDraft).not.toHaveBeenCalled();
+
+  const nextPhoto = {
+    ...photo,
+    recipe: { ...photo.recipe, exposure: 0.05 },
+    revision: 5,
+  };
+  view.rerender(<Histogram {...props} photo={nextPhoto} recipe={nextPhoto.recipe} />);
+  fireEvent.keyDown(exposure, { key: "ArrowRight" });
+  expect(onCommit).toHaveBeenLastCalledWith({ exposure: 0.1 }, 5, "photo-1");
+  expect(exposure).toHaveFocus();
+
+  view.rerender(<Histogram {...props} data={null} />);
+  expect(exposure).toBeDisabled();
 });

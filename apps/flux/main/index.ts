@@ -363,9 +363,7 @@ if (!app.requestSingleInstanceLock()) {
     jobChangeNotifier?.dispose();
     void (async () => {
       try {
-        for (const job of commands?.service.jobs ?? []) {
-          if (job.status === 'queued' || job.status === 'running') commands?.exports.cancel(job.id);
-        }
+        commands?.exports.cancelAll();
         await settingsTail;
         await mcp?.close();
         await pool?.close();

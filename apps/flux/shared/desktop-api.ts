@@ -10,11 +10,12 @@
 // @lumacast/photo-model, which is renderer-safe by construction.
 import type { AgentSettings, Recipe } from '@lumacast/photo-model';
 import type { AppCommand } from './app-command';
+import type { PhotoCommand } from './photo-command';
 
 export interface DesktopAPI {
   /** `process.platform`, for platform-correct shortcut labels. */
   platform: string;
-  command: (name: string, args?: unknown) => Promise<any>;
+  command: PhotoCommand;
   chooseImport: (folder?: boolean) => Promise<string[]>;
   chooseDirectory: () => Promise<string | null>;
   chooseRelink: () => Promise<string | null>;

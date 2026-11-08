@@ -247,8 +247,8 @@ h3 {
  * it adds only the closing gap. */
 .panel-help {
   padding: 0 0 var(--space-2);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 .adjustment {
   margin: var(--space-1) 0 var(--space-1);
@@ -300,8 +300,8 @@ h3 {
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
   gap: var(--space-1) var(--space-2);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
 }
 .metadata > div {
   display: contents;
@@ -322,7 +322,8 @@ h3 {
 .zoom-label {
   min-width: 35px;
   text-align: center;
-  font-size: 10px;
+  font-size: var(--text-annotation);
+  line-height: var(--text-annotation--line-height);
   color: var(--text-color-tertiary);
   font-variant-numeric: tabular-nums;
 }

@@ -1,17 +1,19 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ConfirmProvider, OverlayStackProvider } from '@lumacast/ui';
 import { neutralRecipe, type AppState, type Photo } from '@lumacast/photo-model';
 import type { DesktopAPI } from '../../../../apps/flux/shared/desktop-api';
 import type { AppCommand } from '../../../../apps/flux/shared/app-command';
+import type { PhotoCommandMap, PhotoCommandResult } from '../../../../apps/flux/shared/photo-command';
 
 let appState: AppState;
 let getAppStateOverride: (() => Promise<AppState>) | undefined;
 let onChangeListener: (() => void) | undefined;
 let menuCommandListener: ((command: AppCommand) => void) | undefined;
-let applyEditsOverride: ((args: any) => Promise<unknown>) | undefined;
-let updatePhotosMetadataOverride: ((args: any) => Promise<unknown>) | undefined;
-let importPhotosOverride: ((args: any) => Promise<{ imported: string[]; errors: any[] }>) | undefined;
+let applyEditsOverride: ((args: PhotoCommandMap['apply_edits']['args']) => Promise<PhotoCommandResult<'apply_edits'>>) | undefined;
+let updatePhotosMetadataOverride: ((args: PhotoCommandMap['update_photos_metadata']['args']) => Promise<PhotoCommandResult<'update_photos_metadata'>>) | undefined;
+let importPhotosOverride: ((args: PhotoCommandMap['import_photos']['args']) => Promise<PhotoCommandResult<'import_photos'>>) | undefined;
+let setSelectionOverride: ((args: PhotoCommandMap['set_selection']['args']) => Promise<void>) | undefined;
 const command = vi.fn(async (name: string, args?: any) => {
   if (name === 'get_app_state') {
     return getAppStateOverride
@@ -19,9 +21,10 @@ const command = vi.fn(async (name: string, args?: any) => {
       : structuredClone(appState);
   }
   if (name === 'set_selection') {
+    if (setSelectionOverride) return setSelectionOverride(args);
     appState.selection = [...args.ids];
     onChangeListener?.();
-    return appState.selection;
+    return;
   }
   if (name === 'remove_photos_from_library') {
     const ids = new Set<string>(args.ids);
@@ -53,9 +56,12 @@ const command = vi.fn(async (name: string, args?: any) => {
     photo.recipe = { ...photo.recipe, ...args.patch };
     photo.revision++;
     onChangeListener?.();
-    return photo;
+    return [{ id: photo.id, revision: photo.revision }];
   }
-  if (name === 'export_photos') return { id: 'job-1' };
+  if (name === 'export_photos') return {
+    id: 'job-1', status: 'queued', total: args.ids.length, done: 0,
+    outputs: [], errors: [], createdAt: '2026-10-01T00:00:00.000Z',
+  };
   throw new Error(`Unexpected command: ${name}`);
 });
 const api: DesktopAPI = {
@@ -115,6 +121,7 @@ afterEach(() => {
   applyEditsOverride = undefined;
   updatePhotosMetadataOverride = undefined;
   importPhotosOverride = undefined;
+  setSelectionOverride = undefined;
   onChangeListener = undefined;
   menuCommandListener = undefined;
   vi.mocked(api.chooseImport).mockClear();
@@ -142,6 +149,193 @@ async function chooseMinimumRating(label: string) {
 }
 
 describe('Lumaflux photo selection', () => {
+  it('shows loading within the app shell until the first snapshot arrives', async () => {
+    let finishLoading!: (value: AppState) => void;
+    getAppStateOverride = () => new Promise((resolve) => { finishLoading = resolve; });
+    renderApp();
+    expect(screen.getByText('Lumaflux')).toBeInTheDocument();
+    expect(screen.getByText('Loading library…')).toBeInTheDocument();
+    expect(screen.queryByText('A little room for your photos.')).not.toBeInTheDocument();
+    await act(async () => finishLoading({ photos: [], selection: [], jobs: [], activity: [] }));
+    expect(screen.getByText('A little room for your photos.')).toBeInTheDocument();
+    expect(screen.queryByText('Loading library…')).not.toBeInTheDocument();
+  });
+
+  it('shows library startup recovery instead of empty-library onboarding after a failed read', async () => {
+    appState = { photos: [], selection: [], jobs: [], activity: [] };
+    getAppStateOverride = async () => { throw new Error('Catalog unavailable'); };
+    renderApp();
+    await screen.findByText('Catalog unavailable');
+
+    expect(screen.queryByText('A little room for your photos.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Opening library…')).not.toBeInTheDocument();
+    const retry = screen.getByRole('button', { name: 'Retry library' });
+    appState = { photos: [makePhoto('recovered', 'Recovered')], selection: [], jobs: [], activity: [] };
+    getAppStateOverride = undefined;
+    fireEvent.click(retry);
+    expect(await screen.findByRole('button', { name: 'Select Recovered.jpg' })).toBeInTheDocument();
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+  });
+
+  it('ignores an obsolete refresh failure after a newer catalog snapshot succeeds', async () => {
+    appState = { photos: [], selection: [], jobs: [], activity: [] };
+    let rejectOld!: (reason: unknown) => void;
+    const older = new Promise<AppState>((_resolve, reject) => { rejectOld = reject; });
+    const fresh = { photos: [makePhoto('newer', 'Newer')], selection: [], jobs: [], activity: [] };
+    let requests = 0;
+    getAppStateOverride = () => ++requests === 1 ? older : Promise.resolve(fresh);
+    renderApp();
+    await waitFor(() => expect(requests).toBe(1));
+    act(() => onChangeListener?.());
+    await screen.findByRole('button', { name: 'Select Newer.jpg' });
+    await act(async () => rejectOld(new Error('Obsolete catalog failure')));
+
+    expect(screen.queryByText('Obsolete catalog failure')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Select Newer.jpg' })).toBeInTheDocument();
+  });
+
+  it('keeps loaded photos and filters usable while recovering a refresh failure', async () => {
+    appState = { photos: [makePhoto('one', 'One'), makePhoto('two', 'Two')], selection: [], jobs: [], activity: [] };
+    renderApp();
+    const search = await screen.findByRole('searchbox', { name: 'Search photos' });
+    fireEvent.change(search, { target: { value: 'Two' } });
+    getAppStateOverride = async () => { throw new Error('Refresh unavailable'); };
+    act(() => onChangeListener?.());
+    await screen.findByText('Refresh unavailable');
+    expect(screen.getByRole('button', { name: 'Select Two.jpg' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select One.jpg' })).not.toBeInTheDocument();
+    expect(search).toHaveValue('Two');
+    expect(screen.getByText('Ready')).toBeInTheDocument();
+
+    getAppStateOverride = undefined;
+    fireEvent.click(screen.getByRole('button', { name: 'Retry library' }));
+    await waitFor(() => expect(screen.queryByText('Refresh unavailable')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Select Two.jpg' })).toBeInTheDocument();
+    expect(search).toHaveValue('Two');
+  });
+
+  it('retains newer selection intent when an older failed selection recovery finishes late', async () => {
+    appState = {
+      photos: [makePhoto('one', 'Alpha'), makePhoto('two', 'Bravo'), makePhoto('three', 'Charlie')],
+      selection: ['one'], jobs: [], activity: [],
+    };
+    let finishRecovery!: (value: AppState) => void;
+    const oldRecovery = new Promise<AppState>((resolve) => { finishRecovery = resolve; });
+    let reads = 0;
+    getAppStateOverride = async () => ++reads === 3 ? oldRecovery : structuredClone(appState);
+    let selections = 0;
+    setSelectionOverride = async ({ ids }) => {
+      if (++selections === 1) throw new Error('Selection rejected');
+      appState.selection = [...ids];
+      onChangeListener?.();
+    };
+    renderApp();
+    const one = await screen.findByRole('button', { name: 'Select Alpha.jpg' });
+    fireEvent.click(screen.getByRole('button', { name: 'Select Bravo.jpg' }));
+    await waitFor(() => expect(reads).toBe(3));
+    const obsolete = structuredClone(appState);
+    fireEvent.click(screen.getByRole('button', { name: 'Select Charlie.jpg' }), { ctrlKey: true });
+    await waitFor(() => expect(appState.selection).toEqual(['two', 'three']));
+    await waitFor(() => expect(reads).toBe(4));
+    await act(async () => finishRecovery(obsolete));
+    fireEvent.click(one, { ctrlKey: true });
+    await waitFor(() => expect(appState.selection).toEqual(['one', 'two', 'three']));
+    expect(command.mock.calls.filter(([name]) => name === 'set_selection').at(-1)).toEqual([
+      'set_selection', { ids: ['one', 'two', 'three'] },
+    ]);
+  });
+
+  it('keeps keyboard adjustment focus through pending commits and uses the refreshed revision', async () => {
+    appState = {
+      photos: [makePhoto('one', 'One')],
+      selection: ['one'],
+      jobs: [],
+      activity: [],
+    };
+    const pendingEdits: Array<() => void> = [];
+    applyEditsOverride = (args) => new Promise((resolve) => {
+      pendingEdits.push(() => {
+        const photo = appState.photos.find((item) => item.id === args.id)!;
+        photo.recipe = { ...photo.recipe, ...args.patch };
+        photo.revision++;
+        resolve([{ id: photo.id, revision: photo.revision }]);
+      });
+    });
+    renderApp();
+    fireEvent.doubleClick(await screen.findByRole('button', { name: 'Select One.jpg' }));
+    const exposure = await screen.findByRole('slider', { name: 'Exposure' });
+    act(() => exposure.focus());
+
+    fireEvent.keyDown(exposure, { key: 'ArrowRight' });
+    await waitFor(() => expect(pendingEdits).toHaveLength(1));
+    expect(command).toHaveBeenCalledWith('apply_edits', {
+      id: 'one', expectedRevision: 0, patch: { exposure: 0.05 },
+    });
+    expect(screen.getByText('Working…')).toBeTruthy();
+    expect(exposure).toHaveFocus();
+    expect(exposure).not.toBeDisabled();
+    expect(exposure.closest('[aria-disabled="true"]')).toBeTruthy();
+    fireEvent.keyDown(exposure, { key: 'ArrowRight' });
+    expect(pendingEdits).toHaveLength(1);
+
+    await act(async () => pendingEdits.shift()!());
+    await waitFor(() => expect(exposure.closest('[aria-disabled="true"]')).toBeNull());
+    expect(exposure).toHaveAttribute('aria-valuenow', '0.05');
+    expect(exposure).toHaveFocus();
+    fireEvent.keyDown(exposure, { key: 'ArrowRight' });
+    await waitFor(() => expect(pendingEdits).toHaveLength(1));
+    expect(command).toHaveBeenLastCalledWith('apply_edits', {
+      id: 'one', expectedRevision: 1, patch: { exposure: 0.1 },
+    });
+
+    await act(async () => pendingEdits.shift()!());
+    await waitFor(() => expect(exposure.closest('[aria-disabled="true"]')).toBeNull());
+    expect(exposure).toHaveAttribute('aria-valuenow', '0.1');
+    expect(exposure).toHaveFocus();
+    expect(appState.photos[0].recipe.exposure).toBe(0.1);
+    expect(appState.photos[0].revision).toBe(2);
+  });
+
+  it('does not move focus or apply the pending adjustment to a newly selected photo', async () => {
+    appState = {
+      photos: [makePhoto('one', 'One'), makePhoto('two', 'Two')],
+      selection: ['one'],
+      jobs: [],
+      activity: [],
+    };
+    let finishEdit!: () => void;
+    applyEditsOverride = (args) => new Promise((resolve) => {
+      finishEdit = () => {
+        const photo = appState.photos.find((item) => item.id === args.id)!;
+        photo.recipe = { ...photo.recipe, ...args.patch };
+        photo.revision++;
+        resolve([{ id: photo.id, revision: photo.revision }]);
+      };
+    });
+    renderApp();
+    fireEvent.doubleClick(await screen.findByRole('button', { name: 'Select One.jpg' }));
+    const exposure = await screen.findByRole('slider', { name: 'Exposure' });
+    act(() => exposure.focus());
+    fireEvent.keyDown(exposure, { key: 'ArrowRight' });
+    await waitFor(() => expect(finishEdit).toBeTypeOf('function'));
+
+    const secondPhoto = screen.getByTitle('Two.jpg');
+    act(() => secondPhoto.focus());
+    fireEvent.click(secondPhoto);
+    await waitFor(() => expect(appState.selection).toEqual(['two']));
+    expect(exposure).toHaveAttribute('aria-valuenow', '0');
+    fireEvent.keyDown(exposure, { key: 'ArrowRight' });
+    expect(command.mock.calls.filter(([name]) => name === 'apply_edits')).toHaveLength(1);
+
+    await act(async () => finishEdit());
+    await waitFor(() => expect(exposure.closest('[aria-disabled="true"]')).toBeNull());
+    expect(secondPhoto).toHaveFocus();
+    expect(exposure).not.toHaveFocus();
+    expect(appState.photos.find((photo) => photo.id === 'one')!.recipe.exposure).toBe(0.05);
+    expect(appState.photos.find((photo) => photo.id === 'two')!.recipe.exposure).toBe(0);
+    expect(screen.queryByText('CONFLICT')).toBeNull();
+  });
+
   it('refreshes the full app state once after a local selection mutation', async () => {
     appState = {
       photos: [makePhoto('one', 'One')],
@@ -240,7 +434,7 @@ describe('Lumaflux photo selection', () => {
       activity: [],
     };
     renderApp();
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search photos' }), {
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Search photos' }), {
       target: { value: 'Two' },
     });
     const two = await screen.findByRole('button', { name: 'Select Two.jpg' });

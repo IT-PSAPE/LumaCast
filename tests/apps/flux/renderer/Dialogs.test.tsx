@@ -29,17 +29,17 @@ function apiMock(): DesktopAPI {
 }
 
 describe('Flux dialog failure and concurrency flows', () => {
-  it('recovers from a failed folder picker and a failed export without closing', async () => {
+  it('recovers from a failed folder picker and a full export queue without closing', async () => {
     const api = apiMock();
     vi.mocked(api.chooseDirectory).mockRejectedValueOnce(new Error('Folder unavailable'));
     const onClose = vi.fn();
-    const onExport = vi.fn().mockRejectedValueOnce(new Error('Not writable')).mockResolvedValueOnce(undefined);
+    const onExport = vi.fn().mockRejectedValueOnce(new Error('QUEUE_FULL: Export queue is full. Wait for exports to finish or cancel a queued batch, then try again.')).mockResolvedValueOnce(undefined);
     render(<OverlayStackProvider><ExportDialog open count={2} api={api} onClose={onClose} onExport={onExport} /></OverlayStackProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Choose export folder' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Folder unavailable');
     fireEvent.change(screen.getByRole('textbox', { name: 'Export destination' }), { target: { value: '/exports' } });
     fireEvent.click(screen.getByRole('button', { name: 'Export photos' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Not writable');
+    expect(await screen.findByRole('alert')).toHaveTextContent('QUEUE_FULL: Export queue is full. Wait for exports to finish or cancel a queued batch, then try again.');
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Export photos' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));

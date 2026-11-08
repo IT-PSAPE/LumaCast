@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Recipe, Photo } from "@lumacast/photo-model";
 import type { HistogramData, PixelReadout } from "./histogram-data";
 const zones = [
@@ -48,11 +48,23 @@ export function Histogram({
     x: number;
     width: number;
     index: number;
+    pointerId: number;
     photoId: string;
     recipe: Recipe;
     revision: number;
     value: number;
   } | null>(null);
+  const cancelDrag = useCallback(() => {
+    const activeDrag = drag.current;
+    if (!activeDrag) return;
+    drag.current = null;
+    onDraft(null, activeDrag.photoId, activeDrag.revision);
+  }, [onDraft]);
+  useEffect(() => {
+    const activeDrag = drag.current;
+    if (activeDrag && (busy || activeDrag.photoId !== photo?.id
+      || activeDrag.revision !== photo?.revision)) cancelDrag();
+  }, [busy, photo?.id, photo?.revision, cancelDrag]);
   const peak = Math.max(1, ...(data?.channels.flat() ?? []));
   const path = (bins: number[]) =>
     `M0 80 ${bins.map((n, i) => `L${i} ${80 - (78 * n) / peak}`).join(" ")} L255 80 Z`;
@@ -145,7 +157,8 @@ export function Histogram({
             aria-valuemin={min}
             aria-valuemax={max}
             aria-valuenow={recipe?.[key] ?? 0}
-            disabled={!photo || !recipe || busy || !data}
+            disabled={!photo || !recipe || !data}
+            aria-disabled={busy || undefined}
             className={`histogram-zone ${hover === index ? "hovered" : ""}`}
             style={{ left: `${index * 20}%` }}
             title={`Drag to adjust ${label}; double-click to reset`}
@@ -155,7 +168,8 @@ export function Histogram({
               if (!drag.current) setHover(null);
             }}
             onPointerDown={(e) => {
-              if (e.button !== 0 || !photo || !recipe) return;
+              if (e.button !== 0 || !e.isPrimary || !photo || !recipe || busy || !data) return;
+              if (drag.current && drag.current.pointerId !== e.pointerId) return;
               e.preventDefault();
               e.currentTarget.focus();
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -163,6 +177,7 @@ export function Histogram({
                 x: e.clientX,
                 width: e.currentTarget.parentElement!.clientWidth,
                 index,
+                pointerId: e.pointerId,
                 photoId: photo.id,
                 recipe: { ...recipe },
                 revision: photo.revision,
@@ -171,8 +186,8 @@ export function Histogram({
             }}
             onPointerMove={(e) => {
               const d = drag.current;
-              if (!d || d.index !== index) return;
-              if (!photo || d.photoId !== photo.id) return;
+              if (!d || d.index !== index || d.pointerId !== e.pointerId) return;
+              if (!photo || d.photoId !== photo.id || busy) return;
               const value = Math.max(
                 min,
                 Math.min(
@@ -187,11 +202,11 @@ export function Histogram({
               d.value = Number(value.toFixed(2));
               onDraft({ ...d.recipe, [key]: d.value }, d.photoId, d.revision);
             }}
-            onPointerUp={() => {
+            onPointerUp={(event) => {
               const d = drag.current;
-              if (!d || d.index !== index) return;
+              if (!d || d.index !== index || d.pointerId !== event.pointerId) return;
               drag.current = null;
-              if (!photo || d.photoId !== photo.id) {
+              if (!photo || d.photoId !== photo.id || busy) {
                 onDraft(null, d.photoId, d.revision);
                 return;
               }
@@ -199,16 +214,18 @@ export function Histogram({
                 onCommit({ [key]: d.value }, d.revision, d.photoId);
               else onDraft(null, d.photoId, d.revision);
             }}
-            onPointerCancel={() => {
-              const d = drag.current;
-              drag.current = null;
-              onDraft(null, d?.photoId ?? photo?.id, d?.revision ?? photo?.revision);
+            onPointerCancel={(event) => {
+              if (drag.current?.pointerId === event.pointerId) cancelDrag();
             }}
-            onDoubleClick={() =>
-              photo && onCommit({ [key]: 0 }, photo.revision, photo.id)
-            }
+            onLostPointerCapture={(event) => {
+              if (drag.current?.pointerId === event.pointerId) cancelDrag();
+            }}
+            onDoubleClick={() => {
+              if (photo && recipe && !busy && data)
+                onCommit({ [key]: 0 }, photo.revision, photo.id);
+            }}
             onKeyDown={(e) => {
-              if (!recipe) return;
+              if (!recipe || !photo || !data) return;
               const direction = ["ArrowRight", "ArrowUp"].includes(e.key)
                 ? 1
                 : ["ArrowLeft", "ArrowDown"].includes(e.key)
@@ -216,6 +233,7 @@ export function Histogram({
                   : 0;
               if (direction) {
                 e.preventDefault();
+                if (busy) return;
                 onCommit(
                   {
                     [key]: Number(

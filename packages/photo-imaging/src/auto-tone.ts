@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import type { Recipe } from "@lumacast/photo-model";
+import type { Recipe, PhotoAnalysis, AutoToneSuggestion } from "@lumacast/photo-model";
 import { isRawFile } from "@lumacast/photo-model";
 import type { Renderer } from "./render.js";
 
@@ -66,35 +66,9 @@ const coarseSteps: Record<Exclude<LightKey, "exposure">, number> = {
   blacks: 10,
 };
 
-export type PhotoAnalysis = {
-  width: number;
-  height: number;
-  pixels: number;
-  percentiles: {
-    p01: number;
-    p05: number;
-    p10: number;
-    p50: number;
-    p90: number;
-    p95: number;
-    p99: number;
-  };
-  clipping: {
-    shadows: number;
-    highlights: number;
-    channels: { shadows: number; highlights: number }[];
-    /** Pixels whose *every* channel sits at byte 255, i.e. neutral white. */
-    fullyClippedHighlights?: number;
-    /**
-     * Clipped pixels whose channels are strongly separated. A saturated red
-     * blob clips its red channel without being an overexposed subject, so Auto
-     * must not read it as underexposure evidence or try to "recover" it.
-     */
-    saturatedHighlights?: number;
-  };
-  color: { meanRGB: number[]; meanSaturation: number };
-  space: string;
-};
+// Preserve the imaging public type while the shared data shape lives in the
+// renderer-safe model, where IPC consumers can name it without importing sharp.
+export type { PhotoAnalysis } from "@lumacast/photo-model";
 
 /**
  * Statistics come only from fully opaque pixels. A soft matte leaves a fringe of
@@ -254,7 +228,7 @@ export async function suggestAutoTone(
   file: string,
   recipe: Recipe,
   reference?: { file: string; recipe: Recipe },
-) {
+): Promise<AutoToneSuggestion> {
   // Auto is defined as a full replacement of the Light group. It always reasons
   // about a neutral Light baseline so a stale curve cannot bias the search, and
   // so non-Light settings (colour, detail, lens, crop) are carried through

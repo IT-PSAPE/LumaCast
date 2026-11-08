@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import ts from 'typescript';
 import { APP_IDENTITY } from '../../../../apps/flux/main/app-identity';
 
 const CONTRACT_PATH = path.resolve(__dirname, '../../../../apps/flux/shared/desktop-api.ts');
@@ -35,6 +36,27 @@ describe('apps/flux DesktopAPI contract', () => {
     expect(source).not.toMatch(/from ['"]node:/);
     expect(source).not.toContain('@lumacast/photo-imaging');
     expect(source).not.toContain('@lumacast/photo-library');
+    const commands = readFileSync(path.join(path.dirname(CONTRACT_PATH), 'photo-command.ts'), 'utf8');
+    expect(commands).not.toMatch(/from ['"](?:electron|node:)/);
+    expect(commands).not.toMatch(/from ['"]@lumacast\/photo-(?:imaging|library)/);
+  });
+
+  it('types every supported main command without inventing another command', () => {
+    const commandMap = ts.createSourceFile('photo-command.ts',
+      readFileSync(path.join(path.dirname(CONTRACT_PATH), 'photo-command.ts'), 'utf8'), ts.ScriptTarget.Latest);
+    const map = commandMap.statements.find((node): node is ts.InterfaceDeclaration =>
+      ts.isInterfaceDeclaration(node) && node.name.text === 'PhotoCommandMap');
+    expect(map).toBeDefined();
+    const declared = map!.members.map((member) => member.name!.getText(commandMap));
+    const implementation = ts.createSourceFile('commands.ts',
+      readFileSync(path.resolve(__dirname, '../../../../packages/photo-library/src/commands.ts'), 'utf8'), ts.ScriptTarget.Latest);
+    const supported: string[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isCaseClause(node) && ts.isStringLiteral(node.expression)) supported.push(node.expression.text);
+      ts.forEachChild(node, visit);
+    };
+    visit(implementation);
+    expect(declared.sort()).toEqual(supported.sort());
   });
 
   it('takes its data types from the renderer-safe photo domain model', () => {

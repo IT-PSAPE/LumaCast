@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { neutralRecipe, type Photo } from "@lumacast/photo-model";
 import { Adjustments } from "../../../../apps/flux/renderer/Adjustments";
 import type { ComponentProps } from "react";
@@ -100,9 +100,120 @@ function props(
 }
 
 describe("photo-bound edit gestures", () => {
+  it("keeps the histogram drag owned by its original pointer", () => {
+    stubPointerCapture();
+    const onDraft = vi.fn<AdjustmentProps["onDraft"]>();
+    const onCommit = vi.fn<AdjustmentProps["onCommit"]>();
+    const first = photo("first");
+    render(<Adjustments {...props(first, onDraft, onCommit)} />);
+    const exposure = screen.getByRole("slider", { name: "Histogram Exposure" });
+    Object.defineProperty(exposure.parentElement, "clientWidth", {
+      configurable: true, value: 100,
+    });
+    fireEvent.pointerDown(exposure, { button: 0, pointerId: 1, isPrimary: true, clientX: 10 });
+    fireEvent.pointerMove(exposure, { pointerId: 1, clientX: 30 });
+    fireEvent.pointerDown(exposure, { button: 0, pointerId: 2, isPrimary: true, clientX: 50 });
+    fireEvent.pointerMove(exposure, { pointerId: 2, clientX: 90 });
+    fireEvent.pointerCancel(exposure, { pointerId: 2 });
+    fireEvent.pointerUp(exposure, { pointerId: 2, clientX: 90 });
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(onDraft).not.toHaveBeenCalledWith(null, "first", 4);
+    fireEvent.pointerMove(exposure, { pointerId: 1, clientX: 40 });
+    fireEvent.pointerUp(exposure, { pointerId: 1, clientX: 40 });
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith({ exposure: 3 }, 4, "first");
+  });
+
+  it.each([false, true])("cancels an adjustment gesture when busy starts (resume before release: %s)", (resumeBeforeRelease) => {
+    stubPointerCapture();
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 20,
+      width: 100, height: 20, toJSON: () => ({}),
+    } as DOMRect);
+    const onDraft = vi.fn<AdjustmentProps["onDraft"]>();
+    const onCommit = vi.fn<AdjustmentProps["onCommit"]>();
+    const first = photo("first");
+    const next = { ...first, recipe: { ...first.recipe, exposure: 1 }, revision: 5 };
+    const view = render(<Adjustments {...props(first, onDraft, onCommit)} />);
+    const exposure = screen.getByRole("slider", { name: "Exposure" });
+    act(() => exposure.focus());
+    fireEvent.pointerDown(exposure.parentElement!.parentElement!, {
+      button: 0, buttons: 1, pointerId: 1, isPrimary: true, clientX: 70, clientY: 10,
+    });
+    expect(onDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ exposure: expect.any(Number) }), "first", 4,
+    );
+
+    view.rerender(<Adjustments {...props(first, onDraft, onCommit)} busy />);
+    expect(onDraft).toHaveBeenLastCalledWith(null, "first", 4);
+    expect(exposure).toHaveFocus();
+    onDraft.mockClear();
+    onCommit.mockClear();
+    if (resumeBeforeRelease) {
+      view.rerender(<Adjustments {...props(next, onDraft, onCommit)} />);
+      fireEvent.pointerMove(exposure.parentElement!.parentElement!.parentElement!, {
+        buttons: 1, pointerId: 1, clientX: 80, clientY: 10,
+      });
+      expect(onDraft).not.toHaveBeenCalled();
+    }
+    fireEvent.pointerUp(exposure.parentElement!.parentElement!.parentElement!, {
+      buttons: 0, pointerId: 1, clientX: 80, clientY: 10,
+    });
+    expect(onCommit).not.toHaveBeenCalled();
+    if (!resumeBeforeRelease) {
+      view.rerender(<Adjustments {...props(next, onDraft, onCommit)} />);
+    }
+
+    fireEvent.keyDown(exposure, { key: "ArrowRight" });
+    expect(onDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ exposure: 1.05 }), "first", 5,
+    );
+    expect(onCommit).toHaveBeenCalledWith({ exposure: 1.05 }, 5, "first");
+    expect(exposure).toHaveFocus();
+    rect.mockRestore();
+  });
+
+  it.each([false, true])("cancels a histogram gesture when busy starts (resume before release: %s)", (resumeBeforeRelease) => {
+    stubPointerCapture();
+    const onDraft = vi.fn<AdjustmentProps["onDraft"]>();
+    const onCommit = vi.fn<AdjustmentProps["onCommit"]>();
+    const first = photo("first");
+    const next = { ...first, recipe: { ...first.recipe, exposure: 1 }, revision: 5 };
+    const view = render(<Adjustments {...props(first, onDraft, onCommit)} />);
+    const exposure = screen.getByRole("slider", { name: "Histogram Exposure" });
+    Object.defineProperty(exposure.parentElement, "clientWidth", {
+      configurable: true, value: 100,
+    });
+    fireEvent.pointerDown(exposure, {
+      button: 0, pointerId: 1, isPrimary: true, clientX: 10,
+    });
+    fireEvent.pointerMove(exposure, { pointerId: 1, clientX: 30 });
+    expect(onDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ exposure: expect.any(Number) }), "first", 4,
+    );
+
+    view.rerender(<Adjustments {...props(first, onDraft, onCommit)} busy />);
+    expect(onDraft).toHaveBeenLastCalledWith(null, "first", 4);
+    expect(exposure).toHaveFocus();
+    onDraft.mockClear();
+    onCommit.mockClear();
+    if (resumeBeforeRelease) {
+      view.rerender(<Adjustments {...props(next, onDraft, onCommit)} />);
+      fireEvent.pointerMove(exposure, { pointerId: 1, clientX: 40 });
+      expect(onDraft).not.toHaveBeenCalled();
+    }
+    fireEvent.pointerUp(exposure, { pointerId: 1, clientX: 40 });
+    expect(onCommit).not.toHaveBeenCalled();
+    if (!resumeBeforeRelease) {
+      view.rerender(<Adjustments {...props(next, onDraft, onCommit)} />);
+    }
+
+    fireEvent.keyDown(exposure, { key: "ArrowRight" });
+    expect(onCommit).toHaveBeenCalledWith({ exposure: 1.05 }, 5, "first");
+    expect(exposure).toHaveFocus();
+  });
+
   it("drops an in-flight slider gesture when the active photo changes", () => {
     stubPointerCapture();
-    vi.stubGlobal("PointerEvent", MouseEvent);
     const rect = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockReturnValue({
@@ -127,6 +238,7 @@ describe("photo-bound edit gestures", () => {
 
     fireEvent.pointerDown(control!, {
       button: 0,
+      isPrimary: true,
       buttons: 1,
       pointerId: 1,
       clientX: 90,
@@ -139,7 +251,7 @@ describe("photo-bound edit gestures", () => {
     );
 
     view.rerender(<Adjustments {...props(second, onDraft, onCommit)} />);
-    fireEvent.pointerUp(document, { pointerId: 1, clientX: 90, clientY: 10 });
+    fireEvent.pointerUp(thumb.parentElement!.parentElement!.parentElement!, { pointerId: 1, clientX: 90, clientY: 10 });
 
     expect(onCommit).not.toHaveBeenCalled();
     expect(onDraft).toHaveBeenLastCalledWith(null, "first", 4);
@@ -165,6 +277,7 @@ describe("photo-bound edit gestures", () => {
 
     fireEvent.pointerDown(slider, {
       button: 0,
+      isPrimary: true,
       pointerId: 1,
       clientX: 10,
     });

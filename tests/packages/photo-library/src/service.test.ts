@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rename, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -260,7 +260,7 @@ describe('PhotoService catalog', () => {
     await boundaryService.relink(id, replacement);
 
     const photo = boundaryService.photo(id);
-    expect(photo.path).toBe(replacement);
+    expect(photo.path).toBe(await realpath(replacement));
     expect(photo.modifiedAt).toBe(expectedMtime);
     expect(photo.recipe.crop).toBeNull();
     expect(photo.recipe.exposure).toBe(0.5);
@@ -268,6 +268,7 @@ describe('PhotoService catalog', () => {
     expect(photo.history).toHaveLength(100);
 
     const reopened = await PhotoService.open(catalogPath);
+    expect(reopened.photo(id).path).toBe(photo.path);
     expect(reopened.photo(id).modifiedAt).toBe(expectedMtime);
     expect(reopened.photo(id).history).toHaveLength(100);
   });
