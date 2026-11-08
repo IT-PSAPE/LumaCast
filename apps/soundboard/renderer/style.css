@@ -35,16 +35,22 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 .sound-art.art-4 { background: radial-gradient(circle at 52% 50%, #3d3345, #27222e); }
 .is-playing .sound-art:after { content: ''; position: absolute; inset: -1px; border: 1px solid #c0adff; border-radius: var(--radius-container); animation: sonar 1.8s infinite ease-out; }
 @keyframes sonar { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.5); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .sound-card { animation: none; transition: none; }
+  .sound-card:hover { transform: none; }
+  .is-playing .sound-art:after { animation: none; }
+}
 .card-head { display: flex; align-items: center; gap: var(--space-2); }
 .sound-copy { min-width: 0; flex: 1; }
 .sound-copy h2 { overflow: hidden; margin: 0; color: var(--text-color-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.sound-copy p { display: flex; align-items: center; gap: var(--space-1); overflow: hidden; margin: var(--space-1) 0 0; color: var(--text-color-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.sound-copy p { margin: var(--space-1) 0 0; color: var(--text-color-tertiary); font-size: var(--text-annotation); line-height: var(--text-annotation--line-height); white-space: normal; overflow-wrap: anywhere; }
+.sound-copy p > button { height: auto; min-height: var(--space-6); max-width: 100%; white-space: normal; text-align: left; }
 .range-row { display: flex; align-items: center; gap: var(--space-1-5); margin-top: var(--space-3); }
 .range-row > :first-child { flex: 1 1 0; }
 .time-row { display: flex; justify-content: space-between; margin-top: var(--space-0-5); color: var(--text-color-tertiary); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
 .time-row span:nth-child(2) { color: var(--text-color-secondary); }
-.card-controls { display: flex; align-items: center; gap: var(--space-1-5); margin-top: var(--space-2); }
-.mark-buttons { display: flex; align-items: center; gap: var(--space-0-5); margin-left: auto; }
+.card-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1-5); margin-top: var(--space-2); }
+.mark-buttons { display: flex; flex-shrink: 0; align-items: center; gap: var(--space-0-5); margin-left: auto; }
 .mark-buttons kbd, .sound-copy kbd { font: 10px var(--font-mono); color: var(--text-color-secondary); }
 
 .loading-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #262332, var(--background-color-primary) 62%); }
