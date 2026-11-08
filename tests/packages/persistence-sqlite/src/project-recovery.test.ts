@@ -5,16 +5,18 @@
 // (theme_id, cue_id, color_key, loop_count, source_id, background_source,
 // empty notes) and managed-media references only (cast-media:// srcs; no
 // media files are ever created).
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { IPC, PROJECT_BACKUP_FORMAT } from '@lumacast/protocol';
 import { ProjectBackupValidationError } from '@lumacast/protocol';
 import type { ProjectBackup, ProjectBackupTables } from '@lumacast/protocol';
-import { LATEST_SCHEMA_VERSION } from '../../../../packages/persistence-sqlite/src/migrations';
+import { LATEST_SCHEMA_VERSION, runMigrations } from '../../../../packages/persistence-sqlite/src/migrations';
 import { CastRepository, type ProjectRecoveryHooks } from '../../../../packages/persistence-sqlite/src/store';
-import type { SqliteDatabase } from '../../../../packages/persistence-sqlite/src/sqlite';
+import { SqliteDatabase } from '../../../../packages/persistence-sqlite/src/sqlite';
+import { insertProjectBackupRows } from '../../../../packages/persistence-sqlite/src/project-backup-restore';
+import { buildProjectBackupTables } from '../../../../packages/persistence-sqlite/src/project-backup-io';
 
 let repo: CastRepository;
 let tmpDir: string;
@@ -293,6 +295,59 @@ afterEach(() => {
 });
 
 describe('project recovery restore (#146, backup v3)', () => {
+  it('rolls a mid-insert failure back to the temporary database pre-transaction rows without changing the active project', () => {
+    const activeBefore = repo.exportProjectBackup();
+    const document = structuredClone(activeBefore);
+    const presentation = document.tables.presentations[0]!;
+    presentation.title = 'Only visible inside the failed transaction';
+    const temporaryPath = path.join(tmpDir, 'row-materialization.sqlite');
+    const temporary = new SqliteDatabase(temporaryPath);
+    temporary.pragma('foreign_keys = ON');
+    runMigrations(temporary, temporaryPath);
+    temporary.prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run('temporary-sentinel', 'Existing temporary state', 0, T0, T0);
+    const temporaryBefore = buildProjectBackupTables(temporary);
+    const originalPrepare = temporary.prepare.bind(temporary);
+    let insertedParentObserved = false;
+    const prepare = vi.spyOn(temporary, 'prepare').mockImplementation((sql) => {
+      if (sql.includes('INSERT INTO slide_elements')) {
+        expect(originalPrepare('SELECT title FROM presentations WHERE id = ?').get<{ title: string }>(presentation.id)?.title)
+          .toBe(presentation.title);
+        insertedParentObserved = true;
+        throw new Error('Injected failure after parent inserts');
+      }
+      return originalPrepare(sql);
+    });
+    try {
+      expect(() => insertProjectBackupRows(temporary, document)).toThrow('Injected failure after parent inserts');
+      expect(insertedParentObserved).toBe(true);
+      prepare.mockRestore();
+      expect(buildProjectBackupTables(temporary)).toEqual(temporaryBefore);
+      expect(repo.exportProjectBackup()).toEqual(activeBefore);
+    } finally {
+      prepare.mockRestore();
+      temporary.close();
+    }
+  });
+
+  it('mutates and restores again through the same facade after promotion replaces its connection', () => {
+    const source = repo.exportProjectBackup();
+    const originalConnection = rawDb(repo);
+    repo.restoreProjectBackup(source);
+    expect(rawDb(repo)).not.toBe(originalConnection);
+    const firstMutation = repo.renamePlaylist('pl-1', 'Changed after promotion');
+    repo.createPlaylist('Only in the first promoted connection');
+    const firstPromotedConnection = rawDb(repo);
+
+    const second = repo.restoreProjectBackup(source);
+    expect(rawDb(repo)).not.toBe(firstPromotedConnection);
+    expect(second.snapshot).toEqual(repo.getSnapshot());
+    expect(repo.exportProjectBackup()).toEqual(source);
+    const secondMutation = repo.renamePlaylist('pl-1', 'Changed after the second promotion');
+    expect(secondMutation.version).toBeGreaterThan(firstMutation.version);
+    expect(repo.getSnapshot().playlists.find((playlist) => playlist.id === 'pl-1')?.name).toBe('Changed after the second promotion');
+  });
+
   it('promotes the restored project over the active database and retains the pre-recovery database as a same-directory sibling', () => {
     const backup = repo.exportProjectBackup();
 
