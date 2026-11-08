@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  nativeImage,
   protocol,
   type IpcMainInvokeEvent,
 } from 'electron';
@@ -117,6 +118,9 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(async () => {
+      if (process.platform === 'darwin') {
+        app.dock?.setIcon(nativeImage.createFromPath(path.join(app.getAppPath(), 'resources/icon-mac.png')));
+      }
       if (process.platform === 'win32') {
         app.setAppUserModelId(APP_IDENTITY.id);
       }

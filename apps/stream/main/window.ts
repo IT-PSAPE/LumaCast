@@ -1,4 +1,4 @@
-import { BrowserWindow, nativeTheme, type BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, nativeTheme, type BrowserWindowConstructorOptions } from 'electron';
 import path from 'node:path';
 import { projectorTitleForFrameName } from '../shared/projector';
 import { toStreamPlatform } from '../shared/platform-capabilities';
@@ -19,6 +19,7 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 680,
     show: false,
     backgroundColor: '#171717',
+    icon: path.join(app.getAppPath(), 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     // Custom title bar (renderer/chrome/title-bar.tsx) replaces the native one
     // while keeping native window controls: macOS traffic lights, Windows/Linux
     // caption-button overlay. Projector popups below keep native chrome.
@@ -62,6 +63,7 @@ export function createMainWindow(): BrowserWindow {
         minHeight: 270,
         show: true,
         backgroundColor: '#000000',
+        icon: path.join(app.getAppPath(), 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
         webPreferences: {
           sandbox: true,
           contextIsolation: true,

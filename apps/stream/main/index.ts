@@ -1,4 +1,4 @@
-import { app, dialog, ipcMain, protocol, session, shell, type BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, nativeImage, protocol, session, shell, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
@@ -103,6 +103,9 @@ app.on('before-quit', (event) => {
 
 if (app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
+    if (process.platform === 'darwin') {
+      app.dock?.setIcon(nativeImage.createFromPath(path.join(app.getAppPath(), 'resources/icon-mac.png')));
+    }
     return protocol.handle(MEDIA_SCHEME, mediaAssets.handler());
   }).then(() => {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {

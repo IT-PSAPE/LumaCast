@@ -320,7 +320,7 @@ app.whenReady().then(() => {
 
   const iconPngPath = path.join(
     app.isPackaged ? process.resourcesPath : path.join(__dirname, '../../resources'),
-    'icon.png',
+    process.platform === 'darwin' ? 'icon-mac.png' : 'icon.png',
   );
 
   if (process.platform === 'darwin') {

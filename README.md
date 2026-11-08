@@ -88,6 +88,12 @@ npm run dev:stream
 
 `npm run dev` is an alias for `npm run dev:cast`.
 
+Cast, Stream, and Flux keep their Figma icon sources in each app's
+`resources/icon.svg`. After replacing a source, run `node tool/generate-app-icons.mjs`
+to regenerate PNG, ICO, ICNS, and favicons. Mac icons use an 824-pixel image
+centered on a transparent 1024-pixel canvas; the runtime Dock PNG and packaged
+ICNS share this padding. Windows, Linux, and favicons use the full design frame.
+
 For a read-only Cast browser preview, run `npm run build:cast` followed by
 `npm run preview:browser`, then open the printed `127.0.0.1` URL. The preview
 uses a temporary copy of Cast's database and serves only on loopback. Use

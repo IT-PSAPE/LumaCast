@@ -1,4 +1,4 @@
-import type { BrowserWindow } from 'electron';
+import { app, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { createAppWindow, windowChromeOptions } from '@lumacast/desktop';
 import { APP_IDENTITY } from './app-identity';
@@ -33,6 +33,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
     backgroundColor: '#171819',
+    icon: path.join(app.getAppPath(), 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     // Custom title bar (renderer WindowChrome) replaces the native one; native
     // window controls stay (traffic lights / caption-button overlay).
     chrome: windowChromeOptions(process.platform),

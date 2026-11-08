@@ -8,6 +8,7 @@ export interface AppWindowOptions {
   minWidth: number;
   minHeight: number;
   backgroundColor: string;
+  icon?: BrowserWindowConstructorOptions['icon'];
   /** Per-app secure web preferences (including `preload`). */
   webPreferences: WebPreferences;
   /** Extra constructor options, e.g. `windowChromeOptions(process.platform)`. Cannot override the options above. */
@@ -43,6 +44,7 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     minHeight: options.minHeight,
     show: false,
     backgroundColor: options.backgroundColor,
+    ...(options.icon ? { icon: options.icon } : {}),
     ...options.chrome,
     webPreferences: options.webPreferences,
   });

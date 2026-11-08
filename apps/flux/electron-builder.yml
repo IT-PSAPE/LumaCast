@@ -34,6 +34,7 @@ beforePack: "@lumacast/flux/script/build-version.cjs"
 electronVersion: 44.10.2
 
 directories:
+  buildResources: resources
   output: dist
 
 publish:
@@ -43,10 +44,9 @@ publish:
 
 electronUpdaterCompatibility: ">=2.16"
 
-# No `icon:` and no buildResources: Lumaflux deliberately uses the generic
-# Electron icon rather than copying LumaCast brand assets.
 files:
   - out/**/*
+  - resources/**/*
 
 # Sharp (libvips) and the LibRaw WASM decoder are native/binary payloads: they
 # must sit as real files on disk, not inside the asar archive.
@@ -77,6 +77,7 @@ extraResources:
     to: skills/professional-photo-editing
 
 mac:
+  icon: resources/icon.icns
   category: public.app-category.photography
   target:
     - dmg
@@ -90,6 +91,7 @@ mac:
   artifactName: "${productName}-${version}-${arch}-mac.${ext}"
 
 win:
+  icon: resources/icon.ico
   target:
     - nsis
   artifactName: "${productName}-${version}-${arch}-win.${ext}"
@@ -105,6 +107,7 @@ deb:
   packageName: lumaflux
 
 linux:
+  icon: resources/icon.png
   executableName: lumaflux
   category: Graphics
   maintainer: IT-PSAPE

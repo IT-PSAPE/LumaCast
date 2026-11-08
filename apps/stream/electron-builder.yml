@@ -7,9 +7,11 @@ publish:
   updaterCacheDirName: lumastream-updater
 npmRebuild: false
 directories:
+  buildResources: resources
   output: dist
 files:
   - out/**/*
+  - resources/**/*
   - "!node_modules/@lumacast/ndi-native/{src,binding.gyp}"
 # Licensing notices ship on every platform; the media engine and audio helper
 # are platform specific and are listed under `win:` and `mac:` below.
@@ -29,6 +31,7 @@ extraResources:
     filter:
       - '*'
 win:
+  icon: resources/icon.ico
   target: nsis
   artifactName: "${productName}-${version}-${arch}-win.${ext}"
   extraResources:
@@ -48,6 +51,7 @@ nsis:
   perMachine: false
   deleteAppDataOnUninstall: false
 mac:
+  icon: resources/icon.icns
   category: public.app-category.video
   target:
     - dmg
