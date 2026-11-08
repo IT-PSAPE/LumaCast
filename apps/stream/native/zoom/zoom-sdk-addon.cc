@@ -4,45 +4,179 @@
 
 #include <cmath>
 #include <climits>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 
 namespace {
 
+struct DispatchState {
+  std::mutex mutex;
+  napi_threadsafe_function function = nullptr;
+  bool closed = false;
+};
+
 struct Event {
+  std::shared_ptr<DispatchState> dispatcher;
   std::string state;
   std::string message;
 };
 
+void callEvent(napi_env env, napi_value callback, void*, void* data) {
+  // N-API also drains aborted queues with a null env/callback. Always own data.
+  std::unique_ptr<Event> event(static_cast<Event*>(data));
+  if (!event || !env || !callback) return;
+  {
+    std::lock_guard<std::mutex> lock(event->dispatcher->mutex);
+    if (event->dispatcher->closed) return;
+  }
+
+  napi_value payload, state, message, receiver;
+  if (napi_create_object(env, &payload) != napi_ok ||
+      napi_create_string_utf8(env, event->state.data(), event->state.size(), &state) != napi_ok ||
+      napi_create_string_utf8(env, event->message.data(), event->message.size(), &message) != napi_ok ||
+      napi_set_named_property(env, payload, "state", state) != napi_ok ||
+      napi_set_named_property(env, payload, "message", message) != napi_ok ||
+      napi_get_undefined(env, &receiver) != napi_ok) return;
+  napi_call_function(env, receiver, callback, 1, &payload, nullptr);
+}
+
 class EventDispatcher {
  public:
-  explicit EventDispatcher(Napi::ThreadSafeFunction function)
-      : function_(std::move(function)) {}
+  EventDispatcher(Napi::Env env, Napi::Function callback)
+      : state_(std::make_shared<DispatchState>()) {
+    const napi_status status = napi_create_threadsafe_function(
+        env, callback, nullptr, Napi::String::New(env, "Zoom Meeting SDK events"),
+        128, 1, nullptr, nullptr, nullptr, callEvent, &state_->function);
+    if (status != napi_ok) throw Napi::Error::New(env, "Could not create Zoom SDK event dispatcher.");
+  }
+
+  ~EventDispatcher() { close(); }
 
   void dispatch(const std::string& state, const std::string& message) {
-    auto* event = new Event{state, message};
-    if (function_.NonBlockingCall(event, [](Napi::Env env, Napi::Function callback,
-                                           Event* value) {
-          std::unique_ptr<Event> owned(value);
-          Napi::Object payload = Napi::Object::New(env);
-          payload.Set("state", Napi::String::New(env, owned->state));
-          payload.Set("message", Napi::String::New(env, owned->message));
-          callback.Call({payload});
-        }) != napi_ok) {
-      delete event;
+    std::lock_guard<std::mutex> lock(state_->mutex);
+    if (state_->closed) return;
+    auto event = std::make_unique<Event>(Event{state_, state, message});
+    const auto status = napi_call_threadsafe_function(
+        state_->function, event.get(), napi_tsfn_nonblocking);
+    if (status == napi_ok) {
+      event.release();
+    } else if (status == napi_closing) {
+      // Runtime shutdown consumes our acquisition; no further call or release.
+      state_->closed = true;
+      state_->function = nullptr;
     }
   }
 
-  void release() { function_.Release(); }
+  void close() noexcept {
+    napi_threadsafe_function function;
+    {
+      std::lock_guard<std::mutex> lock(state_->mutex);
+      if (state_->closed) return;
+      state_->closed = true;
+      function = state_->function;
+      state_->function = nullptr;
+    }
+    // Enqueue and invalidation are serialized; only this call releases our thread.
+    napi_release_threadsafe_function(function, napi_tsfn_abort);
+  }
 
  private:
-  Napi::ThreadSafeFunction function_;
+  std::shared_ptr<DispatchState> state_;
 };
 
+struct Session {
+  lumastream::zoom::SdkBridge* bridge = nullptr;
+  std::shared_ptr<EventDispatcher> dispatcher;
+
+  ~Session() noexcept {
+    // Platform stop may emit events, including during environment cleanup.
+    if (dispatcher) dispatcher->close();
+    if (bridge) {
+      try { bridge->stop(); } catch (...) {}
+      try { lumastream::zoom::destroyPlatformSdkBridge(bridge); } catch (...) {}
+    }
+  }
+};
+
+enum class Phase { idle, initializing, ready, stopping };
+struct Environment { napi_env env; };
 std::mutex g_bridgeMutex;
-lumastream::zoom::SdkBridge* g_bridge = nullptr;
-std::shared_ptr<EventDispatcher> g_dispatcher;
+napi_env g_owner = nullptr;
+Phase g_phase = Phase::idle;
+std::unique_ptr<Session> g_session;
+std::unordered_map<napi_env, Environment*> g_environments;
+
+// This guard outlives the local Session, retaining ownership through destruction.
+struct Reservation {
+  napi_env owner;
+  bool active = true;
+  ~Reservation() {
+    if (!active) return;
+    std::lock_guard<std::mutex> lock(g_bridgeMutex);
+    if (g_owner == owner) {
+      g_owner = nullptr;
+      g_phase = Phase::idle;
+    }
+  }
+};
+
+void stopOwnedSession(napi_env env) noexcept {
+  std::unique_ptr<Session> session;
+  {
+    std::lock_guard<std::mutex> lock(g_bridgeMutex);
+    if (g_owner != env) return;
+    g_phase = Phase::stopping;
+    session = std::move(g_session);
+  }
+  // No global lock across platform calls (macOS may dispatch to its main queue).
+  Reservation reservation{env};
+  session.reset();
+}
+
+void cleanupEnvironment(void* data) noexcept {
+  std::unique_ptr<Environment> environment(static_cast<Environment*>(data));
+  stopOwnedSession(environment->env);
+  std::lock_guard<std::mutex> lock(g_bridgeMutex);
+  g_environments.erase(environment->env);
+}
+
+void registerEnvironment(Napi::Env env) {
+  std::lock_guard<std::mutex> lock(g_bridgeMutex);
+  if (g_environments.count(env)) return;
+  auto environment = std::make_unique<Environment>(Environment{env});
+  g_environments.emplace(env, environment.get());
+  if (napi_add_env_cleanup_hook(env, cleanupEnvironment, environment.get()) != napi_ok) {
+    g_environments.erase(env);
+    throw Napi::Error::New(env, "Could not register Zoom SDK environment cleanup.");
+  }
+  environment.release();
+}
+
+lumastream::zoom::SdkBridge* ownedBridge(Napi::Env env) {
+  std::lock_guard<std::mutex> lock(g_bridgeMutex);
+  if (g_owner && g_owner != env)
+    throw Napi::Error::New(env, "Zoom Meeting SDK addon belongs to another JavaScript environment.");
+  if (!g_session || g_phase != Phase::ready)
+    throw Napi::Error::New(env, "Zoom Meeting SDK addon is not initialized.");
+  // Only the owning JS environment can call/stop this synchronous bridge.
+  return g_session->bridge;
+}
+
+template <typename Function>
+auto sdkCall(Napi::Env env, Function&& function) -> decltype(function()) {
+  try {
+    return function();
+  } catch (const Napi::Error&) {
+    throw;
+  } catch (const std::exception& error) {
+    throw Napi::Error::New(env, error.what());
+  } catch (...) {
+    throw Napi::Error::New(env, "Zoom Meeting SDK operation failed.");
+  }
+}
 
 Napi::Value resultValue(Napi::Env env, const lumastream::zoom::Result& result) {
   Napi::Object value = Napi::Object::New(env);
@@ -77,39 +211,38 @@ Napi::Value initialize(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
 
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (g_bridge) {
-    Napi::Error::New(env, "Zoom Meeting SDK addon is already initialized.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
+  {
+    std::lock_guard<std::mutex> lock(g_bridgeMutex);
+    if (g_owner && g_owner != env)
+      throw Napi::Error::New(env, "Zoom Meeting SDK addon belongs to another JavaScript environment.");
+    if (g_owner)
+      throw Napi::Error::New(env, "Zoom Meeting SDK addon is already initialized.");
+    g_owner = env;
+    g_phase = Phase::initializing;
   }
 
-  Napi::ThreadSafeFunction function = Napi::ThreadSafeFunction::New(
-      env, info[1].As<Napi::Function>(), "Zoom Meeting SDK events", 128, 1);
-  auto dispatcher = std::make_shared<EventDispatcher>(std::move(function));
-  auto* bridge = lumastream::zoom::createPlatformSdkBridge();
-  if (!bridge) {
-    dispatcher->release();
-    Napi::Error::New(env, "Could not create the platform Zoom SDK bridge.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
+  Reservation reservation{env};
+  return sdkCall(env, [&]() -> Napi::Value {
+    auto session = std::make_unique<Session>();
+    session->dispatcher = std::make_shared<EventDispatcher>(env, info[1].As<Napi::Function>());
+    session->bridge = lumastream::zoom::createPlatformSdkBridge();
+    if (!session->bridge)
+      throw Napi::Error::New(env, "Could not create the platform Zoom SDK bridge.");
 
-  const auto result = bridge->initialize(
-      publicAppKey, [weak = std::weak_ptr<EventDispatcher>(dispatcher)](
-                        const std::string& state, const std::string& message) {
-        if (const auto current = weak.lock()) current->dispatch(state, message);
-      });
-  if (!result.ok) {
-    bridge->stop();
-    lumastream::zoom::destroyPlatformSdkBridge(bridge);
-    dispatcher->release();
-    return resultValue(env, result);
-  }
-
-  g_bridge = bridge;
-  g_dispatcher = std::move(dispatcher);
-  return resultValue(env, result);
+    const auto result = session->bridge->initialize(
+        publicAppKey, [weak = std::weak_ptr<EventDispatcher>(session->dispatcher)](
+                          const std::string& state, const std::string& message) {
+          if (const auto current = weak.lock()) current->dispatch(state, message);
+        });
+    Napi::Value value = resultValue(env, result);
+    if (result.ok) {
+      std::lock_guard<std::mutex> lock(g_bridgeMutex);
+      g_session = std::move(session);
+      g_phase = Phase::ready;
+      reservation.active = false;
+    }
+    return value;
+  });
 }
 
 Napi::Value startMeeting(const Napi::CallbackInfo& info) {
@@ -121,17 +254,12 @@ Napi::Value startMeeting(const Napi::CallbackInfo& info) {
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (!g_bridge) {
-    Napi::Error::New(env, "Zoom Meeting SDK addon is not initialized.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
-  return resultValue(env, g_bridge->startMeeting(
+  auto* bridge = ownedBridge(env);
+  return resultValue(env, sdkCall(env, [&] { return bridge->startMeeting(
       info[0].As<Napi::String>().Utf8Value(),
       info[1].As<Napi::String>().Utf8Value(),
       info[2].As<Napi::String>().Utf8Value(),
-      info[3].As<Napi::String>().Utf8Value()));
+      info[3].As<Napi::String>().Utf8Value()); }));
 }
 
 Napi::Value startProductionStudio(const Napi::CallbackInfo& info) {
@@ -143,13 +271,8 @@ Napi::Value startProductionStudio(const Napi::CallbackInfo& info) {
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (!g_bridge) {
-    Napi::Error::New(env, "Zoom Meeting SDK addon is not initialized.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
-  return resultValue(env, g_bridge->startProductionStudio(width, height));
+  auto* bridge = ownedBridge(env);
+  return resultValue(env, sdkCall(env, [&] { return bridge->startProductionStudio(width, height); }));
 }
 
 Napi::Value sendVideoFrame(const Napi::CallbackInfo& info) {
@@ -170,14 +293,9 @@ Napi::Value sendVideoFrame(const Napi::CallbackInfo& info) {
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (!g_bridge) {
-    Napi::Error::New(env, "Zoom Meeting SDK addon is not initialized.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
-  return resultValue(env, g_bridge->sendVideoFrame(
-      buffer.Data(), buffer.Length(), width, height));
+  auto* bridge = ownedBridge(env);
+  return resultValue(env, sdkCall(env, [&] { return bridge->sendVideoFrame(
+      buffer.Data(), buffer.Length(), width, height); }));
 }
 
 Napi::Value sendAudioFrame(const Napi::CallbackInfo& info) {
@@ -192,37 +310,31 @@ Napi::Value sendAudioFrame(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
   auto buffer = info[0].As<Napi::Buffer<uint8_t>>();
-  if (buffer.Length() == 0 || buffer.Length() % 2 != 0) {
-    Napi::RangeError::New(env, "PCM audio must contain complete 16-bit samples.")
+  if (buffer.Length() == 0 || buffer.Length() % (channels * 2) != 0) {
+    Napi::RangeError::New(env, "PCM audio must contain complete 16-bit channel frames.")
         .ThrowAsJavaScriptException();
     return env.Undefined();
   }
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (!g_bridge) {
-    Napi::Error::New(env, "Zoom Meeting SDK addon is not initialized.")
-        .ThrowAsJavaScriptException();
-    return env.Undefined();
-  }
-  return resultValue(env, g_bridge->sendAudioFrame(
-      buffer.Data(), buffer.Length(), sampleRate, channels));
+  auto* bridge = ownedBridge(env);
+  return resultValue(env, sdkCall(env, [&] { return bridge->sendAudioFrame(
+      buffer.Data(), buffer.Length(), sampleRate, channels); }));
 }
 
 Napi::Value stop(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
-  std::lock_guard<std::mutex> lock(g_bridgeMutex);
-  if (g_bridge) {
-    g_bridge->stop();
-    lumastream::zoom::destroyPlatformSdkBridge(g_bridge);
-    g_bridge = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_bridgeMutex);
+    if (g_owner && g_owner != env)
+      throw Napi::Error::New(env, "Zoom Meeting SDK addon belongs to another JavaScript environment.");
+    if (g_owner && g_phase != Phase::ready)
+      throw Napi::Error::New(env, "Zoom Meeting SDK operation is in progress.");
   }
-  if (g_dispatcher) {
-    g_dispatcher->release();
-    g_dispatcher.reset();
-  }
+  stopOwnedSession(env);
   return env.Undefined();
 }
 
 Napi::Object initializeAddon(Napi::Env env, Napi::Object exports) {
+  registerEnvironment(env);
   exports.Set("initialize", Napi::Function::New(env, initialize));
   exports.Set("startMeeting", Napi::Function::New(env, startMeeting));
   exports.Set("startProductionStudio",

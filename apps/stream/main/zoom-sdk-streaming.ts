@@ -54,6 +54,7 @@ function failIfRejected(result: ZoomSdkResult): void {
 /** Main-process owner for the single Zoom SDK session and its transferred media port. */
 export class ZoomSdkStreaming {
   private active: ZoomSession | null = null;
+  private starting: symbol | null = null;
 
   constructor(
     private readonly zoomLive: ZoomLiveService,
@@ -61,14 +62,34 @@ export class ZoomSdkStreaming {
   ) {}
 
   async start(meetingId: string, settings: StreamOutputSettings): Promise<string> {
-    if (this.active) throw new Error('A Zoom output is already active.');
+    if (this.active || this.starting) throw new Error('A Zoom output is already active.');
     if (!/^\d{9,11}$/.test(meetingId)) throw new Error('Select a valid scheduled Zoom meeting.');
     if (!validSettings(settings)) throw new Error('Zoom output must be between 320×240 and 3840×2160 with even dimensions.');
     const contents = this.getContents();
     if (!contents || contents.isDestroyed()) throw new Error('The Stream window is not available.');
+    // Reserve before either credential lookup. stopAll can retire this exact
+    // attempt without allowing its late result to replace a newer session.
+    const attempt = Symbol('zoom-start');
+    this.starting = attempt;
+    try {
+      return await this.startSession(attempt, contents, meetingId, { ...settings });
+    } finally {
+      if (this.starting === attempt) this.starting = null;
+    }
+  }
+
+  private async startSession(attempt: symbol, contents: WebContents, meetingId: string, settings: StreamOutputSettings): Promise<string> {
+    const assertOwner = (): void => {
+      if (this.starting !== attempt) throw new Error('Zoom output start was cancelled.');
+      if (contents.isDestroyed() || this.getContents() !== contents) {
+        throw new Error('The Stream window is not available.');
+      }
+    };
     const account = await this.zoomLive.getAccount();
+    assertOwner();
     if (!account) throw new Error('Connect a Zoom account before starting a Zoom output.');
     const [zak, publicAppKey] = await Promise.all([this.zoomLive.getZak(), Promise.resolve(this.zoomLive.getSdkPublicAppKey())]);
+    assertOwner();
     const addon = this.loadAddon();
     const id = randomUUID();
     const channel = new MessageChannelMain();
@@ -101,7 +122,12 @@ export class ZoomSdkStreaming {
   }
 
   stopAll(): void {
-    if (!this.active) return;
+    const wasStarting = this.starting !== null;
+    this.starting = null;
+    if (!this.active) {
+      if (wasStarting) this.emit({ outputId: 'zoom', state: 'stopped', message: 'Zoom output stopped.' });
+      return;
+    }
     const session = this.active;
     this.stopSession(session);
     this.emit({ outputId: 'zoom', state: 'stopped', message: 'Zoom output stopped.' });

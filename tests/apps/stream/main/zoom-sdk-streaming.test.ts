@@ -58,7 +58,7 @@ const outputSettings: StreamOutputSettings = {
 function createHarness() {
   const statuses: StreamRuntimeStatus[] = [];
   const contents = {
-    isDestroyed: () => false,
+    isDestroyed: vi.fn(() => false),
     postMessage: vi.fn(),
     send: vi.fn((_channel: string, status: StreamRuntimeStatus) => statuses.push(status)),
   };
@@ -84,6 +84,7 @@ function createHarness() {
     statuses,
     contents,
     addon,
+    zoomLive,
     streaming,
     emit(event: ZoomSdkEvent) {
       if (!emitSdkEvent) throw new Error('Zoom SDK initialize did not register an event handler.');
@@ -173,5 +174,106 @@ describe('Zoom SDK connection phases', () => {
 
     expect(harness.statuses.at(-1)).toMatchObject({ outputId: 'zoom', state: 'stopped' });
     expect(harness.addon.stop).toHaveBeenCalledOnce();
+  });
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+describe('Zoom SDK startup ownership', () => {
+  it('reserves the output before asynchronous account lookup', async () => {
+    const harness = createHarness();
+    const account = deferred<Awaited<ReturnType<ZoomLiveService['getAccount']>>>();
+    vi.spyOn(harness.zoomLive, 'getAccount').mockReturnValueOnce(account.promise);
+    const first = harness.streaming.start('123456789', outputSettings);
+
+    await expect(harness.streaming.start('987654321', outputSettings)).rejects.toThrow('already active');
+    account.resolve({ userId: 'zoom-user', displayName: 'Host', email: 'host@example.com' });
+    await first;
+    expect(harness.addon.initialize).toHaveBeenCalledOnce();
+    expect(harness.contents.postMessage).toHaveBeenCalledOnce();
+  });
+
+  it('cancels pending account lookup when stopped, without fetching a ZAK or loading the SDK', async () => {
+    const harness = createHarness();
+    const account = deferred<Awaited<ReturnType<ZoomLiveService['getAccount']>>>();
+    vi.spyOn(harness.zoomLive, 'getAccount').mockReturnValueOnce(account.promise);
+    const first = harness.streaming.start('123456789', outputSettings);
+    const result = expect(first).rejects.toThrow('cancelled');
+
+    harness.streaming.stopAll();
+    account.resolve({ userId: 'zoom-user', displayName: 'Host', email: 'host@example.com' });
+    await result;
+    expect(harness.zoomLive.getZak).not.toHaveBeenCalled();
+    expect(harness.addon.initialize).not.toHaveBeenCalled();
+    expect(harness.contents.postMessage).not.toHaveBeenCalled();
+    expect(harness.statuses.at(-1)?.state).toBe('stopped');
+  });
+
+  it('ignores a cancelled credential result after a fresh session has started', async () => {
+    const harness = createHarness();
+    const zak = deferred<string>();
+    vi.spyOn(harness.zoomLive, 'getZak').mockReturnValueOnce(zak.promise);
+    const first = harness.streaming.start('123456789', outputSettings);
+    const result = expect(first).rejects.toThrow('cancelled');
+    await vi.waitFor(() => expect(harness.zoomLive.getZak).toHaveBeenCalledOnce());
+
+    harness.streaming.stopAll();
+    const freshId = await harness.streaming.start('987654321', outputSettings);
+    zak.resolve('stale-zak');
+    await result;
+    expect(harness.addon.initialize).toHaveBeenCalledOnce();
+    expect(harness.contents.postMessage).toHaveBeenCalledOnce();
+    expect(harness.addon.stop).not.toHaveBeenCalled();
+    harness.streaming.stop(freshId);
+    expect(harness.addon.stop).toHaveBeenCalledOnce();
+  });
+
+  it.each(['getAccount', 'getZak'] as const)('releases the startup reservation when %s fails', async (method) => {
+    const harness = createHarness();
+    vi.spyOn(harness.zoomLive, method).mockRejectedValueOnce(new Error('credential lookup failed'));
+    await expect(harness.streaming.start('123456789', outputSettings)).rejects.toThrow('credential lookup failed');
+    await harness.streaming.start('987654321', outputSettings);
+    expect(harness.addon.initialize).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a fresh pending reservation when a cancelled attempt settles', async () => {
+    const harness = createHarness();
+    type Account = Awaited<ReturnType<ZoomLiveService['getAccount']>>;
+    const oldAccount = deferred<Account>();
+    const freshAccount = deferred<Account>();
+    vi.spyOn(harness.zoomLive, 'getAccount')
+      .mockReturnValueOnce(oldAccount.promise)
+      .mockReturnValueOnce(freshAccount.promise);
+    const oldStart = harness.streaming.start('123456789', outputSettings);
+    const oldResult = expect(oldStart).rejects.toThrow('cancelled');
+    harness.streaming.stopAll();
+    const freshStart = harness.streaming.start('987654321', outputSettings);
+
+    const account: Account = { userId: 'zoom-user', displayName: 'Host', email: 'host@example.com' };
+    oldAccount.resolve(account);
+    await oldResult;
+    await expect(harness.streaming.start('555555555', outputSettings)).rejects.toThrow('already active');
+    freshAccount.resolve(account);
+    await freshStart;
+    expect(harness.addon.initialize).toHaveBeenCalledOnce();
+  });
+
+  it('does not initialize the SDK when the owning window closes during lookup', async () => {
+    const harness = createHarness();
+    const zak = deferred<string>();
+    vi.spyOn(harness.zoomLive, 'getZak').mockReturnValueOnce(zak.promise);
+    const first = harness.streaming.start('123456789', outputSettings);
+    const result = expect(first).rejects.toThrow('window is not available');
+    await vi.waitFor(() => expect(harness.zoomLive.getZak).toHaveBeenCalledOnce());
+    harness.contents.isDestroyed.mockReturnValue(true);
+    zak.resolve('test-zak');
+    await result;
+    expect(harness.addon.initialize).not.toHaveBeenCalled();
+    expect(harness.contents.postMessage).not.toHaveBeenCalled();
   });
 });

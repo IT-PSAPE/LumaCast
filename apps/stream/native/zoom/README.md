@@ -16,12 +16,12 @@ directory (containing `ZoomSDK.framework` and its companion frameworks).
 
 ```powershell
 $env:ZOOM_MEETING_SDK_ROOT = 'C:\sdk\zoom-meeting-sdk\x64'
-npx node-gyp rebuild --directory apps/stream/native/zoom --target=44.0.0 --dist-url=https://electronjs.org/headers
+npx node-gyp rebuild --directory apps/stream/native/zoom --target=44.10.2 --dist-url=https://electronjs.org/headers
 ```
 
 On macOS, set the same variable to the SDK's `ZoomSDK` directory and run the
 build on macOS. Use the corresponding Electron version installed by LumaStream in place of
-`44.0.0` when it changes. The addon uses Node-API, but the SDK platform binary
+`44.10.2` when it changes. The addon uses Node-API, but the SDK platform binary
 and architecture still have to match the packaged application.
 
 Expected output: `apps/stream/native/zoom/build/Release/lumastream-zoom-sdk.node`.
@@ -51,6 +51,18 @@ SDK events are delivered through a bounded Node-API thread-safe queue, so SDK
 callback threads never invoke JavaScript directly; a full queue drops the new
 status event. Video is packed I420 with even dimensions. Audio is interleaved
 16-bit PCM at 32 or 48 kHz, with one or two channels.
+Buffers must be nonempty and contain complete interleaved frames.
+
+One Node-API environment owns the singleton from initialization through native
+destruction. Calls from another environment fail; its cleanup cannot stop the
+owner. Explicit stop and owner-environment cleanup close event delivery before
+SDK teardown, reclaim queued payloads, and retain the reservation until native
+destruction finishes. Ownership locks are not held across SDK calls.
+
+The native fixture tests compile this adapter against a fake platform bridge
+and exercise ownership, teardown, event-queue pressure, and PCM boundaries in
+Node and Electron. They do not verify the vendor SDK's platform teardown or a
+real meeting session.
 
 The native module intentionally has no stub for unsupported platforms. Build
 and load it only on Windows x64 or macOS with a matching Zoom SDK package.
