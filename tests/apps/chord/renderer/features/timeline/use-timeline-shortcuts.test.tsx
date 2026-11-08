@@ -141,3 +141,46 @@ describe('useTimelineShortcuts: cue shortcuts', () => {
     expect(testStore.trimCue).not.toHaveBeenCalled();
   });
 });
+
+describe('useTimelineShortcuts: focused control ownership', () => {
+  it('leaves native-button Space to its activation handler and retains blank transport Space', () => {
+    const { getByRole } = render(<Harness />);
+    const button = getByRole('button', { name: 'Plain' });
+    expect(fireEvent.keyDown(button, { key: ' ' })).toBe(true);
+    expect(testStore.togglePlay).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(window, { key: ' ' })).toBe(false);
+    expect(testStore.togglePlay).toHaveBeenCalledOnce();
+  });
+
+  it('recognizes button owners through composed span and SVG descendants', () => {
+    const { getByTestId } = render(<>
+      <Harness />
+      <button type="button"><span data-testid="native-child">Native child</span></button>
+      <div role="button" tabIndex={0}><svg data-testid="custom-child" /></div>
+    </>);
+    for (const target of [getByTestId('native-child'), getByTestId('custom-child')]) {
+      expect(fireEvent.keyDown(target, { key: ' ' })).toBe(true);
+    }
+    expect(testStore.togglePlay).not.toHaveBeenCalled();
+  });
+
+  it('honors a control that already prevented a shortcut', () => {
+    const { getByTestId } = render(<>
+      <Harness />
+      <div data-testid="owned" onKeyDown={(event) => event.preventDefault()} />
+    </>);
+    const owned = getByTestId('owned');
+    fireEvent.keyDown(owned, { key: ' ' });
+    fireEvent.keyDown(owned, { key: 'ArrowRight' });
+    fireEvent.keyDown(owned, { key: 'z', metaKey: true });
+    expect(testStore.togglePlay).not.toHaveBeenCalled();
+    expect(testStore.stepFrames).not.toHaveBeenCalled();
+    expect(testStore.undo).not.toHaveBeenCalled();
+  });
+
+  it('preserves transport arrows on a button that does not handle them', () => {
+    const { getByRole } = render(<Harness />);
+    fireEvent.keyDown(getByRole('button', { name: 'Plain' }), { key: 'ArrowRight' });
+    expect(testStore.stepFrames).toHaveBeenCalledExactlyOnceWith(1);
+  });
+});

@@ -130,7 +130,7 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
       <Section density="compact" className="px-3 py-3">
         <Section.Body>
           {/* Focus events bubble: one undo step spans a whole editing session. */}
-          <div onFocus={() => beginTransaction('Edit text')} onBlur={() => endTransaction()}>
+          <div data-ui-focus="cue-text" data-cue-id={cue.id} onFocus={() => beginTransaction('Edit text')} onBlur={() => endTransaction()}>
             <Textarea
               value={cue.text}
               label="Cue text"

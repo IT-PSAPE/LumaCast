@@ -17,7 +17,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 export function useTimelineShortcuts(): void {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (isEditableTarget(event.target)) return;
+      if (event.defaultPrevented || isEditableTarget(event.target)) return;
       const state = useChordStore.getState();
       const meta = event.metaKey || event.ctrlKey;
       const cues = state.document.project.cues;
@@ -25,6 +25,10 @@ export function useTimelineShortcuts(): void {
 
       switch (event.key) {
         case ' ':
+          // A focused native/custom button owns Space activation, including
+          // events from its composed descendants. Other transport keys stay
+          // global unless their control has already handled the event.
+          if (event.target instanceof Element && event.target.closest('button, [role="button"]')) return;
           event.preventDefault();
           state.togglePlay();
           return;
