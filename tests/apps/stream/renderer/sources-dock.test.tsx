@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { useState } from 'react';
+import { Modal, OverlayStackProvider } from '@lumacast/ui';
 import { SourcesDock, type SourcesDockProps } from '../../../../apps/stream/renderer/docks/sources-dock';
 import type { StreamSource } from '../../../../apps/stream/shared/desktop-api';
 
@@ -34,7 +36,7 @@ function makeSource(id: string, overrides: Partial<StreamSource> = {}): StreamSo
   };
 }
 
-function renderDock(overrides: Partial<SourcesDockProps> = {}) {
+function makeDockProps(overrides: Partial<SourcesDockProps> = {}): SourcesDockProps {
   const sources = overrides.sources ?? [makeSource('src-1', { name: 'Display Capture' }), makeSource('src-2', { name: 'Webcam', kind: 'camera' })];
   const onSelectSourceRow = overrides.onSelectSourceRow ?? vi.fn();
   const onToggleSourceLock = overrides.onToggleSourceLock ?? vi.fn();
@@ -98,9 +100,24 @@ function renderDock(overrides: Partial<SourcesDockProps> = {}) {
     properties: {} as unknown as SourcesDockProps['properties'],
     ...overrides,
   };
-  const view = render(<SourcesDock {...props} />);
-  const rerender = (nextOverrides: Partial<SourcesDockProps> = {}) => view.rerender(<SourcesDock {...{ ...props, ...nextOverrides }} />);
-  return { ...props, onSelectSourceRow, onToggleSourceLock, onMoveSource, onUpdateSource, sourceActions, addSourceMenu, rerender };
+  return props;
+}
+
+function InteractiveMenus(props: SourcesDockProps) {
+  const [addOpen, setAddOpen] = useState(props.sourceMenuOpen);
+  const [actionsOpen, setActionsOpen] = useState(props.sourceActionsMenuOpen);
+  return <SourcesDock {...props}
+    sourceMenuOpen={addOpen} setSourceMenuOpen={(next) => { props.setSourceMenuOpen(next); setAddOpen(next); }}
+    sourceActionsMenuOpen={actionsOpen} setSourceActionsMenuOpen={(next) => { props.setSourceActionsMenuOpen(next); setActionsOpen(next); }}
+  />;
+}
+
+function renderDock(overrides: Partial<SourcesDockProps> = {}, interactiveMenus = false) {
+  const props = makeDockProps(overrides);
+  const component = (next: SourcesDockProps) => interactiveMenus ? <OverlayStackProvider><InteractiveMenus {...next} /></OverlayStackProvider> : <SourcesDock {...next} />;
+  const view = render(component(props));
+  const rerender = (nextOverrides: Partial<SourcesDockProps> = {}) => view.rerender(component({ ...props, ...nextOverrides }));
+  return { ...props, rerender };
 }
 
 function rowFor(name: string): HTMLElement {
@@ -386,6 +403,181 @@ describe('SourcesDock', () => {
     expect(screen.queryByRole('button', { name: /Move source down/ })).toBeNull();
   });
 
+  describe('header menus', () => {
+    it.each([
+      ['Add source', 'Add source', 'Display Capture', 'Color Source', 'Text'],
+      ['More source actions', 'Source actions', 'Properties', 'Hide Sources', 'Copy Source'],
+    ])('opens %s from the keyboard and navigates its enabled commands', async (triggerName, menuName, first, last, typed) => {
+      const dock = renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }) }, true);
+      const trigger = screen.getByRole('button', { name: triggerName });
+      trigger.focus();
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+      await settle();
+      const menu = screen.getByRole('menu', { name: menuName });
+      expect(within(menu).getByRole('menuitem', { name: first })).toHaveFocus();
+      expect(triggerName === 'Add source' ? dock.sourceMenuTriggerRef.current : dock.sourceActionsTriggerRef.current).toBe(trigger);
+      fireEvent.keyDown(document.activeElement!, { key: 'End' });
+      await settle();
+      expect(within(menu).getByRole('menuitem', { name: last })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: 'Home' });
+      await settle();
+      expect(within(menu).getByRole('menuitem', { name: first })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: typed[0].toLowerCase() });
+      await settle();
+      expect(within(menu).getByRole('menuitem', { name: typed })).toHaveFocus();
+      fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+      await settle();
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(trigger).toHaveFocus();
+    });
+
+    it('updates selected-source, clipboard and working eligibility while open', async () => {
+      const locked = makeSource('src-2', { name: 'Webcam', kind: 'camera', locked: true });
+      const dock = renderDock({ selectedSource: locked }, true);
+      fireEvent.click(screen.getByRole('button', { name: 'More source actions' }));
+      await settle();
+      const fit = () => screen.getByRole('menuitem', { name: 'Fit to Canvas' });
+      const paste = () => screen.getByRole('menuitem', { name: 'Paste Source' });
+      expect(fit()).toHaveAttribute('aria-disabled', 'true');
+      expect(paste()).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(fit());
+      expect(dock.sourceActions.onFitSource).not.toHaveBeenCalled();
+      expect(screen.getByRole('menu', { name: 'Source actions' })).toBeInTheDocument();
+      dock.rerender({ selectedSource: { ...locked, locked: false }, sourceActions: { ...dock.sourceActions, sourceClipboardAvailable: true, working: true } });
+      expect(fit()).not.toHaveAttribute('aria-disabled', 'true');
+      expect(paste()).toHaveAttribute('aria-disabled', 'true');
+      dock.rerender({ selectedSource: null, sourceActions: { ...dock.sourceActions, sourceClipboardAvailable: true, working: false } });
+      expect(screen.getByRole('menuitem', { name: 'Properties' })).toHaveAttribute('aria-disabled', 'true');
+      expect(fit()).toHaveAttribute('aria-disabled', 'true');
+      expect(paste()).not.toHaveAttribute('aria-disabled', 'true');
+    });
+
+    it('preserves conditional add categories and routes audio and scene commands once', async () => {
+      const base = makeDockProps();
+      const scene = { id: 'other-scene', name: 'Other scene', sources: [] };
+      const addSourceMenu = { ...base.addSourceMenu, desktopAudioMode: 'system-tap' as const, applicationAudioSupported: true, onAddNdi: vi.fn(), referenceableScenes: [scene] };
+      const dock = renderDock({ addSourceMenu }, true);
+      const trigger = screen.getByRole('button', { name: 'Add source' });
+      fireEvent.click(trigger);
+      await settle();
+      const menu = screen.getByRole('menu', { name: 'Add source' });
+      expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+        'Display Capture', 'Window Capture', 'Audio Output Capture', 'Application Audio Capture', 'Video Capture Device', 'Audio Input Capture', 'NDI Source',
+        'Image', 'Image Slideshow', 'Presentation', 'Media Source', 'Audio File', 'Browser Source', 'Text', 'Color Source', 'Other scene',
+      ]);
+      for (const category of ['Capture', 'Media', 'Graphics', 'Composition']) {
+        expect(within(menu).getByText(category)).not.toHaveAttribute('role', 'menuitem');
+      }
+      fireEvent.click(within(menu).getByRole('menuitem', { name: 'Audio Output Capture' }));
+      await settle();
+      expect(addSourceMenu.onAddSystemAudioCapture).toHaveBeenCalledOnce();
+      expect(addSourceMenu.onOpenCapturePicker).not.toHaveBeenCalled();
+      expect(screen.queryByRole('menu')).toBeNull();
+      dock.rerender({ addSourceMenu: { ...addSourceMenu, desktopAudioMode: 'display-loopback' } });
+      fireEvent.click(trigger);
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Audio Output Capture' }));
+      await settle();
+      expect(addSourceMenu.onOpenCapturePicker).toHaveBeenCalledExactlyOnceWith('audio');
+      fireEvent.click(trigger);
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Other scene' }));
+      await settle();
+      expect(addSourceMenu.onAddSceneReference).toHaveBeenCalledExactlyOnceWith(scene);
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('keeps only the active header menu open and dismisses outside', async () => {
+      renderDock({}, true);
+      fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
+      await settle();
+      expect(screen.getByRole('menu', { name: 'Add source' })).toBeInTheDocument();
+      const nextTrigger = screen.getByRole('button', { name: 'More source actions' });
+      fireEvent.pointerDown(nextTrigger, { pointerType: 'mouse', button: 0 });
+      fireEvent.mouseDown(nextTrigger, { button: 0 });
+      nextTrigger.focus();
+      fireEvent.pointerUp(nextTrigger, { pointerType: 'mouse', button: 0 });
+      fireEvent.mouseUp(nextTrigger, { button: 0 });
+      fireEvent.click(nextTrigger);
+      await settle();
+      expect(screen.queryByRole('menu', { name: 'Add source' })).toBeNull();
+      expect(screen.getByRole('menu', { name: 'Source actions' })).toBeInTheDocument();
+      fireEvent.pointerDown(document.body, { pointerType: 'mouse', button: 0 });
+      await settle();
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it.each([
+      ['Fit to Canvas', 'onFitSource'],
+      ['Center', 'onCenterSource'],
+      ['Stretch to Canvas', 'onStretchSource'],
+      ['Reset Transform', 'onResetTransform'],
+      ['Delete Source', 'onRemoveSelectedSource'],
+    ] as const)('activates %s once and dismisses the menu', async (label, action) => {
+      const dock = renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }) }, true);
+      const trigger = screen.getByRole('button', { name: 'More source actions' });
+      fireEvent.click(trigger);
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: label }));
+      await settle();
+      expect(dock.sourceActions[action]).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(trigger).toHaveFocus();
+    });
+
+    it('dismisses before an asynchronous add completes or reports a handled failure', async () => {
+      let reject!: (error: Error) => void;
+      const operation = new Promise<void>((_, fail) => { reject = fail; });
+      const reportFailure = vi.fn();
+      const onAddMedia = vi.fn(() => { void operation.catch(reportFailure); });
+      const base = makeDockProps();
+      renderDock({ addSourceMenu: { ...base.addSourceMenu, onAddMedia } }, true);
+      fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Image' }));
+      await settle();
+      expect(onAddMedia).toHaveBeenCalledExactlyOnceWith('image');
+      expect(screen.queryByRole('menu')).toBeNull();
+      reject(new Error('Import cancelled by fixture'));
+      await settle();
+      expect(reportFailure).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('hands focus to the source properties dialog without returning it to the menu trigger', async () => {
+      const onOpenSourceProperties = vi.fn();
+      renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), onOpenSourceProperties }, true);
+      fireEvent.click(screen.getByRole('button', { name: 'More source actions' }));
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Properties' }));
+      await settle();
+      const dialog = screen.getByRole('dialog', { name: 'Source Properties' });
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
+      expect(onOpenSourceProperties).toHaveBeenCalledExactlyOnceWith('src-2');
+      expect(screen.queryByRole('menu')).toBeNull();
+    });
+
+    it('hands focus to a picker opened by an add command', async () => {
+      const base = makeDockProps();
+      const onAddCamera = vi.fn();
+      function PickerJourney() {
+        const [open, setOpen] = useState(false);
+        return <>
+          <InteractiveMenus {...base} addSourceMenu={{ ...base.addSourceMenu, onAddCamera: () => { onAddCamera(); setOpen(true); } }} />
+          <Modal open={open} onClose={() => setOpen(false)} title="Video capture device"><button type="button">Choose camera</button></Modal>
+        </>;
+      }
+      render(<OverlayStackProvider><PickerJourney /></OverlayStackProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Add source' }));
+      await settle();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Video Capture Device' }));
+      await settle();
+      expect(onAddCamera).toHaveBeenCalledOnce();
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(screen.getByRole('dialog', { name: 'Video capture device' })).toContainElement(document.activeElement as HTMLElement);
+    });
+  });
+
   describe('properties dialog', () => {
     it('selecting a row (selectedSource set) does not open the dialog on its own', () => {
       renderDock({ selectedSource: makeSource('src-2', { name: 'Webcam', kind: 'camera' }), selectedSourceIds: ['src-2'] });
@@ -402,7 +594,7 @@ describe('SourcesDock', () => {
       expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('keeps Hide Sources in the existing source actions popover', async () => {
+    it('keeps Hide Sources in the source actions menu', async () => {
       vi.stubGlobal('ResizeObserver', class {
         observe() {}
         unobserve() {}

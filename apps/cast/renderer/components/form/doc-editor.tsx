@@ -842,7 +842,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
             </div>
             {marquee && (
                 <div
-                    className="pointer-events-none absolute z-10 rounded-control border border-brand_solid bg-brand/10"
+                    className="pointer-events-none absolute z-10 rounded-control border border-brand bg-brand/10"
                     style={{
                         left: marquee.left,
                         top: marquee.top,

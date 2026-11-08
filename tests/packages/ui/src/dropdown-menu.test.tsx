@@ -21,8 +21,16 @@ describe('DropdownMenu', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await openMenu();
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('menu')).toBeTruthy();
+    expect(screen.getByRole('menu', { name: 'Open' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Alpha' })).toBeTruthy();
+  });
+
+  it('uses an explicit popup label while preserving the trigger name', async () => {
+    render(<DropdownMenu label="Source actions" trigger={<button type="button" aria-label="More source actions" />} entries={[{ id: 'a', label: 'Alpha' }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'More source actions' }));
+    await settle();
+    expect(screen.getByRole('menu', { name: 'Source actions' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'More source actions' })).toBeTruthy();
   });
 
   it('renders MenuItem.icon', async () => {

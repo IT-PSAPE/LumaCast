@@ -649,21 +649,17 @@ function Composer() {
       />
       <div className="flex items-center justify-between gap-2 px-2 pb-2">
         <ModelPicker />
-        <button
-          type="button"
-          aria-label={running ? 'Stop' : 'Send'}
-          title={running ? 'Stop' : 'Send'}
+        <ReacstButton.Icon
+          label={running ? 'Stop' : 'Send'}
+          variant={running ? 'outline' : 'primary'}
+          size="lg"
+          shape="pill"
           onClick={handleSendOrStop}
           disabled={!running && text.trim().length === 0}
-          className={cn(
-            'inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors',
-            running
-              ? 'border border-primary bg-primary text-primary hover:bg-tertiary'
-              : 'bg-brand text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-40',
-          )}
+          className={running ? 'shrink-0 bg-primary hover:bg-tertiary' : 'shrink-0 data-disabled:opacity-40'}
         >
           {running ? <Square size={12} className="fill-current" /> : <ArrowUp size={14} />}
-        </button>
+        </ReacstButton.Icon>
       </div>
     </div>
   );

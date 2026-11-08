@@ -29,7 +29,7 @@ export function VideoFilmstripTrack({
     <div className="relative">
       <div
         data-ui-region="video-filmstrip"
-        className="relative h-16 overflow-hidden rounded-control border border-brand_solid/30 bg-brand/10"
+        className="relative h-16 overflow-hidden rounded-control border border-brand-solid/30 bg-brand/10"
       >
         <div aria-hidden="true" className="absolute inset-0 flex">
           {Array.from({ length: 12 }, (_, index) => {

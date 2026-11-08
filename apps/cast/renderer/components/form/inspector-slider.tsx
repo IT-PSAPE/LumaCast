@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from 'react';
 import { Slider } from '@base-ui/react/slider';
+import { cn, useSliderInteraction } from '@lumacast/ui';
 
 interface InspectorSliderProps {
   value: number;
@@ -24,9 +25,8 @@ export function InspectorSlider({
   // change event (keyboard/drag interactions already step correctly on their
   // own); snapping to `step` here keeps every path — typed, dragged, or
   // keyboard-stepped — landing on the same snapped value.
-  function handleValueChange(next: number | number[]) {
-    const raw = Array.isArray(next) ? next[0]! : next;
-    const snapped = Math.round(raw / step) * step;
+  function handleValueChange(next: number) {
+    const snapped = Math.round(next / step) * step;
     const clamped = Math.min(Math.max(snapped, min), max);
     const normalized = Number.isInteger(step)
       ? Math.round(clamped)
@@ -37,9 +37,8 @@ export function InspectorSlider({
   // This control is designed to live inside a Dropdown menu, whose panel claims
   // ArrowUp/ArrowDown/Home/End for menu navigation and single characters for
   // type-ahead — exactly the keys a range input needs. Keep those keys for the
-  // slider and leave the menu's own keys alone. Note this must never
-  // preventDefault() on pointerdown: that suppresses the compatibility mouse
-  // events the native range thumb relies on, which kills drag and click-to-seek.
+  // slider and leave the menu's own keys alone. Pointer interactions are owned
+  // separately by the shared interaction recipe.
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape' || event.key === 'Tab') return;
     event.stopPropagation();
@@ -47,15 +46,12 @@ export function InspectorSlider({
 
   const percent = max === min ? 0 : ((value - min) / (max - min)) * 100;
   const remaining = step === 0 ? 0 : Math.max(0, Math.round((max - value) / step));
+  const interaction = useSliderInteraction({ value, min, max, step, onValueChange: handleValueChange });
 
   return (
     <Slider.Root
-      value={value}
-      min={min}
-      max={max}
-      step={step}
-      onValueChange={handleValueChange}
-      className="relative flex h-8 w-full items-center overflow-hidden rounded-control bg-tertiary px-2.5 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand"
+      className="relative flex h-8 w-full items-center overflow-hidden rounded-control bg-tertiary px-2.5"
+      {...interaction.rootProps}
     >
       {/* filled portion */}
       <div
@@ -97,8 +93,8 @@ export function InspectorSlider({
           drag keep working, exactly like the invisible full-size range input
           before it. The thumb itself stays visually hidden — the dressing
           above already draws the fill, ticks and thumb line. */}
-      <Slider.Control className="absolute inset-0 h-full w-full cursor-pointer">
-        <Slider.Thumb aria-label={ariaLabel ?? label} onKeyDown={handleKeyDown} className="outline-none" />
+      <Slider.Control ref={interaction.measurementRef} className={cn('absolute inset-0 h-full w-full cursor-pointer rounded-control', interaction.focusClassName)} {...interaction.controlProps}>
+        <Slider.Thumb aria-label={ariaLabel ?? label} onKeyDown={handleKeyDown} className="outline-none" {...interaction.thumbProps} />
       </Slider.Control>
     </Slider.Root>
   );

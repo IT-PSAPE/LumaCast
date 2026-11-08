@@ -27,6 +27,8 @@ export type DropdownMenuProps = DropdownMenuContent & {
   /** Controlled open state; omit for uncontrolled. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** Explicit popup name; otherwise the trigger supplies its accessible name. */
+  label?: string;
   className?: string;
 };
 
@@ -57,6 +59,7 @@ export function DropdownMenu({
   disabled = false,
   open,
   onOpenChange,
+  label,
   className,
 }: DropdownMenuProps) {
   const isControlled = open !== undefined;
@@ -85,7 +88,10 @@ export function DropdownMenu({
           className="pointer-events-none outline-hidden"
           style={{ zIndex }}
         >
-          <Menu.Popup className={cn(SURFACE_CLASSES, className)}>
+          <Menu.Popup
+            {...(label !== undefined ? { 'aria-label': label, 'aria-labelledby': undefined } : {})}
+            className={cn(SURFACE_CLASSES, className)}
+          >
             {entries
               ? <MenuEntries entries={entries} />
               : typeof children === 'function' ? children({ close }) : children}

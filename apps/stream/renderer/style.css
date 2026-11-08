@@ -91,18 +91,16 @@ button:disabled { cursor: default; opacity: .43; }
 .source-level-mini { width: 30px; height: 4px; overflow: hidden; border-radius: var(--radius-hairline); background: var(--background-color-tertiary); }
 .source-level-mini i { height: 100%; display: block; background: linear-gradient(90deg, var(--color-success) 0 60%, var(--color-warning) 78%, var(--color-error)); transition: width .08s linear; }
 .source-actions { display: flex; flex: 0 0 auto; gap: var(--space-1); }
-.source-actions button { width: 17px; height: 21px; display: grid; place-items: center; padding: 0; border-radius: var(--radius-control); color: var(--text-color-tertiary); background: transparent; cursor: pointer; }
+.source-actions button { display: grid; place-items: center; padding: 0; border-radius: var(--radius-control); color: var(--text-color-tertiary); background: transparent; cursor: pointer; }
 .source-actions button:hover:not(:disabled) { color: var(--text-color-primary); background: var(--background-color-tertiary); }
 .source-actions button:disabled { opacity: .25; }
 .source-empty { height: 100%; min-height: 70px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-1); color: var(--text-color-tertiary); text-align: center; }
 .empty-stack { width: 33px; height: 33px; display: grid; place-items: center; margin-bottom: var(--space-0-5); border: 0; border-radius: 0; color: var(--text-color-tertiary); background: transparent; }
 .source-empty b { color: var(--text-color-secondary); font-size: var(--text-label-xs); font-weight: 600; }.source-empty > span:last-child { color: var(--text-color-tertiary); font-size: var(--text-sm); }
-.source-menu { width: 202px; overflow-y: auto; padding: var(--space-1); border: 1px solid var(--border-color-primary); border-radius: var(--radius-surface); background: var(--background-color-primary); box-shadow: 0 10px 25px color-mix(in srgb, var(--color-black) 60%, transparent); }
-.source-menu button { width: 100%; min-height: 30px; display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--text-color-secondary); background: transparent; font-size: var(--text-label-xs); text-align: left; cursor: pointer; }
-.source-menu button:hover { color: var(--text-color-primary); background: var(--background-color-tertiary); }
-.source-menu button svg { color: var(--text-color-tertiary); }
-.source-menu button:disabled { opacity: .4; cursor: default; }
-.source-menu-separator { height: 1px; margin: var(--space-1) var(--space-1); background: var(--border-color-secondary); }
+/* Source menus retain their compact dimensions; shared menu parts own states. */
+.source-menu { width: 202px; max-width: var(--available-width); max-height: var(--available-height); }
+.source-menu [data-context-menu-item] { min-height: 30px; padding-block: 0; white-space: normal; }
+.source-menu [data-context-menu-item] > svg { flex-shrink: 0; }
 .menu-label { padding: var(--space-1-5) var(--space-2) var(--space-1); color: var(--text-color-tertiary); font: 500 var(--text-sm)/1.4 var(--font-family-sans); letter-spacing: 0; text-transform: uppercase; }
 .menu-label-separator { margin-top: var(--space-1); border-top: 1px solid var(--border-color-primary); }
 .source-properties { padding: var(--space-1) var(--space-2) var(--space-2); border-top: 1px solid var(--border-color-secondary); background: var(--background-color-primary); }

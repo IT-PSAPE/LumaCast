@@ -12,7 +12,10 @@ const mocks = vi.hoisted(() => ({
   reorderMacro: vi.fn(),
 }));
 
-vi.mock('@lumacast/ui', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('@lumacast/ui', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@lumacast/ui')>(),
+  useConfirm: () => mocks.confirm,
+}));
 
 vi.mock('@renderer/features/automation/automation-context', () => ({
   useAutomation: () => ({ actions: {

@@ -28,7 +28,7 @@ export function AudioWaveformTrack({ src, duration, currentTime, disabled, contr
   }).join(' '), [waveform.peaks]);
   return (
     <div className="relative">
-      <div className="relative h-16 overflow-hidden rounded-control border border-brand_solid/30 bg-brand/10" data-ui-region="audio-waveform">
+      <div className="relative h-16 overflow-hidden rounded-control border border-brand-solid/30 bg-brand/10" data-ui-region="audio-waveform">
         <div className="pointer-events-none absolute inset-y-0 left-0 bg-brand/10" style={{ width: `${progress}%` }} />
         <svg aria-hidden="true" viewBox="0 0 1200 58" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full" style={{ color: 'var(--color-brand)' }}>
           {path ? <path d={path} stroke="currentColor" strokeWidth="1.5" /> : <path d="M0 29H1200" stroke="currentColor" strokeOpacity="0.3" />}
@@ -58,9 +58,9 @@ export function AudioWaveformTrack({ src, duration, currentTime, disabled, contr
           const label = `Marker ${index + 1}, ${formatPlaybackTime(entry.timeMs / 1000)}, ${slideIndex >= 0 ? `Slide ${slideIndex + 1}` : 'Unassigned'}`;
           return <button key={entry.id} type="button" aria-label={label} title={label} aria-expanded={selection?.id === entry.id}
             onClick={(event) => { controller.seekToMarker(entry.timeMs); setSelection({ id: entry.id, anchor: event.currentTarget }); }}
-            className="absolute top-0 h-full w-5 border-l border-brand_solid text-left focus:outline focus:outline-2 focus:outline-white"
+            className="absolute top-0 h-full w-5 border-l border-brand-solid text-left"
             style={{ left: `clamp(0px, ${Math.min(100, entry.timeMs / 1000 / duration * 100)}%, calc(100% - 20px))` }}>
-            <span className="absolute left-0 top-0 rounded-br-hairline bg-brand px-1 text-[10px] leading-4 text-white">{slideIndex >= 0 ? slideIndex + 1 : '•'}</span>
+            <span className="absolute left-0 top-0 rounded-br-hairline bg-brand-solid px-1 text-[10px] leading-4 text-on-solid">{slideIndex >= 0 ? slideIndex + 1 : '•'}</span>
           </button>;
         }) : null}
       </div>

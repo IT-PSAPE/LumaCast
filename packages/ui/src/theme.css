@@ -103,6 +103,13 @@
     --text-lg: calc(var(--spacing) * 3.5);
     --text-lg--line-height: calc(var(--spacing) * 5.5);
 
+    /* Secondary compact text. Annotation is for short data and hints, not
+       control labels, errors, or essential instructions. */
+    --text-caption: 11px;
+    --text-caption--line-height: 1.5;
+    --text-annotation: 10px;
+    --text-annotation--line-height: 1.4;
+
     /* FIGMA TEXT STYLES */
     --text-title-h1: 56px;
     --text-title-h1--line-height: 1.1;
@@ -224,15 +231,16 @@
     --color-green-600: #28A459;
 
     /* SEMANTIC TOKENS (light; dark overrides live in the @layer base block below)
-       Twelve tokens carry every colour meaning in the UI:
+       Neutral surfaces/text and semantic colours carry the UI's meaning:
          bg-primary / bg-secondary / bg-tertiary   app canvas, panels, controls
          text-primary / text-secondary / text-tertiary
          border-primary / border-secondary
          brand, error, warning, success           usable in any namespace:
                                                   bg-brand, text-error, ring-brand,
                                                   border-success/40, bg-error/15 …
-       States and tints are opacity modifiers on these (bg-brand/90 on hover,
-       bg-error/15 for a soft badge), not additional tokens. */
+       Tinted surfaces use opacity modifiers (bg-error/15). Solid fills have
+       separate contrast-safe roles below: the brighter dark-theme semantic
+       colours are suitable for text, but not behind small white labels. */
     --background-color-primary: var(--color-white);
     --background-color-secondary: var(--color-gray-50);
     --background-color-tertiary: var(--color-gray-100);
@@ -248,6 +256,21 @@
     --color-error: var(--color-red-600);
     --color-warning: var(--color-orange-600);
     --color-success: var(--color-green-600);
+
+    /* SOLID FILLS
+       Keep white labels at >= 4.5:1 in both themes. These opaque roles do not
+       follow the brighter semantic text colours in dark mode; their hover
+       state darkens the fill rather than exposing the underlying surface. */
+    --color-brand-solid: var(--color-brand-600);
+    --color-brand-solid-hover: color-mix(in srgb, var(--color-brand-solid) 90%, var(--color-black));
+    --color-error-solid: color-mix(in srgb, var(--color-red-600) 90%, var(--color-black));
+    --color-success-solid: color-mix(in srgb, var(--color-green-600) 80%, var(--color-black));
+    --color-warning-solid: color-mix(in srgb, var(--color-orange-600) 80%, var(--color-black));
+    --color-on-solid: var(--color-white);
+
+    /* A foreground-derived focus mark stays distinct on neutral controls and
+       solid actions. Its inset placement survives clipped, dense chrome. */
+    --color-focus-ring: var(--text-color-primary);
 
     /* MOTION (agent chat)
        Small, named motion tokens for the assistant transcript (ADR-0038): a
@@ -281,9 +304,23 @@
   box-sizing: border-box;
 }
 
-*:focus,
-*:focus-visible {
-  outline: none;
+/* A fallback for every keyboard-focusable control, including app-owned ones.
+   Utilities can replace it with a control-specific ring or wrapper treatment;
+   pointer focus does not acquire an extra indicator. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+/* Forced colours suppress box-shadow rings. Restore one system-colour outline
+   even on controls whose normal utility styling uses outline-none. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: -2px !important;
+  }
 }
 
 html,

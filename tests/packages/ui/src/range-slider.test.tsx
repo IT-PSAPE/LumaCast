@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { RangeSlider } from '@lumacast/ui';
 
@@ -12,7 +12,112 @@ function Harness({ initial = [20, 60], onChange, ...rest }: { initial?: [number,
 
 const thumbs = () => [screen.getByRole('slider', { name: 'Start of Cue' }), screen.getByRole('slider', { name: 'End of Cue' })] as const;
 
+function pressThumb(input: HTMLElement) {
+  const control = input.parentElement!.parentElement!.parentElement!;
+  // jsdom has PointerEvent but not pointer capture. Stub only this rendered
+  // control; cleanup removes the node, leaving the shared DOM prototype alone.
+  control.setPointerCapture = () => undefined;
+  control.hasPointerCapture = () => false;
+  const box = { width: 200, left: 0, right: 200, top: 0, bottom: 4, height: 4, x: 0, y: 0, toJSON: () => ({}) };
+  control.getBoundingClientRect = () => box;
+  input.parentElement!.parentElement!.getBoundingClientRect = () => box;
+  input.parentElement!.getBoundingClientRect = () => ({ ...box, left: 34, right: 46, width: 12 });
+  fireEvent.pointerDown(input.parentElement!, { button: 0, isPrimary: true, pointerId: 1, clientX: 0 });
+  fireEvent.pointerUp(document, { pointerId: 1, clientX: 0 });
+}
+
 describe('RangeSlider', () => {
+  it('puts the keyboard focus treatment on each visible thumb containing the hidden native input', () => {
+    render(<Harness />);
+    for (const input of thumbs()) {
+      const thumb = input.parentElement!;
+      expect(thumb.tagName).toBe('DIV');
+      expect(input).toHaveStyle({ clipPath: 'inset(50%)' });
+      expect(thumb.className).toContain('has-[input:focus-visible]:outline-2');
+      expect(thumb.className).toContain('has-[input:focus-visible]:outline-focus-ring');
+      act(() => input.focus());
+      expect(input).toHaveFocus();
+    }
+  });
+
+  it('keeps pointer focus masked between thumbs and restores it for keyboard input or a fresh entry', () => {
+    render(<><Harness /><button>Outside</button></>);
+    const [start, end] = thumbs();
+    act(() => start.focus());
+    const pointerPress = () => {
+      pressThumb(document.activeElement === end ? end : start);
+    };
+    const keyboardTreatment = () => start.parentElement!.className.includes('has-[input:focus-visible]:outline-2');
+
+    pointerPress();
+    expect(keyboardTreatment()).toBe(false);
+    act(() => end.focus());
+    expect(end).toHaveFocus();
+    expect(keyboardTreatment()).toBe(false);
+    fireEvent.keyDown(end, { key: 'Shift' });
+    expect(keyboardTreatment()).toBe(false);
+    fireEvent.keyDown(end, { key: 'ArrowRight' });
+    expect(keyboardTreatment()).toBe(true);
+    expect(end).toHaveAttribute('aria-valuenow', '61');
+
+    pointerPress();
+    expect(keyboardTreatment()).toBe(false);
+    act(() => screen.getByRole('button', { name: 'Outside' }).focus());
+    expect(keyboardTreatment()).toBe(true);
+    act(() => start.focus());
+    expect(start).toHaveFocus();
+    expect(keyboardTreatment()).toBe(true);
+  });
+
+  it('restores the visible keyboard treatment before Tab moves to the other thumb', () => {
+    render(<Harness />);
+    const [start, end] = thumbs();
+    act(() => start.focus());
+    pressThumb(start);
+    expect(start.parentElement!.className).not.toContain('has-[input:focus-visible]:outline-2');
+
+    fireEvent.keyDown(start, { key: 'Tab' });
+    act(() => end.focus());
+    expect(end.parentElement!.className).toContain('has-[input:focus-visible]:outline-2');
+    expect(end).toHaveFocus();
+  });
+
+  it.each([
+    ['seek', 'Tab'], ['seek', 'Shift+Tab'],
+    ['range-drag', 'Tab'], ['range-drag', 'Shift+Tab'],
+  ])('keeps keyboard entry visible after pointer %s from outside then %s', (surface, key) => {
+    const { container } = render(<><button>Before</button><Harness onSeek={() => undefined} /><button>After</button></>);
+    const backwards = key === 'Shift+Tab';
+    const outside = screen.getByRole('button', { name: backwards ? 'After' : 'Before' });
+    act(() => outside.focus());
+    const layer = container.querySelector(`[data-${surface}]`)!;
+    layer.parentElement!.getBoundingClientRect = () => ({ width: 200, left: 0, right: 200, top: 0, bottom: 4, height: 4, x: 0, y: 0, toJSON: () => ({}) });
+    fireEvent.pointerDown(layer, { button: 0, isPrimary: true, pointerId: 1, clientX: 100 });
+    fireEvent.pointerUp(layer, { pointerId: 1 });
+    expect(outside).toHaveFocus();
+    fireEvent.keyDown(outside, { key: 'Tab', shiftKey: backwards });
+    const input = thumbs()[backwards ? 1 : 0];
+    act(() => input.focus());
+    expect(input).toHaveFocus();
+    expect(input.parentElement!.className).toContain('has-[input:focus-visible]:outline-2');
+  });
+
+  it('keeps the keyboard treatment available after rejected pointer buttons and disabled interactions', () => {
+    const onSeek = vi.fn();
+    const { container, rerender } = render(<Harness onSeek={onSeek} />);
+    const [start] = thumbs();
+    const seekLayer = container.querySelector('[data-seek]')!;
+    fireEvent.pointerDown(seekLayer, { button: 2, isPrimary: true, pointerId: 1 });
+    expect(start.parentElement!.className).toContain('has-[input:focus-visible]:outline-2');
+    expect(onSeek).not.toHaveBeenCalled();
+
+    rerender(<Harness onSeek={onSeek} disabled />);
+    fireEvent.pointerDown(seekLayer, { button: 0, isPrimary: true, pointerId: 1 });
+    expect(start).toBeDisabled();
+    expect(start.parentElement!.className).toContain('has-[input:focus-visible]:outline-2');
+    expect(onSeek).not.toHaveBeenCalled();
+  });
+
   it('exposes two named, focusable sliders with their own value bounds', () => {
     render(<Harness />);
     const [a, b] = thumbs();
@@ -100,10 +205,10 @@ describe('RangeSlider', () => {
     const trackEl = Array.from(container.querySelectorAll('div')).find((el) => el.className.includes('bg-tertiary'))!;
     trackEl.getBoundingClientRect = () => ({ width: 200, left: 0, right: 200, top: 0, bottom: 4, height: 4, x: 0, y: 0, toJSON: () => ({}) });
     const handle = container.querySelector('[data-range-drag]')!;
-    fireEvent.pointerDown(handle, { button: 0, clientX: 80, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientX: 100, pointerId: 1 });
+    fireEvent.pointerDown(handle, { button: 0, buttons: 1, isPrimary: true, clientX: 80, pointerId: 1 });
+    fireEvent.pointerMove(handle, { buttons: 1, clientX: 100, pointerId: 1 });
     expect(onChange).toHaveBeenLastCalledWith([30, 70]);
-    fireEvent.pointerMove(handle, { clientX: 1000, pointerId: 1 });
+    fireEvent.pointerMove(handle, { buttons: 1, clientX: 1000, pointerId: 1 });
     expect(onChange).toHaveBeenLastCalledWith([60, 100]);
     fireEvent.pointerUp(handle, { pointerId: 1 });
     expect(onCommit).toHaveBeenLastCalledWith([60, 100]);
@@ -116,9 +221,9 @@ describe('RangeSlider', () => {
     const trackEl = Array.from(container.querySelectorAll('div')).find((el) => el.className.includes('bg-tertiary'))!;
     trackEl.getBoundingClientRect = () => ({ width: 200, left: 100, right: 300, top: 0, bottom: 4, height: 4, x: 100, y: 0, toJSON: () => ({}) });
     const layer = container.querySelector('[data-seek]')!;
-    fireEvent.pointerDown(layer, { button: 0, clientX: 150, pointerId: 1 });
+    fireEvent.pointerDown(layer, { button: 0, buttons: 1, isPrimary: true, clientX: 150, pointerId: 1 });
     expect(onSeek).toHaveBeenLastCalledWith(25);
-    fireEvent.pointerMove(layer, { clientX: 1000, pointerId: 1 });
+    fireEvent.pointerMove(layer, { buttons: 1, clientX: 1000, pointerId: 1 });
     expect(onSeek).toHaveBeenLastCalledWith(100);
     fireEvent.pointerUp(layer, { pointerId: 1 });
     expect(onChange).not.toHaveBeenCalled();
@@ -132,7 +237,7 @@ describe('RangeSlider', () => {
     const trackEl = Array.from(container.querySelectorAll('div')).find((el) => el.className.includes('bg-tertiary'))!;
     trackEl.getBoundingClientRect = () => ({ width: 200, left: 0, right: 200, top: 0, bottom: 4, height: 4, x: 0, y: 0, toJSON: () => ({}) });
     const handle = container.querySelector('[data-range-drag]')!;
-    fireEvent.pointerDown(handle, { button: 0, clientX: 80, pointerId: 1 });
+    fireEvent.pointerDown(handle, { button: 0, buttons: 1, isPrimary: true, clientX: 80, pointerId: 1 });
     fireEvent.pointerUp(handle, { pointerId: 1 });
     expect(onSeek).toHaveBeenCalledWith(40);
     expect(onCommit).not.toHaveBeenCalled();
@@ -142,8 +247,8 @@ describe('RangeSlider', () => {
     const onChange = vi.fn();
     const { container, rerender } = render(<RangeSlider value={[20, 60]} onValueChange={onChange} disabled />);
     const handle = container.querySelector('[data-range-drag]')!;
-    fireEvent.pointerDown(handle, { button: 0, clientX: 80, pointerId: 1 });
-    fireEvent.pointerMove(handle, { clientX: 120, pointerId: 1 });
+    fireEvent.pointerDown(handle, { button: 0, buttons: 1, isPrimary: true, clientX: 80, pointerId: 1 });
+    fireEvent.pointerMove(handle, { buttons: 1, clientX: 120, pointerId: 1 });
     expect(onChange).not.toHaveBeenCalled();
     rerender(<RangeSlider value={[20, 60]} onValueChange={onChange} draggableRange={false} />);
     expect(container.querySelector('[data-range-drag]')).toBeNull();

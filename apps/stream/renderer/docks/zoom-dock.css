@@ -12,7 +12,7 @@
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: var(--radius-container);
   background: #2d8cff;
 }
 

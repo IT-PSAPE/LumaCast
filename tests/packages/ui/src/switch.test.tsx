@@ -22,4 +22,17 @@ describe('Switch', () => {
     fireEvent.click(control);
     expect(onCheckedChange).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])('exposes checked=%s consistently on the disabled switch and thumb', (checked) => {
+    const onCheckedChange = vi.fn();
+    render(<Switch checked={checked} onCheckedChange={onCheckedChange} label="Auto-fit text" disabled />);
+    const control = screen.getByRole('switch', { name: 'Auto-fit text' });
+    const thumb = control.querySelector('span');
+    expect(control).toHaveAttribute('aria-checked', String(checked));
+    expect(control).toHaveAttribute(checked ? 'data-checked' : 'data-unchecked');
+    expect(thumb).toHaveAttribute(checked ? 'data-checked' : 'data-unchecked');
+    expect(thumb).toHaveAttribute('data-disabled');
+    fireEvent.click(control);
+    expect(onCheckedChange).not.toHaveBeenCalled();
+  });
 });

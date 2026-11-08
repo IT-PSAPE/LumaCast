@@ -2,17 +2,9 @@ import { Slider as BaseSlider } from '@base-ui/react/slider';
 import { cn } from './cn';
 import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
+import { useSliderInteraction, type SliderInteractionOptions } from './use-slider-interaction';
 
-export interface SliderProps {
-  value: number;
-  /** Fires continuously while dragging or stepping. */
-  onValueChange: (value: number) => void;
-  /** Fires once on pointer release or keyboard settle. */
-  onCommit?: (value: number) => void;
-  min?: number;
-  max?: number;
-  step?: number;
-  orientation?: 'horizontal' | 'vertical';
+export interface SliderProps extends Omit<SliderInteractionOptions, 'largeStep' | 'focusRing'> {
   size?: 'sm' | 'md';
   /** Fill colour of the active track. */
   tone?: 'brand' | 'neutral';
@@ -20,7 +12,6 @@ export interface SliderProps {
   formatValue?: (value: number) => string;
   /** Origin the fill grows from; defaults to `min`. Use 0 for bipolar controls such as pan. */
   fillFrom?: number;
-  disabled?: boolean;
   label?: string;
   labelPlacement?: FieldLabelPlacement;
   id?: string;
@@ -42,7 +33,7 @@ const trackStyles = cv({
 });
 
 const thumbStyles = cv({
-  base: 'block rounded-full bg-primary outline-none ring-1 ring-brand/60 focus-visible:ring-2 focus-visible:ring-brand data-dragging:ring-2 data-disabled:ring-0',
+  base: 'block rounded-full bg-primary outline-none ring-1 ring-brand/60 data-dragging:ring-2 data-disabled:ring-0',
   variants: {
     size: { sm: 'size-2.5', md: 'size-3.5' },
   },
@@ -59,6 +50,7 @@ export function Slider({
   value,
   onValueChange,
   onCommit,
+  onCancel,
   min = 0,
   max = 100,
   step = 1,
@@ -69,12 +61,18 @@ export function Slider({
   formatValue,
   fillFrom,
   disabled,
+  readOnly = false,
+  interactionKey,
   label,
   labelPlacement,
   id,
   className,
 }: SliderProps) {
   const ids = useFieldIds(id);
+  const interaction = useSliderInteraction({
+    value, min, max, step, orientation, disabled, readOnly, interactionKey,
+    onValueChange, onCommit, onCancel, largeStep: Math.max(step, (max - min) / 10),
+  });
   const vertical = orientation === 'vertical';
   const range = max - min || 1;
   const toPercent = (v: number) => Math.min(100, Math.max(0, ((v - min) / range) * 100));
@@ -88,31 +86,27 @@ export function Slider({
 
   const control = (
     <div className={cn('flex items-center gap-2', vertical ? 'h-full flex-col' : 'w-full', className)}>
+      {/* aria-disabled is inherited by the nested range input. Disabling the
+          native input instead would make Base UI blur it during pending work. */}
       <BaseSlider.Root
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        largeStep={Math.max(step, (max - min) / 10)}
-        orientation={orientation}
-        disabled={disabled}
-        onValueChange={(next) => onValueChange(Array.isArray(next) ? next[0]! : next)}
-        onValueCommitted={onCommit ? (next) => onCommit(Array.isArray(next) ? next[0]! : next) : undefined}
         className={cn('data-disabled:opacity-50', vertical ? 'h-full min-h-0 flex-1' : 'min-w-0 flex-1')}
+        {...interaction.rootProps}
       >
         <BaseSlider.Control
           className={cn(
             'flex touch-none items-center justify-center data-disabled:cursor-not-allowed',
             vertical ? 'h-full min-h-12 w-5' : 'h-5 w-full',
           )}
+          {...interaction.controlProps}
         >
-          <BaseSlider.Track className={trackStyles({ orientation, size })}>
+          <BaseSlider.Track ref={interaction.measurementRef} className={trackStyles({ orientation, size })}>
             <div className={fillStyles({ tone })} style={fillPosition} />
             <BaseSlider.Thumb
               id={ids.id}
               aria-label={label}
               aria-describedby={ids.describedBy}
-              className={thumbStyles({ size })}
+              className={cn(thumbStyles({ size }), interaction.focusClassName)}
+              {...interaction.thumbProps}
             />
           </BaseSlider.Track>
         </BaseSlider.Control>

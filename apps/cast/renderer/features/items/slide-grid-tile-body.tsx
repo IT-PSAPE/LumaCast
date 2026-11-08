@@ -115,7 +115,7 @@ export function SlideGridTileBody({
         </Thumbnail.Body>
         {isLive ? (
           <Thumbnail.Overlay position="top-left">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand text-white shadow-sm">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand-solid text-on-solid shadow-sm">
               <Play size={12} strokeWidth={1.9} />
             </span>
           </Thumbnail.Overlay>

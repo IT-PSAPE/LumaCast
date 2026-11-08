@@ -115,3 +115,17 @@ describe('spacing scale', () => {
     expect(theme).toMatch(/--radius-\*:\s*initial;/);
   });
 });
+
+describe('solid colour adoption', () => {
+  it('uses contrast-safe solid roles instead of raw semantic fills with white labels', () => {
+    const rawFills = new Set(['bg-brand', 'bg-error', 'bg-success', 'bg-warning']);
+    const offenders = sourceFiles(['.tsx'])
+      .flatMap((file) => classStrings(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        .filter((classes) => {
+          const tokens = classes.split(/\s+/);
+          return tokens.includes('text-white') && tokens.some((token) => rawFills.has(token));
+        })
+        .map((classes) => `${file}: ${classes}`));
+    expect(offenders, 'use a primary button or bg-{brand,error,success,warning}-solid with text-on-solid').toEqual([]);
+  });
+});

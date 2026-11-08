@@ -7,9 +7,8 @@ import {
   ChevronDown, ChevronRight, CircleAlert, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon, Images,
   Layers, Layers2, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Presentation, TriangleAlert, Type, Webcam, X,
 } from 'lucide-react';
-import { EmptyState, Modal, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { ContextMenu, DropdownMenu, EmptyState, Modal, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { moveSelectedIds, moveSelectionToGap, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
-import { AnchoredPopover } from '../anchored-popover';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
 import { SourceProperties, type SourcePropertiesProps } from './source-properties';
 import { fallbackSourceMoveSteps, reorderSourceSiblingsOnDrop } from '../source-order';
@@ -596,6 +595,57 @@ export function SourcesDock({
     });
   };
 
+  const sourceActionsDropdown = (
+    <DropdownMenu open={sourceActionsMenuOpen} onOpenChange={setSourceActionsMenuOpen} className="source-menu" side="top" align="end" sideOffset={6} label="Source actions"
+      trigger={<button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions"><MoreHorizontal size={16} /></button>}>
+      <ContextMenu.Item disabled={!selectedSource} onSelect={() => { if (selectedSource) showSourceProperties(selectedSource.id); }}>Properties</ContextMenu.Item>
+      <ContextMenu.Item disabled={!selectedSource} onSelect={() => { if (selectedSource) showSourceFilters(selectedSource.id); }}>Filters</ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item disabled={!selectedSource} onSelect={() => sourceActions.onCopySource()}><Copy size={14} />Copy Source</ContextMenu.Item>
+      <ContextMenu.Item disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onSelect={sourceActions.onPasteSource}><Plus size={14} />Paste Source</ContextMenu.Item>
+      <ContextMenu.Separator />
+      {selectedSource?.kind === 'group'
+        ? <ContextMenu.Item onSelect={() => sourceActions.onUngroupSource()}><Layers2 size={14} />Ungroup</ContextMenu.Item>
+        : <ContextMenu.Item disabled={!sourceActions.canGroupSelectedSources} onSelect={sourceActions.onGroupSources}><Layers2 size={14} />Group Sources</ContextMenu.Item>}
+      <ContextMenu.Separator />
+      <ContextMenu.Item disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onSelect={() => selectedSource && sourceActions.onFitSource(selectedSource)}><Move size={14} />Fit to Canvas</ContextMenu.Item>
+      <ContextMenu.Item disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onSelect={() => selectedSource && sourceActions.onCenterSource(selectedSource)}><Move size={14} />Center</ContextMenu.Item>
+      <ContextMenu.Item disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onSelect={() => selectedSource && sourceActions.onStretchSource(selectedSource)}><Move size={14} />Stretch to Canvas</ContextMenu.Item>
+      <ContextMenu.Item disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onSelect={() => selectedSource && sourceActions.onResetTransform(selectedSource)}><Move size={14} />Reset Transform</ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item disabled={!selectedSource} onSelect={sourceActions.onRemoveSelectedSource}><X size={14} />Delete Source</ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item onSelect={onHide}>Hide Sources</ContextMenu.Item>
+    </DropdownMenu>
+  );
+  const addSourceDropdown = (
+    <DropdownMenu open={sourceMenuOpen} onOpenChange={setSourceMenuOpen} className="source-menu" align="end" sideOffset={6} label="Add source"
+      trigger={<button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source"><Plus size={16} /></button>}>
+      <div className="menu-label">Capture</div>
+      <ContextMenu.Item onSelect={() => addSourceMenu.onOpenCapturePicker('screen')}><Monitor size={15} />Display Capture</ContextMenu.Item>
+      <ContextMenu.Item onSelect={() => addSourceMenu.onOpenCapturePicker('window')}><Grid2X2 size={15} />Window Capture</ContextMenu.Item>
+      {addSourceMenu.desktopAudioMode !== 'unavailable' && <ContextMenu.Item onSelect={() => addSourceMenu.desktopAudioMode === 'system-tap' ? addSourceMenu.onAddSystemAudioCapture() : addSourceMenu.onOpenCapturePicker('audio')}><Headphones size={15} />Audio Output Capture</ContextMenu.Item>}
+      {addSourceMenu.applicationAudioSupported && <ContextMenu.Item onSelect={() => addSourceMenu.onOpenApplicationAudioPicker()}><Headphones size={15} />Application Audio Capture</ContextMenu.Item>}
+      <ContextMenu.Item onSelect={addSourceMenu.onAddCamera}><Webcam size={15} />Video Capture Device</ContextMenu.Item>
+      <ContextMenu.Item onSelect={addSourceMenu.onAddMicrophone}><Mic size={15} />Audio Input Capture</ContextMenu.Item>
+      {addSourceMenu.onAddNdi && <ContextMenu.Item onSelect={addSourceMenu.onAddNdi}><Globe size={15} />NDI Source</ContextMenu.Item>}
+      <div className="menu-label menu-label-separator">Media</div>
+      <ContextMenu.Item onSelect={() => addSourceMenu.onAddMedia('image')}><ImageIcon size={15} />Image</ContextMenu.Item>
+      <ContextMenu.Item onSelect={addSourceMenu.onAddSlideshow}><Images size={15} />Image Slideshow</ContextMenu.Item>
+      <ContextMenu.Item onSelect={addSourceMenu.onAddPresentation}><Presentation size={15} />Presentation</ContextMenu.Item>
+      <ContextMenu.Item onSelect={() => addSourceMenu.onAddMedia('video')}><FileVideo size={15} />Media Source</ContextMenu.Item>
+      <ContextMenu.Item onSelect={() => addSourceMenu.onAddMedia('audio')}><FileAudio size={15} />Audio File</ContextMenu.Item>
+      <ContextMenu.Item onSelect={addSourceMenu.onOpenBrowserDialog}><Globe size={15} />Browser Source</ContextMenu.Item>
+      <div className="menu-label menu-label-separator">Graphics</div>
+      <ContextMenu.Item onSelect={addSourceMenu.onAddText}><Type size={15} />Text</ContextMenu.Item>
+      <ContextMenu.Item onSelect={addSourceMenu.onAddColor}><Layers2 size={15} />Color Source</ContextMenu.Item>
+      {addSourceMenu.referenceableScenes.length > 0 && <>
+        <div className="menu-label menu-label-separator">Composition</div>
+        {addSourceMenu.referenceableScenes.map((scene) => <ContextMenu.Item key={scene.id} onSelect={() => addSourceMenu.onAddSceneReference(scene)}><PanelsTopLeft size={15} />{scene.name}</ContextMenu.Item>)}
+      </>}
+    </DropdownMenu>
+  );
+
   return (
     <Panel density="compact" className="dock sources-dock" style={style}>
       {resizer}
@@ -603,29 +653,9 @@ export function SourcesDock({
         title="Sources"
         icon={<Layers />}
         onHide={onHide}
-        actions={<button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={16} /></button>}
-        menuTrigger={<button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => setSourceActionsMenuOpen((open) => !open)}><MoreHorizontal size={16} /></button>}
+        actions={addSourceDropdown}
+        menuTrigger={sourceActionsDropdown}
       />
-      <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
-        <button role="menuitem" disabled={!selectedSource} onClick={() => { setSourceActionsMenuOpen(false); if (selectedSource) showSourceProperties(selectedSource.id); }}>Properties</button>
-        <button role="menuitem" disabled={!selectedSource} onClick={() => { setSourceActionsMenuOpen(false); if (selectedSource) showSourceFilters(selectedSource.id); }}>Filters</button>
-        <div className="source-menu-separator" />
-        <button role="menuitem" disabled={!selectedSource} onClick={() => sourceActions.onCopySource()}><Copy size={14} />Copy Source</button>
-        <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>
-        <div className="source-menu-separator" />
-        {selectedSource?.kind === 'group'
-          ? <button role="menuitem" onClick={() => sourceActions.onUngroupSource()}><Layers2 size={14} />Ungroup</button>
-          : <button role="menuitem" disabled={!sourceActions.canGroupSelectedSources} onClick={sourceActions.onGroupSources}><Layers2 size={14} />Group Sources</button>}
-        <div className="source-menu-separator" />
-        <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onFitSource(selectedSource)}><Move size={14} />Fit to Canvas</button>
-        <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onCenterSource(selectedSource)}><Move size={14} />Center</button>
-        <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onStretchSource(selectedSource)}><Move size={14} />Stretch to Canvas</button>
-        <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onResetTransform(selectedSource)}><Move size={14} />Reset Transform</button>
-        <div className="source-menu-separator" />
-        <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onRemoveSelectedSource}><X size={14} />Delete Source</button>
-        <div className="source-menu-separator" />
-        <button role="menuitem" onClick={() => { setSourceActionsMenuOpen(false); onHide(); }}>Hide Sources</button>
-      </AnchoredPopover>
       <div className="source-list" role="tree" aria-label="Sources" aria-multiselectable="true" onKeyDown={handleSelectionKeys}>
         {sources.length === 0 && (
           <EmptyState.Root>
@@ -643,30 +673,6 @@ export function SourcesDock({
         label={contextLocation ? `${contextLocation.source.name} options` : 'Source options'}
         onClose={contextMenu.close}
       />
-      <AnchoredPopover open={sourceMenuOpen} anchor={sourceMenuTriggerRef.current} className="source-menu" alignment="end" role="menu" onClose={() => setSourceMenuOpen(false)}>
-        <div className="menu-label">Capture</div>
-        <button role="menuitem" onClick={() => addSourceMenu.onOpenCapturePicker('screen')}><Monitor size={15} />Display Capture</button>
-        <button role="menuitem" onClick={() => addSourceMenu.onOpenCapturePicker('window')}><Grid2X2 size={15} />Window Capture</button>
-        {addSourceMenu.desktopAudioMode !== 'unavailable' && <button role="menuitem" onClick={() => addSourceMenu.desktopAudioMode === 'system-tap' ? addSourceMenu.onAddSystemAudioCapture() : addSourceMenu.onOpenCapturePicker('audio')}><Headphones size={15} />Audio Output Capture</button>}
-        {addSourceMenu.applicationAudioSupported && <button role="menuitem" onClick={() => addSourceMenu.onOpenApplicationAudioPicker()}><Headphones size={15} />Application Audio Capture</button>}
-        <button role="menuitem" onClick={addSourceMenu.onAddCamera}><Webcam size={15} />Video Capture Device</button>
-        <button role="menuitem" onClick={addSourceMenu.onAddMicrophone}><Mic size={15} />Audio Input Capture</button>
-        {addSourceMenu.onAddNdi && <button role="menuitem" onClick={addSourceMenu.onAddNdi}><Globe size={15} />NDI Source</button>}
-        <div className="menu-label menu-label-separator">Media</div>
-        <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('image')}><ImageIcon size={15} />Image</button>
-        <button role="menuitem" onClick={addSourceMenu.onAddSlideshow}><Images size={15} />Image Slideshow</button>
-        <button role="menuitem" onClick={addSourceMenu.onAddPresentation}><Presentation size={15} />Presentation</button>
-        <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('video')}><FileVideo size={15} />Media Source</button>
-        <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('audio')}><FileAudio size={15} />Audio File</button>
-        <button role="menuitem" onClick={addSourceMenu.onOpenBrowserDialog}><Globe size={15} />Browser Source</button>
-        <div className="menu-label menu-label-separator">Graphics</div>
-        <button role="menuitem" onClick={addSourceMenu.onAddText}><Type size={15} />Text</button>
-        <button role="menuitem" onClick={addSourceMenu.onAddColor}><Layers2 size={15} />Color Source</button>
-        {addSourceMenu.referenceableScenes.length > 0 && <>
-          <div className="menu-label menu-label-separator">Composition</div>
-          {addSourceMenu.referenceableScenes.map((scene) => <button key={scene.id} role="menuitem" onClick={() => addSourceMenu.onAddSceneReference(scene)}><PanelsTopLeft size={15} />{scene.name}</button>)}
-        </>}
-      </AnchoredPopover>
       {propertiesOpen && selectedSource && <Modal
         open
         title="Source Properties"

@@ -2,10 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { InspectorSlider } from '../../../../../../apps/cast/renderer/components/form/inspector-slider';
 
-// This slider is used inside dropdown menus, which is where it previously
-// broke: a wrapper preventDefault()ed pointerdown (killing the native range
-// drag) and the menu panel's own keydown handler claimed the arrow keys. These
-// cover both, plus the value round-trip through the snap/clamp logic.
+// The slider lives inside dropdown menus. Its owned pointer path must keep
+// click/drag edits working while native input keys stay out of menu navigation.
 
 afterEach(cleanup);
 
@@ -78,11 +76,21 @@ describe('InspectorSlider', () => {
     expect(onAncestorKeyDown).toHaveBeenCalled();
   });
 
-  it('does not suppress the default action on pointerdown, which the native range thumb needs', () => {
-    const { input } = renderSlider();
-    const event = new Event('pointerdown', { bubbles: true, cancelable: true });
-    input.dispatchEvent(event);
-    expect(event.defaultPrevented).toBe(false);
+  it('supports click-anywhere and captured drag edits on the original native input', () => {
+    const { input, onChange } = renderSlider();
+    const control = input.parentElement!.parentElement!;
+    control.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 100, bottom: 32, width: 100, height: 32, toJSON: () => ({}) });
+    const capture = new Set<number>();
+    control.setPointerCapture = (id) => { capture.add(id); };
+    control.hasPointerCapture = (id) => capture.has(id);
+    control.releasePointerCapture = (id) => { capture.delete(id); };
+    const pointer = { pointerId: 1, clientX: 75, clientY: 16, button: 0, buttons: 1, isPrimary: true };
+    fireEvent.pointerDown(control, pointer);
+    fireEvent.pointerMove(control, { ...pointer, clientX: 100 });
+    fireEvent.pointerUp(control, { ...pointer, clientX: 100, buttons: 0 });
+    expect(onChange.mock.calls.map(([value]) => value)).toEqual([7, 8]);
+    expect(control.firstElementChild).toBe(input.parentElement);
+    expect(control.querySelector('input')).toBe(input);
   });
 
   it('exposes the implicit slider role with a live aria-valuenow', () => {

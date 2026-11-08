@@ -2,14 +2,14 @@
   box-sizing: border-box;
   height: 35px !important;
   min-height: 35px !important;
-  padding: 4px !important;
-  gap: 4px !important;
+  padding: var(--space-1) !important;
+  gap: var(--space-1) !important;
 }
 
 .stream-dock-header > div:first-child {
   min-width: 0;
   flex: 1 1 auto;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .stream-dock-header > div:first-child > span[aria-hidden="true"] {
@@ -30,7 +30,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   overflow: visible;
   font-size: 12px;
   font-weight: 510;
@@ -52,7 +52,7 @@
 }
 
 .stream-dock-header .stream-dock-header__actions {
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .stream-dock-header .stream-dock-header__actions > button {

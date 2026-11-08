@@ -4,6 +4,7 @@ import { AppToolbar } from '../features/workbench';
 import { useCommandPalette } from '../contexts/command-palette-context';
 import { StatusBar } from './status-bar';
 import { WorkbenchScreenRouter } from '../workbench-screen-router';
+import { ReacstButton } from '@lumacast/ui';
 
 export function AppLayoutContent() {
   const { snapshot, isLoadingSnapshot, snapshotLoadError, retrySnapshotLoad } = useCast();
@@ -27,13 +28,13 @@ export function AppLayoutContent() {
                 This often points to a corrupted or incompatible local database on this machine.
               </div>
               <div>
-                <button
-                  type="button"
+                <ReacstButton
+                  variant="primary"
                   onClick={() => { void retrySnapshotLoad(); }}
-                  className="rounded-control bg-brand px-3 py-1.5 text-sm font-medium text-primary transition-opacity hover:opacity-90"
+                  className="text-sm"
                 >
                   Retry startup
-                </button>
+                </ReacstButton>
               </div>
             </div>
           </div>

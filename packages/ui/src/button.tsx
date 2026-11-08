@@ -28,7 +28,9 @@ const buttonVariants = cv({
   variants: {
     kind: {
       text: 'inline-flex items-center gap-1.5 whitespace-nowrap',
-      icon: '',
+      // An icon's size prop owns its square hit area. Constrained parents
+      // must wrap or scroll their groups rather than squeeze the control.
+      icon: 'shrink-0',
     },
     variant: {
       default: 'bg-tertiary text-primary hover:bg-brand/10',
@@ -36,7 +38,7 @@ const buttonVariants = cv({
       success: successActionStyles,
       danger: 'bg-error/15 text-primary hover:bg-error/25',
       ghost: 'bg-transparent hover:bg-tertiary hover:text-primary',
-      primary: 'bg-brand text-white hover:bg-brand/90',
+      primary: 'bg-brand-solid text-on-solid hover:bg-brand-solid-hover active:bg-brand-solid-hover',
       tinted: 'bg-brand/15 text-brand hover:bg-brand/25',
       outline: 'bg-transparent text-primary shadow-[inset_0_0_0_1px_var(--border-color-primary)] hover:bg-tertiary',
       link: 'bg-transparent text-brand hover:underline',
@@ -105,7 +107,7 @@ const buttonVariants = cv({
     { variant: 'success', on: true, className: 'bg-success/15 text-primary' },
     { variant: 'danger', on: true, className: 'bg-error/15 text-primary' },
     { variant: 'ghost', on: true, className: 'bg-tertiary text-primary' },
-    { variant: 'primary', on: true, className: 'bg-brand' },
+    { variant: 'primary', on: true, className: 'bg-brand-solid' },
     { variant: 'tinted', on: true, className: 'bg-brand/25' },
     { variant: 'outline', on: true, className: 'bg-tertiary' },
     { variant: 'link', on: true, className: 'underline' },
