@@ -142,6 +142,101 @@ describe('.js and .cjs are code', () => {
   });
 });
 
+describe('renderer Node isolation', () => {
+  it('denies builtin imports in every renderer layer, including prefixed names and subpaths', () => {
+    const result = check({ rootDir: fixture('renderer-node-builtins'), allowList: [] });
+    const denied = result.violations.filter((violation) => violation.rule === 'renderer-isolation');
+
+    expect(result.ok).toBe(false);
+    expect(denied.map((violation) => `${violation.from} -> ${violation.to}`).sort()).toEqual([
+      'apps/cast/renderer/App.tsx -> node:fs',
+      'apps/cast/renderer/contexts/project.ts -> node:events',
+      'apps/cast/renderer/features/capture/index.cts -> node:net',
+      'apps/cast/renderer/hooks/use-project.ts -> buffer',
+      'apps/cast/renderer/legacy.ts -> node:path',
+      'apps/cast/renderer/runtime/media.ts -> stream/web',
+      'apps/cast/renderer/screens/settings/page.tsx -> fs/promises',
+      'apps/cast/renderer/shared/process.ts -> process',
+      'apps/cast/renderer/types/file.ts -> fs',
+      'apps/cast/renderer/utils/hash.ts -> crypto',
+    ]);
+  });
+
+  it('keeps every renderer-approved package free of Node, including internal transitive dependencies', () => {
+    // The renderer imports protocol -> composition -> kernel -> runtime. The
+    // unsafe builtin lives below the package entry, not in the renderer import.
+    const result = check({ rootDir: fixture('renderer-safe-package-node'), allowList: [] });
+    const denied = result.violations.filter((violation) => violation.rule === 'package-purity');
+
+    expect(result.ok).toBe(false);
+    expect(denied.map((violation) => violation.from.split('/')[1]).sort()).toEqual([
+      'automation', 'canvas', 'commands', 'composition', 'kernel', 'markers',
+      'photo-model', 'playback', 'protocol', 'selection', 'suite', 'ui',
+    ]);
+    expect(denied).toContainEqual(expect.objectContaining({
+      from: 'packages/kernel/src/runtime.ts',
+      to: 'node:fs',
+    }));
+    expect(result.violations.filter((violation) => violation.from.startsWith('apps/'))).toEqual([]);
+  });
+
+  it('preserves Node access in process-side packages and legitimate type-only contract imports', () => {
+    const result = check({ rootDir: fixture('process-node-and-source-forms-allowed'), allowList: [] });
+
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('applies the same boundaries to import-type queries and typeof import queries', () => {
+    const result = check({ rootDir: fixture('import-type-boundaries'), allowList: [] });
+
+    expect(result.ok).toBe(false);
+    expect(result.violations.filter((violation) => violation.rule === 'renderer-isolation').map((violation) => violation.to).sort()).toEqual([
+      'fs/promises', 'node:fs',
+    ]);
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      rule: 'package-purity', from: 'packages/kernel/src/index.ts', to: 'node:process',
+    }));
+    expect(result.violations).toContainEqual(expect.objectContaining({
+      rule: 'engine-session', from: 'apps/cast/renderer/types/engine.ts',
+    }));
+    expect(result.violations.filter((violation) => [
+      'apps/cast/main/platform.ts', 'apps/cast/renderer/types/contract.ts',
+    ].includes(violation.from))).toEqual([]);
+  });
+});
+
+describe('supported source forms', () => {
+  it('scans JSX, ESM TypeScript, CommonJS TypeScript, and import-equals declarations', () => {
+    const result = check({ rootDir: fixture('supported-source-forms'), allowList: [] });
+
+    expect(result.ok).toBe(false);
+    expect(result.stats.files).toBe(10);
+    expect(result.violations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: 'renderer-isolation', from: 'apps/cast/renderer/App.jsx', to: 'electron' }),
+      expect.objectContaining({ rule: 'renderer-isolation', from: 'apps/cast/renderer/runtime/assertions.mts', to: 'electron' }),
+      expect.objectContaining({ rule: 'renderer-isolation', from: 'apps/cast/renderer/legacy.cts', to: 'fs/promises' }),
+    ]));
+  });
+
+  it('resolves extensionless and emitted-extension imports to source before enforcing boundaries', () => {
+    const result = check({ rootDir: fixture('supported-source-forms'), allowList: [] });
+    const importedByMain = result.violations.filter((violation) => violation.from === 'apps/cast/renderer/main.ts');
+
+    expect(importedByMain.map((violation) => `${violation.rule} -> ${violation.to}`).sort()).toEqual([
+      'app-isolation -> apps/cloud/main/control.mts',
+      'app-isolation -> apps/cloud/main/directory/index.mts',
+      'app-isolation -> apps/cloud/main/emitted.ts',
+      'renderer-isolation -> apps/cast/main/component.tsx',
+      'renderer-isolation -> apps/cast/main/control.cts',
+      'renderer-isolation -> apps/cast/main/view.jsx',
+      'renderer-isolation -> apps/cloud/main/control.mts',
+      'renderer-isolation -> apps/cloud/main/directory/index.mts',
+      'renderer-isolation -> apps/cloud/main/emitted.ts',
+    ]);
+  });
+});
+
 describe('packages may not name an app as a module', () => {
   it('reports @lumacast/<app> and @workspace/<app> specifiers from a package', () => {
     const result = check({ rootDir: fixture('monorepo', 'package-to-app-module-specifier'), allowList: [] });

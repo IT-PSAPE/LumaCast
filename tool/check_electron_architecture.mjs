@@ -103,12 +103,6 @@ const RENDERER_ALLOWED_PACKAGES = new Set([
   'ui',
 ]);
 
-// `photo-model` is the one photo package the renderer may hold, so it must be
-// usable in *both* processes: importing a Node builtin there would make the
-// renderer depend on `node:fs` the moment the model is pulled in. The two
-// Node-side packages are exempt by design — they are Node code.
-const NODE_BUILTIN_FREE_PACKAGES = new Set([...PHOTO_RENDERER_SAFE_PACKAGES]);
-
 // ---------------------------------------------------------------------------
 // Package graph (issue #223, parent #219). npm workspace packages live under
 // packages/*. The table below is the dependency direction #219 recorded for the
@@ -190,7 +184,7 @@ const RULE_TITLES = {
   'main-boundary':
     'Main is the process composition root and must not import renderer or feature code.',
   'renderer-isolation':
-    'The renderer must not import Electron, main-process modules, or the database; it reaches main only through the typed IPC contract.',
+    'The renderer must not import Electron, Node builtins, main-process modules, or the database; it reaches main only through the typed IPC contract.',
   'renderer-package-boundary':
     'Renderer code may import only packages explicitly approved for Chromium; Node, native, Electron, and persistence packages stay in the main process.',
   'ui-purity':
@@ -349,7 +343,10 @@ function zoneOf(rel) {
     if (third === 'shared') return 'rendererShared';
     // The shell is the composition boundary, whichever extension it is written
     // in: compare the name, not the exact `.tsx` filename.
-    if (['App', 'main', 'workbench-screen-router'].includes(third?.replace(/\.(ts|tsx|mjs|js|cjs)$/, ''))) {
+    const sourceName = third && CODE_EXTENSIONS.has(path.extname(third))
+      ? path.basename(third, path.extname(third))
+      : third;
+    if (['App', 'main', 'workbench-screen-router'].includes(sourceName)) {
       return 'shell';
     }
     return 'rendererOther';
@@ -378,11 +375,13 @@ function exportedNames(clause) {
   return clause.elements.map((element) => element.propertyName?.text ?? element.name.text);
 }
 
-function parseImports(source) {
+function parseImports(source, fileName = 'architecture-check.tsx') {
   // Use the TypeScript parser rather than a handwritten tokenizer so syntax
   // nested in template interpolation, JSX expressions, comments, and strings
   // is distinguished by the language grammar.
-  const sourceFile = ts.createSourceFile('architecture-check.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  // Infer the grammar from the source filename: parsing ordinary TypeScript as
+  // TSX can swallow imports after an angle-bracket type assertion as JSX text.
+  const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
   const edges = [];
   const dynamicErrors = [];
   const lineOf = (node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
@@ -395,6 +394,24 @@ function parseImports(source) {
       addLiteralEdge('import', node.moduleSpecifier, importedNames(node.importClause), node);
     } else if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
       addLiteralEdge('export', node.moduleSpecifier, exportedNames(node.exportClause), node);
+    } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+      const argument = node.moduleReference.expression;
+      if (argument && ts.isStringLiteral(argument)) {
+        addLiteralEdge('require', argument, ['*'], node);
+      } else {
+        dynamicErrors.push({ kind: 'require', line: lineOf(node), detail: 'non-literal argument' });
+      }
+    } else if (ts.isImportTypeNode(node)) {
+      // `import('module').Type` and `typeof import('module')` express the
+      // same architectural dependency as an import-type declaration.
+      const argument = ts.isLiteralTypeNode(node.argument) ? node.argument.literal : null;
+      if (argument && ts.isStringLiteral(argument)) {
+        let qualifier = node.qualifier;
+        while (qualifier && ts.isQualifiedName(qualifier)) qualifier = qualifier.left;
+        addLiteralEdge('import', argument, qualifier ? [qualifier.text] : ['*'], node);
+      } else {
+        dynamicErrors.push({ kind: 'import', line: lineOf(node), detail: 'non-literal argument' });
+      }
     } else if (ts.isCallExpression(node)) {
       const kind = node.expression.kind === ts.SyntaxKind.ImportKeyword
         ? 'import'
@@ -475,7 +492,7 @@ function classifyExternal(spec) {
   // `import fs from "fs"` names the same builtin as `node:fs`, so an
   // unprefixed specifier must reach the same rules rather than fall through to
   // "other" and escape the Node-builtin denials.
-  if (isBuiltin(name)) return "node";
+  if (isBuiltin(spec)) return "node";
   if (name === 'electron') return 'electron';
   if (name === 'react' || name === 'react-dom') return 'react';
   if (name === 'konva' || name === 'react-konva') return 'konva';
@@ -483,23 +500,30 @@ function classifyExternal(spec) {
   return 'other';
 }
 
-// Source extensions the checker classifies as code. `.js`/`.cjs` are code too:
-// treating them as assets would let a JavaScript file inside an app or a package
-// import Electron or another app while every zone rule silently skipped it.
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js', '.cjs']);
+// One extension set governs source discovery, import resolution, and code/asset
+// classification. No supported JavaScript/TypeScript form can bypass a zone rule
+// by being skipped or mistaken for an asset.
+const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js', '.cjs', '.mts', '.cts', '.jsx']);
+const SOURCE_EXTENSIONS_BY_OUTPUT = {
+  '.js': ['.ts', '.tsx'],
+  '.jsx': ['.tsx'],
+  '.mjs': ['.mts'],
+  '.cjs': ['.cts'],
+};
 
 function codeOrAsset(hit) {
   return CODE_EXTENSIONS.has(path.extname(hit)) ? 'file' : 'asset';
 }
 
 function findExisting(base) {
-  const exts = ['', '.ts', '.tsx', '.mjs', '.js', '.cjs', '.css'];
-  for (const ext of exts) {
-    const cand = base + ext;
-    if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
-  }
-  for (const idx of ['/index.ts', '/index.tsx', '/index.mjs', '/index.js', '/index.cjs']) {
-    const cand = base + idx;
+  const extension = path.extname(base);
+  // Source TypeScript may name the emitted JavaScript extension. Resolve that
+  // edge to its source too, rather than silently skipping its boundary checks.
+  const counterparts = (SOURCE_EXTENSIONS_BY_OUTPUT[extension] ?? [])
+    .map((ext) => base.slice(0, -extension.length) + ext);
+  const appended = CODE_EXTENSIONS.has(extension) ? [] : [...CODE_EXTENSIONS, '.css'].map((ext) => base + ext);
+  const candidates = [base, ...counterparts, ...appended, ...[...CODE_EXTENSIONS].map((ext) => path.join(base, `index${ext}`))];
+  for (const cand of candidates) {
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
   }
   return null;
@@ -670,9 +694,8 @@ function resolveSpecifier(specifier, fromAbs, root) {
 // source is checked exactly like committed source, so a migration in progress
 // cannot pass by being unstaged. Build output, dependencies, and an app's
 // Playwright drivers are skipped.
-// Every code file the checker walks. `.js`/`.cjs` are included so a JavaScript
-// file cannot sit outside the rules by naming itself an asset.
-const CODE_FILE_NAME_RE = /\.(ts|tsx|mjs|js|cjs)$/;
+// Use CODE_EXTENSIONS for walking and resolution so a supported source form
+// cannot be checked as an importer but silently treated as an asset target.
 
 // The native addon is governed by the engine-session rule instead: its loader
 // is plain CommonJS that requires the built `.node` binary by a path computed
@@ -694,7 +717,7 @@ function walkFiles(dir, root) {
     if (ent.name.startsWith('.') || IGNORED_SOURCE_DIRS.has(ent.name)) continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) out.push(...walkFiles(full, root));
-    else if (CODE_FILE_NAME_RE.test(ent.name)) {
+    else if (CODE_EXTENSIONS.has(path.extname(ent.name))) {
       const rel = path.relative(root, full).split(path.sep).join('/');
       if (!isExemptSourceFile(rel)) out.push(rel);
     }
@@ -754,7 +777,7 @@ export function check(options = {}) {
   for (const rel of files) {
     const source = fs.readFileSync(path.join(rootDir, rel), 'utf8');
     stats.files += 1;
-    const { edges, dynamicErrors } = parseImports(source);
+    const { edges, dynamicErrors } = parseImports(source, rel);
     for (const d of dynamicErrors) {
       errors.push(
         `${rel}:${d.line} unsupported dynamic ${d.kind}() (${d.detail}) — this checker parses static ES imports/exports only; use a static specifier.`,
@@ -916,7 +939,7 @@ export function check(options = {}) {
       if (fromZone === 'data' && k === 'react') {
         add('data-purity', `imports ${e.specifier}`);
       }
-      if (isRendererZone(fromZone) && k === 'electron') {
+      if (isRendererZone(fromZone) && (k === 'electron' || k === 'node')) {
         add('renderer-isolation', `imports ${e.specifier}`);
       }
       if (k === 'native' && !canImportNdiNative(fromRel, fromZone)) {
@@ -930,8 +953,9 @@ export function check(options = {}) {
         if (k === 'konva' && !KONVA_ALLOWED_PACKAGES.has(fromPkg)) {
           add('package-purity', `imports ${e.specifier}`);
         }
-        // A package a renderer is allowed to hold must not need a Node runtime.
-        if (k === "node" && NODE_BUILTIN_FREE_PACKAGES.has(fromPkg)) {
+        // Check every module of every renderer-approved package, including
+        // internal/transitive dependencies reached through a public barrel.
+        if (k === "node" && RENDERER_ALLOWED_PACKAGES.has(fromPkg)) {
           add(
             "package-purity",
             `imports ${e.specifier}, a Node builtin; @lumacast/${fromPkg} is renderer-safe and may not depend on a Node runtime`,
@@ -1363,6 +1387,19 @@ function runSelfTests() {
       rules: ['renderer-package-boundary'],
     }),
     scenario('renderer-packages-allowed', 'scenarios/renderer-packages-allowed', 'pass'),
+    scenario('renderer-node-builtins', 'scenarios/renderer-node-builtins', 'fail', {
+      rules: ['renderer-isolation'],
+    }),
+    scenario('renderer-safe-package-node', 'scenarios/renderer-safe-package-node', 'fail', {
+      rules: ['package-purity'],
+    }),
+    scenario('import-type-boundaries', 'scenarios/import-type-boundaries', 'fail', {
+      rules: ['renderer-isolation', 'package-purity', 'engine-session'],
+    }),
+    scenario('supported-source-forms', 'scenarios/supported-source-forms', 'fail', {
+      rules: ['renderer-isolation', 'app-isolation'],
+    }),
+    scenario('process-node-and-source-forms-allowed', 'scenarios/process-node-and-source-forms-allowed', 'pass'),
     scenario('renderer-template-interpolation', 'scenarios/renderer-template-interpolation', 'fail', {
       rules: ['renderer-isolation'],
     }),
