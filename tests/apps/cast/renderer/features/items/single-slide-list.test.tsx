@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SingleSlideList } from '../../../../../../apps/cast/renderer/features/items/single-slide-list';
 
+const integrations = { renderBindingsBadge: () => null, renderActionsMenu: () => null };
+
 const mocks = vi.hoisted(() => ({
   outlineView: { value: null as unknown },
   navigation: { value: null as unknown },
@@ -126,7 +128,7 @@ describe('SingleSlideList', () => {
     };
     mocks.slides.value = { reorderSlide: vi.fn() };
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
-    render(<SingleSlideList />);
+    render(<SingleSlideList integrations={integrations} />);
     const keyboard = (mocks.rootProps as { virtualizedKeyboard: { onMoveToIndex: (index: number) => void } }).virtualizedKeyboard;
     keyboard.onMoveToIndex(0);
     keyboard.onMoveToIndex(2);
@@ -150,7 +152,7 @@ describe('SingleSlideList', () => {
     mocks.slides.value = { reorderSlide: vi.fn() };
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
 
-    render(<SingleSlideList />);
+    render(<SingleSlideList integrations={integrations} />);
 
     expect(screen.getByText('slide-0')).not.toBeNull();
     expect(screen.getByText('slide-1')).not.toBeNull();
@@ -179,7 +181,7 @@ describe('SingleSlideList', () => {
       { index: 2, key: 'row-2', start: 112 },
     ];
 
-    render(<SingleSlideList />);
+    render(<SingleSlideList integrations={integrations} />);
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { shiftKey: true });
 
     expect(selectSlide).not.toHaveBeenCalled();
@@ -201,7 +203,7 @@ describe('SingleSlideList', () => {
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
     mocks.virtualItems = Array.from({ length: 4 }, (_, index) => ({ index, key: `row-${index}`, start: index * 56 }));
 
-    render(<SingleSlideList />);
+    render(<SingleSlideList integrations={integrations} />);
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { metaKey: true });
 
     expect(selectSlide).not.toHaveBeenCalled();
@@ -234,7 +236,7 @@ describe('SingleSlideList', () => {
     mocks.deleteSlide.mockResolvedValue(undefined);
     const globalKeyboard = vi.fn();
     window.addEventListener('keydown', globalKeyboard);
-    const view = render(<SingleSlideList />);
+    const view = render(<SingleSlideList integrations={integrations} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { metaKey: true });
     fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'd', metaKey: true });

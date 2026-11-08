@@ -2,7 +2,7 @@ import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload } fr
 import { Label, EmptyState, ReacstButton, Select } from '@lumacast/ui';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useTimers } from '@renderer/contexts/timers/timers-context';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 export function BindingInspector() {
   const { selectedElement, elementPayloadDraft, setElementPayloadDraft } = useElements();

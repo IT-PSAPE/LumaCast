@@ -8,7 +8,7 @@ vi.mock('../../../../../../apps/chord/renderer/store', () => ({
   useChordStore: (selector: (state: TestChordStore) => unknown) => selector(testStore),
 }));
 
-import { ShellStatusBar } from '../../../../../../apps/chord/renderer/features/shell/status-bar';
+import { ShellStatusBar } from '../../../../../../apps/chord/renderer/shell/status-bar';
 
 const cue = (id: string, startMs: number) => ({ id, startMs, endMs: startMs + 1000, text: id });
 

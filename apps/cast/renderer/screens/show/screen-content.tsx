@@ -1,8 +1,8 @@
-import { ResourceDrawer } from '../../features/workbench/resource-drawer';
-import { ProgramPanel } from '../../features/playback/program-panel';
-import { DeckBrowserToolbar } from '../../features/items/deck-browser-toolbar';
+import { ResourceDrawer } from './resource-drawer';
+import { ProgramPanel } from './program-panel';
+import { DeckBrowserToolbar } from '../../features/items';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { PlaylistPanels } from '@renderer/features/playlists/playlist-panels';
+import { PlaylistPanels } from '../../features/playlists';
 import { useShowScreen } from './screen-context';
 import { ShowBrowserContent } from './browser-content';
 

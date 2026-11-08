@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { EditorThemeSource } from '@lumacast/canvas';
 import type { ItemRef, ThemeOwnerType } from '@lumacast/composition';
-import type { BinSort, BinTabSortKey } from '../../../../../../../apps/cast/renderer/features/workbench/use-bin-sort';
+import type { BinSort, BinTabSortKey } from '../../../../../../../apps/cast/renderer/hooks/use-bin-sort';
 import { useThemeBin } from '../../../../../../../apps/cast/renderer/features/assets/themes/use-theme-bin';
 
 // Covers the sectioning behaviour: item theme families rendered at once from
@@ -28,8 +28,8 @@ vi.mock('@renderer/components/controls/bin-controls', () => ({
   useBinControls: () => mocks.binControls.value,
 }));
 
-vi.mock('../../../../../../../apps/cast/renderer/features/workbench/use-bin-sort', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../../../../../apps/cast/renderer/features/workbench/use-bin-sort')>();
+vi.mock('../../../../../../../apps/cast/renderer/hooks/use-bin-sort', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../../../../apps/cast/renderer/hooks/use-bin-sort')>();
   return {
     ...actual,
     useThemeBinSort: () => mocks.sort.value,

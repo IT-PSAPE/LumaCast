@@ -24,9 +24,10 @@ import {
   type StreamScene,
   type StreamSource,
 } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import type { SceneRuntimeLease, SceneRuntimePair, SceneRuntimePort } from '../../shared/scene-runtime-port';
+import { friendlyError } from '../../shared/friendly-error';
 import { getOriginSourceId, getSourceRuntimeId, preserveDesktopCaptureRuntime, toRuntimeSource, type RuntimeSource } from '../../source-runtime';
-import { createSource, DEFAULT_AUDIO_FILTERS } from '../sources/helpers';
+import { createSource, DEFAULT_AUDIO_FILTERS } from '../../shared/source-factory';
 import { desktopAudioCaptureModeForPlatform, supportsApplicationAudioCapture } from '../../../shared/platform-capabilities';
 import { getVisibleSourceIdsForScenes } from '../../../shared/scene-reference-graph';
 import { useBrowserSessions } from './use-browser-sessions';
@@ -139,6 +140,8 @@ export interface UseCaptureResult {
   runtimesSnapshot: Map<string, MediaStream>;
   startApplicationAudioRuntime: (source: StreamSource, application: AudioApplicationOption) => Promise<void>;
   startSystemAudioRuntime: (source: StreamSource) => Promise<void>;
+  /** Creates a scene duplication capability scoped to visible draft source ids. */
+  createSceneRuntimePort: (visibleRuntimeSourceIds: ReadonlySet<string>) => SceneRuntimePort;
   clearNoiseSuppressionPreference: (sourceId: string) => void;
   /** Tears down every live runtime and capture dialog — called when the active scene collection changes. */
   resetForWorkspaceChange: () => void;
@@ -835,6 +838,55 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     if (source.kind !== 'desktop-audio') throw new Error('Invalid desktop-audio source.');
     await startNativeAudioRuntime(source, 'system');
   }, [startNativeAudioRuntime]);
+
+  const duplicateSceneRuntimePairs = useCallback(async (
+    pairs: readonly SceneRuntimePair[],
+    visibleSourceIds: ReadonlySet<string>,
+  ): Promise<SceneRuntimeLease> => {
+    let committed = false;
+    let rolledBack = false;
+    const rollback = () => {
+      if (committed || rolledBack) return;
+      rolledBack = true;
+      for (const { duplicate } of pairs) stopRuntime(duplicate.id);
+    };
+    try {
+      for (const { source, duplicate } of pairs) {
+        if (!visibleSourceIds.has(source.id)) continue;
+        const viewport = project ? { width: project.output.baseWidth, height: project.output.baseHeight } : undefined;
+        const runtimeId = getSourceRuntimeId(source, viewport);
+        const runtime = runtimes.current.get(runtimeId);
+        if (!runtime) continue;
+        if (source.kind === 'application-audio') {
+          const session = applicationAudioSessions.current.get(runtimeId);
+          if (!session) throw new Error(`The application-audio capture for ${source.name} is no longer active.`);
+          await startApplicationAudioRuntime(duplicate, { ...session, name: source.name });
+        } else if (source.kind === 'desktop-audio' && applicationAudioInputs.current.has(runtimeId)) {
+          await startSystemAudioRuntime(duplicate);
+        } else {
+          const runtimeDuplicate = duplicate.kind === 'browser' && project
+            ? {
+              ...duplicate,
+              browserViewportWidth: project.output.baseWidth,
+              browserViewportHeight: project.output.baseHeight,
+            }
+            : duplicate;
+          await attachRuntime(runtimeDuplicate, runtime.clone());
+        }
+      }
+      return {
+        commit: () => { committed = true; },
+        rollback,
+      };
+    } catch (error) {
+      rollback();
+      throw error;
+    }
+  }, [applicationAudioInputs, applicationAudioSessions, attachRuntime, project, runtimes, startApplicationAudioRuntime, startSystemAudioRuntime, stopRuntime]);
+
+  const createSceneRuntimePort = useCallback((visibleSourceIds: ReadonlySet<string>): SceneRuntimePort => ({
+    duplicateSceneRuntimes: (pairs) => duplicateSceneRuntimePairs(pairs, visibleSourceIds),
+  }), [duplicateSceneRuntimePairs]);
 
   const loadCaptureAudioApplications = useCallback(async (savedApplicationPath?: string) => {
     const request = ++captureAudioApplicationRequest.current;
@@ -1942,7 +1994,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     runtimes, mixer, applicationAudioInputs, applicationAudioSessions, ensureMixer,
     attachRuntime, stopRuntime, connectMediaElement, onMediaPlaybackState, onBrowserElement,
     mediaPlaybackStates, meterLevels, sourceStatuses, runtimeRevision, runtimesSnapshot,
-    startApplicationAudioRuntime, startSystemAudioRuntime, clearNoiseSuppressionPreference, resetForWorkspaceChange,
+    startApplicationAudioRuntime, startSystemAudioRuntime, createSceneRuntimePort, clearNoiseSuppressionPreference, resetForWorkspaceChange,
     audioSettings, audioOutputDevices, audioSettingsError, updateMonitoringDevice, refreshAudioOutputDevices,
     captureOptions, captureKind, captureTargetSourceId, setCaptureOptions, setCaptureKind, setCaptureTargetSourceId,
     supportsSystemAudio, supportsApplicationAudio, captureAudioMode, setCaptureAudioMode,

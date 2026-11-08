@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { recordObsEvent, useMetricsStore, type AudioHealthSnapshot, type RendererMemorySnapshot, type VideoQualitySample } from './metrics-store';
-import { getActiveNdiAudioContext } from '../playback/ndi-audio-capture';
+import { getActiveNdiAudioContext } from '../../runtime/ndi-audio-capture';
 
 const SYSTEM_METRICS_INTERVAL_MS = 2000;
 const RENDERER_MEMORY_INTERVAL_MS = 1000;

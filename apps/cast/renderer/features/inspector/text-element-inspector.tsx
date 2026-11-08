@@ -15,7 +15,7 @@ import {
   RulerDimensionLine,
   Strikethrough, Sun, Type, Underline,
 } from 'lucide-react';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 import { parseNumber } from '@renderer/utils/slides';
 
 export function TextElementInspector() {

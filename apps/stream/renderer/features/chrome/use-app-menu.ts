@@ -1,4 +1,4 @@
-import type { AppMenuContext } from '../../chrome/app-menu';
+import type { AppMenuContext } from '../../shared/app-menu';
 import type { DockId, WorkbenchLayout } from '../../workbench-layout';
 import { DOCK_LABELS, visibleDocks } from '../../workbench-layout';
 import type { SceneCollectionSummary, StreamProject, StreamProfileSummary, StreamSource } from '../../../shared/desktop-api';
@@ -50,7 +50,7 @@ export interface UseAppMenuParams {
 
 /**
  * Builds the `AppMenuContext` (state + `AppMenuActions`) consumed by
- * `chrome/app-menu.ts`'s `buildAppMenus` and rendered by `TitleBar`. Pure
+ * `shared/app-menu.ts`'s `buildAppMenus` and rendered by `TitleBar`. Pure
  * state/action aggregation, no JSX — this is the seam a later native-macOS-menu
  * integration (`Menu.setApplicationMenu`) will read from instead of `TitleBar`.
  */

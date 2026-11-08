@@ -35,8 +35,8 @@ import { registerAacEncoder } from '@mediabunny/aac-encoder';
 import { registerMp3Encoder } from '@mediabunny/mp3-encoder';
 import type { ChordProject } from '../../../shared/project';
 import { estimateBitrate, type ExportAudioCodec, type ExportContainer, type ExportSettings, type ExportVideoCodec } from '../../../shared/export-presets';
-import { buildFrameScene, resolveTimelineEndMs } from '../canvas/build-frame-scene';
-import { ChordStage } from '../canvas/chord-stage';
+import { buildFrameScene, resolveTimelineEndMs } from '../../rendering/build-frame-scene';
+import { ChordStage } from '../../rendering/chord-stage';
 import {
   audioCodecsForContainer,
   estimateAudioBitrate,

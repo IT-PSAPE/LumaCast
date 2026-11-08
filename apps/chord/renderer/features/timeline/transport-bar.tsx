@@ -20,7 +20,8 @@ import {
 import { ReacstButton, Slider } from '@lumacast/ui';
 import { nextCueStart, previousCueStart } from '../../../shared/cue-model';
 import { useChordStore } from '../../store';
-import { formatClock, formatTimecode, timelineEndMs } from '../playback';
+import { formatClock, formatTimecode } from '../../utils/format-time';
+import { timelineEndMs } from '../../utils/timeline-end';
 
 const ZOOM_MIN_PX_PER_SEC = 10;
 const ZOOM_MAX_PX_PER_SEC = 800;

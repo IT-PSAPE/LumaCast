@@ -189,9 +189,9 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/canvas/canvas-context', (
   }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/render/render-slide', async () => {
-  const actual = await vi.importActual<typeof import('../../../../../../apps/cast/renderer/features/render/render-slide')>(
-    '../../../../../../apps/cast/renderer/features/render/render-slide',
+vi.mock('../../../../../../apps/cast/renderer/rendering/slide-render', async () => {
+  const actual = await vi.importActual<typeof import('../../../../../../apps/cast/renderer/rendering/slide-render')>(
+    '../../../../../../apps/cast/renderer/rendering/slide-render',
   );
   return {
     ...actual,
@@ -220,7 +220,7 @@ vi.mock('../../../../../../apps/cast/renderer/features/automation/automation-con
   useAutomation: () => ({ actions: { ...h.automation, runCue: vi.fn() } }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/command-palette/command-palette-context', () => ({
+vi.mock('../../../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
   useCommandPalette: () => ({ open: h.note('openCommandPalette') }),
 }));
 
@@ -232,7 +232,7 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/timers/timers-context', (
   useTimers: () => h.timers,
 }));
 
-const { AgentActionDispatcher } = await import('../../../../../../apps/cast/renderer/features/agent/agent-action-dispatcher');
+const { AgentActionDispatcher } = await import('../../../../../../apps/cast/renderer/application/agent/agent-action-dispatcher');
 
 // ─── Harness ────────────────────────────────────────────────────────
 
@@ -482,7 +482,7 @@ describe('renderer-site execution', () => {
   });
 
   it('reports a slide.render failure with a clear message', async () => {
-    const { SlideRenderError } = await import('../../../../../../apps/cast/renderer/features/render/render-slide');
+    const { SlideRenderError } = await import('../../../../../../apps/cast/renderer/rendering/slide-render');
     h.render.renderSlideToImage.mockRejectedValueOnce(new SlideRenderError('not-found', 'No slide found for id "slide-9".'));
     const response = await dispatch({ actionId: 'slide.render', params: { slideId: 'slide-9' } });
     expect(response).toMatchObject({ outcome: 'failed', error: expect.stringContaining('slide-9') });

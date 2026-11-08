@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Baseline, Layers, MoveHorizontal, MoveVertical, Type } from 'lucide-react';
 import { ReacstButton, Label, Select, Modal } from '@lumacast/ui';
 import { FieldIcon, FieldInput } from '../../components/form/field';
-import { Section } from '../inspector/inspector-section';
-import { useSystemFonts } from '../inspector/use-system-fonts';
+import { Section } from '../../components/layout/inspector-section';
+import { useSystemFonts } from '../../hooks/use-system-fonts';
 import {
   DEFAULT_LYRIC_LAYOUT_CONFIG,
   LYRIC_LAYOUT_CONFIG_LIMITS,

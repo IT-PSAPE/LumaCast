@@ -36,21 +36,11 @@ interface ArchitectureCheckResult {
 }
 const check = uncheckedCheck as (options?: ArchitectureCheckOptions) => ArchitectureCheckResult;
 
-// Regression coverage for #157: the renderer used to have two bidirectional
-// feature dependencies — canvas<->playback (NDI capture-source registration)
-// and canvas<->inspector (inspector-tab switching after a canvas drop) — that
-// the checker reported as feature-cycle refactor debt. Both edges in the
-// canvas-outbound direction were removed:
-//   - scene-stage.tsx now publishes its capture canvas through the shared,
-//     feature-agnostic apps/cast/renderer/rendering/capture-surface-registry.ts
-//     instead of calling playback directly; the old NDI consumer is retired.
-//   - use-stage-viewport-controller.ts now reads/writes the inspector tab
-//     through the shared apps/cast/renderer/contexts/workbench-context.tsx instead
-//     of importing the inspector feature's useInspector() facade.
-// These tests assert the specific edges stay gone against the real
-// committed tree, and separately prove the checker's cycle/one-direction
-// detection itself is sound using small synthetic fixture trees (so the
-// real-tree assertions can't pass merely because the detector is broken).
+// Regression coverage for Cast feature boundaries. Canvas rendering is shared
+// through renderer/rendering, and feature integrations are composed by screens
+// or the application shell. These tests keep playback and inspector from
+// depending directly on the canvas feature, and separately prove that the
+// checker's cycle/one-direction detection works with synthetic fixture trees.
 
 describe('canvas feature no longer cycles with playback or inspector (real tree)', () => {
   it('reports no feature-cycle violation between canvas and playback', () => {
@@ -99,12 +89,7 @@ describe('canvas feature no longer cycles with playback or inspector (real tree)
     expect(outbound).toBeUndefined();
   });
 
-  it('still allows the one remaining direction: playback and inspector may still import canvas', () => {
-    // The fix only had to remove the canvas-outbound edge; playback and
-    // inspector depending on canvas (program-panel.tsx -> SceneStage,
-    // other playback UI -> canvas components,
-    // use-shape-inspector.ts -> align-element-draft) is a one-directional
-    // feature dependency, not a cycle, and stays untouched by this fix.
+  it('keeps playback and inspector independent of the canvas feature', () => {
     const result = check({});
     const playbackToCanvas = result.violations.some(
       (v) =>
@@ -120,8 +105,8 @@ describe('canvas feature no longer cycles with playback or inspector (real tree)
         typeof v.to === 'string' &&
         v.to.startsWith('apps/cast/renderer/features/canvas/'),
     );
-    expect(playbackToCanvas).toBe(true);
-    expect(inspectorToCanvas).toBe(true);
+    expect(playbackToCanvas).toBe(false);
+    expect(inspectorToCanvas).toBe(false);
   });
 });
 
@@ -154,7 +139,7 @@ describe('architecture checker cycle/one-direction detection (synthetic fixtures
     expect(result.violations.some((v) => v.rule === 'feature-cycle')).toBe(true);
   });
 
-  it('does not flag a one-directional feature dependency as feature-cycle', () => {
+  it('rejects a one-directional feature dependency without calling it a cycle', () => {
     tmpRoot = mkdtempSync(path.join(tmpdir(), 'arch-nocycle-'));
     writeFile(tmpRoot, 'apps/cast/renderer/features/alpha/a.ts', "import { b } from '../beta/b';\nexport const a = b;\n");
     writeFile(tmpRoot, 'apps/cast/renderer/features/beta/b.ts', 'export const b = 1;\n');
@@ -162,13 +147,12 @@ describe('architecture checker cycle/one-direction detection (synthetic fixtures
     const result = check({ rootDir: tmpRoot, allowList: [] });
 
     expect(result.violations.some((v) => v.rule === 'feature-cycle')).toBe(false);
-    // The one surviving direction is still reported as refactor debt, not a
-    // hard failure — matches how playback/inspector -> canvas is treated.
+    // A feature edge is a hard boundary violation even when it is not a cycle.
     expect(
       result.violations.some(
         (v) => v.rule === 'feature-isolation' && v.from === 'apps/cast/renderer/features/alpha/a.ts',
       ),
     ).toBe(true);
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
   });
 });

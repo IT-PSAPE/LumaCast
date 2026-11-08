@@ -4,7 +4,7 @@ import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useOverlayEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useWorkbench } from '../../contexts/workbench-context';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 import { Select } from '@lumacast/ui';
 
 export function SlideInspector() {

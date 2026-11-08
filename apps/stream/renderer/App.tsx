@@ -7,62 +7,53 @@ import { MediaControls } from './media-controls';
 import { isSlideSource, navigateSlidePlayback, resetSlidePlaybackStore } from './slideshow';
 import { resolveSlideControlSource, slideControlSources } from './slide-control-sources';
 import { BrowserInteractionOverlay } from './browser-interaction';
-import { captureAudioModeForSource } from '../shared/capture-audio';
 import type { SceneTransitionType } from './scene-transition';
 import { TitleBar } from './chrome/title-bar';
-import { buildAppMenus } from './chrome/app-menu';
+import { buildAppMenus } from './shared/app-menu';
 import { StreamDialog } from './dialogs/stream-dialog';
 import { NdiDialog } from './dialogs/ndi-dialog';
-import { useNdi } from './use-ndi';
-import { createSource } from './features/sources/helpers';
+import { useNdi } from './application/use-ndi';
+import { createSource } from './shared/source-factory';
 import { BrowserSourceDialog } from './dialogs/workspace-dialogs';
 import { NameDialog } from './dialogs/name-dialog';
 import { ApplicationAudioPicker, CapturePicker, InputDevicePicker } from './dialogs/pickers';
 import { SettingsDialog } from './dialogs/settings-dialog';
-import { ScenesDock } from './docks/scenes-dock';
-import { ControlsDock } from './docks/controls-dock';
-import { MixerDock } from './docks/mixer-dock';
-import { SourcesDock } from './docks/sources-dock';
-import { YouTubeDock } from './docks/youtube-dock';
-import { ZoomDock } from './docks/zoom-dock';
-import { getStreamService } from '../shared/stream-services';
+import { WorkbenchDocks } from './application/workbench-docks';
 import { outputRectFromCanvasRect } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { multiviewTileCapacityFor } from './multiview-window';
 import { ActionNotifications } from './action-notifications';
-import { SceneThumbnail } from './docks/scene-thumbnail';
 import { getOriginSourceId, getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject, toRuntimeSource } from './source-runtime';
 import { projectRuntimeMap, projectRuntimeRecord } from './runtime-projection';
-import { mergeSourceStatuses, type SourceStatus } from './source-availability';
+import type { SourceStatus } from './source-availability';
 import { formatElapsed } from './format-elapsed';
 import { recordingElapsedTime } from './recording-controls';
 import { flattenSourceNodes } from '../shared/source-tree';
-import { canReferenceScene, getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
+import { getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
 import { canResizeSourceTree, isSourceTransformableInTree, visibleSelectedSourceRoots } from './source-selection';
-import { dockColumnsMinWidth, dockColumnsTemplate, dockGridColumn, workbenchRowsTemplate } from './workbench-layout';
+import { workbenchRowsTemplate } from './workbench-layout';
 import {
   desktopAudioCaptureModeForPlatform, isVideoEncoderAvailableOnPlatform, primaryShortcutLabel,
   supportsApplicationAudioCapture, supportsDisplayCaptureSystemAudio, systemVideoEncoderForPlatform,
 } from '../shared/platform-capabilities';
-import { createDefaultTextStyle, VIDEO_ENCODER_OPTIONS } from '../shared/desktop-api';
-import { friendlyError } from './features/shared/friendly-error';
-import { DEFAULT_CHROMA_KEY, DEFAULT_SOURCE_CROP, DEFAULT_SOURCE_FILTERS } from './features/sources/helpers';
+import { VIDEO_ENCODER_OPTIONS } from '../shared/desktop-api';
+import { friendlyError } from './shared/friendly-error';
 
-import { useWorkspace } from './features/workspace/use-workspace';
-import { useCapture } from './features/capture/use-capture';
-import { useSources } from './features/sources/use-sources';
-import { useScenes } from './features/scenes/use-scenes';
-import { useProgram } from './features/scenes/use-program';
-import { useMultiview } from './features/multiview/use-multiview';
-import { useRecording } from './features/recording/use-recording';
-import { useStreaming } from './features/streaming/use-streaming';
-import { useReplayBuffer } from './features/replay-buffer/use-replay-buffer';
-import { useWorkbenchLayout } from './features/workbench/use-workbench-layout';
-import { useHotkeys } from './features/hotkeys/use-hotkeys';
-import { useRuntimeStats } from './features/status/use-runtime-stats';
-import { useAppMenu } from './features/chrome/use-app-menu';
-import { useNativeMenu } from './features/chrome/use-native-menu';
+import { useWorkspace } from './features/workspace';
+import { useCapture } from './features/capture';
+import { useSources } from './features/sources';
+import { useScenes } from './features/scenes';
+import { useProgram } from './features/scenes';
+import { useMultiview } from './features/multiview';
+import { useRecording } from './features/recording';
+import { useStreaming } from './features/streaming';
+import { useReplayBuffer } from './features/replay-buffer';
+import { useWorkbenchLayout } from './features/workbench';
+import { useHotkeys } from './features/hotkeys';
+import { useRuntimeStats } from './features/status';
+import { useAppMenu } from './features/chrome';
+import { useNativeMenu } from './features/chrome';
 
 const transitionOptions: { value: SceneTransitionType; label: string }[] = [
   { value: 'Fade', label: 'Fade' },
@@ -287,9 +278,6 @@ export function App() {
   const editorMediaElements = useRef(mediaElements.current);
   editorMediaElements.current = projectRuntimeMap(visibleEditorRuntimeSources, mediaElements.current);
   const editorMeterLevels = projectRuntimeRecord(visibleEditorRuntimeSources, capture.meterLevels);
-  const editorPlaybackStates = projectRuntimeRecord(visibleEditorRuntimeSources, capture.mediaPlaybackStates);
-  const ndiSourceStatuses = Object.fromEntries(Object.entries(ndi.sourceErrors).map(([id, message]) => [id, { state: 'unavailable' as const, message }]));
-  const editorSourceStatuses = projectRuntimeRecord(visibleEditorRuntimeSources, mergeSourceStatuses(visibleEditorRuntimeSources, capture.sourceStatuses, { ...resourceStatuses, ...ndiSourceStatuses }));
 
   const sources = useSources({
     api, project, projectRef, allSources, activeScene, liveScene, setProjectValue, setActionError, working, setWorking,
@@ -313,9 +301,7 @@ export function App() {
   const scenes = useScenes({
     project, setProjectValue, setActionError, working, setWorking, selectSource: sources.selectSource,
     programSceneId: program.programSceneId, canTransition: program.canTransition, commitProgram: program.commitProgram, finishProgramTransition: program.finishOutgoingProgram,
-    runtimes: editorRuntimes, applicationAudioInputs: editorApplicationAudioInputs, applicationAudioSessions: editorApplicationAudioSessions,
-    attachRuntime: capture.attachRuntime, stopRuntime: capture.stopRuntime,
-    startApplicationAudioRuntime: capture.startApplicationAudioRuntime, startSystemAudioRuntime: capture.startSystemAudioRuntime,
+    sceneRuntimePort: capture.createSceneRuntimePort(visibleDraftSourceIds),
   });
 
   const multiview = useMultiview({
@@ -323,10 +309,6 @@ export function App() {
     previewCanvasRef, programCanvasRef, chooseScene: scenes.chooseScene, transitionToScene: scenes.transitionToScene, setActionError,
     multiviewWindowOpen, setMultiviewWindowOpen,
   });
-
-  const referenceableScenes = useMemo(() => project && activeScene
-    ? project.scenes.filter((scene) => canReferenceScene(project.scenes, activeScene.id, scene.id))
-    : [], [project?.scenes, activeScene?.id]);
 
   const recording = useRecording({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
   const streaming = useStreaming({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError });
@@ -452,17 +434,6 @@ export function App() {
   const duration = formatElapsed(recording.recordingStartedAt === null ? 0 : recordingElapsedTime(clockNow, recording.recordingPausedAt, recording.recordingAccumulatedPauseMs) - recording.recordingStartedAt, 'full');
   const streamDuration = formatElapsed(streaming.streamingStartedAt === null ? 0 : clockNow - streaming.streamingStartedAt, 'full');
   const activeSceneVisibleSourceIds = getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]);
-  const activeSceneLeafSources = allSources.filter((source) => activeSceneVisibleSourceIds.has(source.id)
-    && source.kind !== 'group' && source.kind !== 'scene');
-  // Include enabled audio on visual capture sources in Advanced Audio Properties.
-  const allAudioSources = allSources.filter((source) => visibleDraftSourceIds.has(source.id) && (source.kind === 'microphone'
-    || source.kind === 'desktop-audio'
-    || source.kind === 'application-audio'
-    || source.kind === 'media'
-    || (source.kind === 'camera' && source.captureAudioEnabled === true)
-    || ((source.kind === 'display' || source.kind === 'window') && captureAudioModeForSource(source, platform) !== 'off')
-    || (source.kind === 'ndi' && source.captureAudioEnabled !== false)
-    || (source.kind === 'browser' && source.browserAudioEnabled === true)));
   const selectedSource = sources.selectedSource;
   const browserInteractionSourceId = selectedSource?.kind === 'browser' && activeSceneVisibleSourceIds.has(selectedSource.id)
     ? getSourceRuntimeId(selectedSource, { width: project.output.baseWidth, height: project.output.baseHeight }) : null;
@@ -472,15 +443,8 @@ export function App() {
     setBrowserInteract(false);
     browserInteractionButtonRef.current?.focus();
   };
-  const selectedFilters = { ...DEFAULT_SOURCE_FILTERS, ...selectedSource?.filters };
-  const selectedTextStyle = selectedSource?.kind === 'text' ? selectedSource.textStyle ?? createDefaultTextStyle() : null;
-  const selectedCrop = { ...DEFAULT_SOURCE_CROP, ...selectedSource?.crop };
-  const selectedChromaKey = { ...DEFAULT_CHROMA_KEY, ...selectedSource?.chromaKey };
   const selectionHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const visibleDockIds = workbench.visibleDockIds;
-  // Docks render in a fixed DOM order but are placed by grid column, so the
-  // visually last dock is the one that drops its right border.
-  const lastDockId = visibleDockIds[visibleDockIds.length - 1];
 
 
   return (
@@ -635,245 +599,44 @@ export function App() {
           </Toolbar>
         </section>
 
-        <div className="workbench-docks">
-          <div className="workbench-docks-grid" style={{ gridTemplateColumns: dockColumnsTemplate(workbench.workbenchLayout) ?? undefined, minWidth: dockColumnsMinWidth(workbench.workbenchLayout) }}>
-        {visibleDockIds.includes('scenes') && <ScenesDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'scenes') ?? undefined, opacity: workbench.dockDragOpacity('scenes'), borderRight: lastDockId === 'scenes' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('scenes')}
-          onHide={() => workbench.toggleDock('scenes')}
+        <WorkbenchDocks
+          api={api}
           platform={platform}
-          scenes={project.scenes}
-          activeSceneId={project.activeSceneId}
-          liveSceneId={liveScene.id}
-          selectionScopeKey={workspace.activeCollectionId}
-          onAddScene={scenes.addScene}
-          onChooseScene={scenes.chooseScene}
-          setSceneNameDraft={scenes.setSceneNameDraft}
-          setSceneDialog={scenes.setSceneDialog}
+          desktopAudioMode={desktopAudioMode}
+          applicationAudioSupported={applicationAudioSupported}
           working={working}
-          onDuplicateScene={(sceneId) => void scenes.duplicateActiveScene(sceneId)}
-          studioMode={project.studioMode}
-          onTransitionScene={scenes.transitionScene}
-          canTransitionScene={program.canTransition}
-          renderThumbnail={(scene) => <SceneThumbnail
-            onVisibilityChange={reportThumbnailVisibility}
-            project={runtimeDraftProject!}
-            scene={runtimeDraftProject!.scenes.find((item) => item.id === scene.id)!}
-            videoElements={videoElements.current}
-            imageElements={imageElements.current}
-            meterLevels={capture.meterLevels}
-          />}
-          onOpenProjector={multiview.openProjector}
-          onRenameScene={scenes.renameScene}
-          onReorderScenes={scenes.reorderScenes}
-          onRequestDeleteScenes={scenes.deleteScenes}
-        />}
-
-        {visibleDockIds.includes('sources') && <SourcesDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'sources') ?? undefined, opacity: workbench.dockDragOpacity('sources'), borderRight: lastDockId === 'sources' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('sources')}
-          onHide={() => workbench.toggleDock('sources')}
-          sources={activeScene.sources}
-          selectedSource={sources.selectedSource}
-          selectedSourceIds={sources.selectedSourceIds}
-          collapsedGroupIds={sources.collapsedGroupIds}
-          setCollapsedGroupIds={sources.setCollapsedGroupIds}
-          meterLevels={editorMeterLevels}
-          sourceStatuses={editorSourceStatuses}
-          onSelectSourceRow={sources.selectSourceRow}
-          onSelectAllSources={sources.selectAllSources}
-          onClearSourceSelection={sources.clearSourceSelection}
-          onToggleSourceLock={sources.toggleSourceLock}
-          onMoveSource={sources.moveSource}
-          onUpdateSource={sources.updateSource}
-          platform={platform}
-          onOpenSourceProperties={openSourceProperties}
-          onOpenSourceFilters={sources.selectSource}
-          onMoveSourceTo={sources.moveSourceTo}
-          onReorderSources={sources.onReorderSources}
-          sourceMenuTriggerRef={sources.sourceMenuTriggerRef}
-          sourceMenuOpen={sources.sourceMenuOpen}
-          setSourceMenuOpen={sources.setSourceMenuOpen}
-          sourceActionsTriggerRef={sources.sourceActionsTriggerRef}
-          sourceActionsMenuOpen={sources.sourceActionsMenuOpen}
-          setSourceActionsMenuOpen={sources.setSourceActionsMenuOpen}
-          sourceActions={{
-            sourceClipboardAvailable: sources.sourceClipboardAvailable,
-            working,
-            canGroupSelectedSources: sources.canGroupSelectedSources,
-            onCopySource: sources.copySelectedSource,
-            onPasteSource: () => void sources.pasteSource(),
-            onGroupSources: sources.groupSelectedSources,
-            onUngroupSource: sources.ungroupSelectedSource,
-            onFitSource: sources.fitSource,
-            onCenterSource: sources.centerSource,
-            onStretchSource: sources.stretchSource,
-            onResetTransform: sources.resetSourceTransform,
-            onRemoveSelectedSource: sources.removeSelectedSource,
-          }}
-          addSourceMenu={{
-            onAddNdi: () => { sources.setSourceMenuOpen(false); setNdiDialog('input'); },
-            desktopAudioMode,
-            applicationAudioSupported,
-            onOpenCapturePicker: (kind, targetSourceId) => void capture.openCapturePicker(kind, targetSourceId),
-            onAddSystemAudioCapture: (targetSourceId) => void capture.addSystemAudioCapture(targetSourceId),
-            onOpenApplicationAudioPicker: (targetSourceId) => void capture.openApplicationAudioPicker(targetSourceId),
-            onAddCamera: () => void capture.openInputDevicePicker('camera'),
-            onAddMicrophone: () => void capture.openInputDevicePicker('microphone'),
-            onAddMedia: (kind) => void sources.addMedia(kind),
-            onAddSlideshow: () => void sources.addSlideshow(),
-            onAddPresentation: () => void sources.addPresentation(),
-            onOpenBrowserDialog: () => { sources.setSourceMenuOpen(false); sources.setBrowserDialogOpen(true); },
-            onAddText: sources.addText,
-            onAddColor: sources.addColor,
-            referenceableScenes,
-            onAddSceneReference: sources.addSceneReference,
-          }}
-          properties={{
-            onReconnectNdi: (source) => ndi.retrySource(getSourceRuntimeId(toRuntimeSource(source))),
+          workbench={workbench}
+          features={{ workspace, sources, capture, scenes, program, multiview, recording, streaming, replayBuffer, ndi }}
+          runtime={{
             project,
-            activeSceneId: activeScene.id,
-            referenceableScenes,
-            platform,
-            working,
-            desktopAudioMode,
-            inputDeviceOptions: capture.inputDeviceOptions,
-            runtimesSnapshot: editorRuntimes.current,
-            mediaElements: editorMediaElements.current,
-            mediaPlaybackStates: editorPlaybackStates,
-            playbackInProgram: sources.selectedSource !== null && visibleDraftSourceIds.has(sources.selectedSource.id)
-              && programSourceIds.has(getSourceRuntimeId(sources.selectedSource)),
-            textStyle: selectedTextStyle,
-            filters: selectedFilters,
-            crop: selectedCrop,
-            chromaKey: selectedChromaKey,
-            hasAudioMeter: sources.selectedSource !== null && editorMeterLevels[sources.selectedSource.id] !== undefined,
-            onRemove: sources.removeSelectedSource,
-            onUpdateSource: sources.updateSource,
-            onUpdateTextStyle: sources.updateTextStyle,
-            onSwitchInputDevice: (source, deviceId) => void capture.switchInputDevice(source, deviceId),
-            onUpdateCameraAudioSettings: (source, settings) => void capture.updateCameraAudioSettings(source, settings),
-            onToggleDesktopCaptureAudio: (source, enabled) => void capture.toggleDesktopCaptureAudio(source, enabled),
-            onUpdateCameraCaptureSettings: (source, settings) => void capture.updateCameraCaptureSettings(source, settings),
-            onAddSystemAudioCapture: (targetSourceId) => void capture.addSystemAudioCapture(targetSourceId),
-            onOpenApplicationAudioPicker: (targetSourceId) => void capture.openApplicationAudioPicker(targetSourceId),
-            onOpenCapturePicker: (kind, targetSourceId) => void capture.openCapturePicker(kind, targetSourceId),
-            onUpdateCaptureCursorMode: (sourceId, cursorMode) => void sources.updateCaptureCursorMode(sourceId, cursorMode),
-            onUpdateSourceTransform: sources.updateSourceTransform,
-            onFitSource: sources.fitSource,
-            onCenterSource: sources.centerSource,
-            onResetTransform: sources.resetSourceTransform,
-            onTogglePlayback: sources.toggleMediaPlayback,
-            onRestartPlayback: sources.restartMediaPlayback,
-            onStopPlayback: sources.stopMediaPlayback,
-            onMoveSlideshowImage: sources.moveSlideshowImage,
-            onRemoveSlideshowImage: sources.removeSlideshowImage,
-            onAddSlideshowImage: (sourceId) => void sources.addSlideshowImage(sourceId),
-            onUpdateBrowserAudio: sources.updateBrowserAudio,
-            onUpdateSourceSettings: sources.updateSourceSettings,
-            onUpdateSourceMonitoring: sources.updateSourceMonitoring,
-            onUpdateSourceAudioTrack: sources.updateSourceAudioTrack,
-            onUpdateSourceAudioFilters: sources.updateSourceAudioFilters,
-            onUpdateSourceFilters: sources.updateSourceFilters,
-            onUpdateSourceCrop: sources.updateSourceCrop,
-            onUpdateSourceChromaKey: sources.updateSourceChromaKey,
+            activeScene,
+            liveScene,
+            allSources,
+            runtimeDraftProject: runtimeDraftProject!,
+            visibleEditorSources: visibleEditorRuntimeSources,
+            visibleDraftSourceIds,
+            programSourceIds,
+            editorRuntimes: editorRuntimes.current,
+            editorMediaElements: editorMediaElements.current,
+            editorMeterLevels,
+            resourceStatuses,
+            videoElements: videoElements.current,
+            imageElements: imageElements.current,
+            clockNow,
+            recordingDuration: duration,
+            providerOperationCount,
+            onThumbnailVisibilityChange: reportThumbnailVisibility,
           }}
-        />}
-
-        {visibleDockIds.includes('mixer') && <MixerDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'mixer') ?? undefined, opacity: workbench.dockDragOpacity('mixer'), borderRight: lastDockId === 'mixer' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('mixer')}
-          onHide={() => workbench.toggleDock('mixer')}
-          onOpenSettings={openSettings}
-          staged={project.studioMode}
-          sources={activeSceneLeafSources}
-          meterLevels={editorMeterLevels}
-          onUpdateSourceSettings={sources.updateSourceSettings}
-          allAudioSources={allAudioSources}
-          onUpdateSourceAudio={sources.updateSourceAudio}
-          onOpenSourceProperties={openSourceProperties}
-        />}
-
-        {visibleDockIds.includes('youtube') && <YouTubeDock
-          api={api}
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'youtube') ?? undefined, opacity: workbench.dockDragOpacity('youtube'), borderRight: lastDockId === 'youtube' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('youtube')}
-          onHide={() => workbench.toggleDock('youtube')}
-          settings={streaming.streamServiceSettings}
-          onChange={(next) => {
-            if (!streaming.isActive()) streaming.setStreamServiceSettings((current) => ({ ...next, zoom: current.zoom }));
+          actions={{
+            openSettings,
+            openNdiInput: () => setNdiDialog('input'),
+            openNdiOutput: () => setNdiDialog('output'),
+            openSourceProperties,
+            startSelectedDestinations,
+            beginProviderOperation,
+            setActionError,
           }}
-          status={streaming.outputStatuses.youtube ?? { state: 'stopped' }}
-          selectionLocked={streaming.isActive()}
-          onOperationStart={beginProviderOperation}
-          activeOutputs={streaming.activeOutputIds.map((id) => ({ id, status: streaming.outputStatuses[id] ?? { state: 'connecting' } }))}
-          streamingStartedAt={streaming.outputStartedAt.youtube ?? null}
-          now={clockNow}
-          onGoLive={() => streaming.goLiveForService('youtube')}
-          onStopStreaming={streaming.stopStreaming}
-          onOpenDashboard={() => {
-            const dashboardUrl = getStreamService('youtube').dashboardUrl;
-            if (dashboardUrl) void api.openExternal(dashboardUrl).catch((error) => setActionError(`Could not open YouTube Studio: ${friendlyError(error)}`));
-          }}
-        />}
-
-        {visibleDockIds.includes('zoom') && <ZoomDock
-          api={api}
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'zoom') ?? undefined, opacity: workbench.dockDragOpacity('zoom'), borderRight: lastDockId === 'zoom' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('zoom')}
-          onHide={() => workbench.toggleDock('zoom')}
-          settings={streaming.streamServiceSettings}
-          onChange={(next) => {
-            if (!streaming.isActive()) streaming.setStreamServiceSettings((current) => ({ ...current, zoom: next.zoom }));
-          }}
-          status={streaming.outputStatuses.zoom ?? { state: 'stopped' }}
-          selectionLocked={streaming.isActive()}
-          onOperationStart={beginProviderOperation}
-          streamingStartedAt={streaming.outputStartedAt.zoom ?? null}
-          now={clockNow}
-          onGoLive={() => streaming.goLiveForService('zoom')}
-          onStopStreaming={() => streaming.stopStreaming('zoom')}
-        />}
-
-        {visibleDockIds.includes('controls') && <ControlsDock
-          ndiSending={ndi.sending}
-          ndiStarting={ndi.starting}
-          ndiStopping={ndi.stopping}
-          onOpenNdiOutput={() => setNdiDialog('output')}
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'controls') ?? undefined, opacity: workbench.dockDragOpacity('controls'), borderRight: lastDockId === 'controls' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('controls')}
-          onHide={() => workbench.toggleDock('controls')}
-          working={working}
-          streamingStartDisabled={providerOperationCount > 0}
-          streamOutputs={Object.entries(streaming.outputStatuses)
-            .filter(([, status]) => status.state !== 'stopped')
-            .map(([id, status]) => ({
-              id,
-              label: id === 'youtube' ? 'YouTube' : id === 'zoom' ? 'Zoom' : 'Output',
-              status,
-              duration: formatElapsed(streaming.outputStartedAt[id] === undefined ? 0 : clockNow - streaming.outputStartedAt[id], 'full'),
-            }))}
-          onGoLive={startSelectedDestinations}
-          onStopStreaming={(outputId) => streaming.stopStreaming(outputId)}
-          recordingFinalizing={recording.recordingFinalizing}
-          recordingStartedAt={recording.recordingStartedAt}
-          recordingPausedAt={recording.recordingPausedAt}
-          onStartRecording={() => void recording.startRecording()}
-          onPauseRecording={recording.pauseRecording}
-          onResumeRecording={recording.resumeRecording}
-          onStopRecording={recording.stopRecording}
-          replayBufferStartedAt={replayBuffer.replayBufferStartedAt}
-          onStartReplayBuffer={() => void replayBuffer.startReplayBuffer()}
-          onStopReplayBuffer={replayBuffer.stopReplayBuffer}
-          canSaveReplay={replayBuffer.canSaveReplay}
-          onSaveReplay={() => void replayBuffer.saveReplay()}
-          recordingDuration={duration}
-        />}
-
-          </div>
-        </div>
-
-        {workbench.dockDrag && <div className="dock-drop-indicator" style={{ left: workbench.dockDrag.left, top: workbench.dockDrag.top, height: workbench.dockDrag.height }} />}
+        />
       </section>
 
       <StatusBar label="Stream status">

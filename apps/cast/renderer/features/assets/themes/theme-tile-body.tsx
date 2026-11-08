@@ -5,7 +5,7 @@ import { Thumbnail } from '../../../components/display/thumbnail';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
 import { useContextMenuTrigger } from '@lumacast/ui';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
-import { buildRenderScene } from '../../canvas/build-render-scene';
+import { buildRenderScene } from '../../../rendering/build-render-scene';
 import type { ThemeItemProps } from './theme-bin-types';
 import { ThemeContextMenuItems } from './theme-context-menu-items';
 import { useDeleteTheme } from './use-delete-theme';

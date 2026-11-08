@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { AudioMixerEngine } from '../../audio-mixer';
 import type { AudioTrack, RecordingTrackId, StreamAPI, StreamProject } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 
 interface ReplayChunk {
   at: number;

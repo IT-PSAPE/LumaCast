@@ -5,6 +5,7 @@ import { PlaybackProvider, useAudio, useVideo, usePresentationLayers, usePresent
 
 const mocks = vi.hoisted(() => ({
   setStatusText: vi.fn(),
+  recordObsEvent: vi.fn(),
   clearOutputItem: vi.fn(),
   mediaAssetsById: new Map(),
   overlaysById: new Map<string, unknown>(),
@@ -78,13 +79,13 @@ vi.mock('@lumacast/canvas', () => ({
   subscribeToVideoPool: vi.fn(() => () => {}),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture', () => ({
+vi.mock('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture', () => ({
   addNdiAudioElement: vi.fn(),
   removeNdiAudioElement: vi.fn(),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/observability/metrics-store', () => ({
-  recordObsEvent: vi.fn(),
+vi.mock('../../../../../../apps/cast/renderer/contexts/observability-port', () => ({
+  useObservabilityPort: () => ({ record: mocks.recordObsEvent }),
 }));
 
 function RenderLayerProbe({ onRender }: { onRender: () => void }) {

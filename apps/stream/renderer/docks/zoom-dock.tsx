@@ -4,7 +4,7 @@ import { RefreshCw } from 'lucide-react';
 import { Banner, EmptyState, Panel, ReacstButton, StatusDot, type MenuEntry, type StatusTone } from '@lumacast/ui';
 import type { StreamAPI, StreamRuntimeStatus, StreamServiceSettings, ZoomAccount, ZoomMeeting } from '../../shared/desktop-api';
 import { formatElapsed } from '../format-elapsed';
-import { providerErrorMessage } from '../features/shared/provider-error';
+import { providerErrorMessage } from '../shared/provider-error';
 import { CreateZoomMeetingDialog, ZoomSettingsDialog } from './zoom-dialogs';
 import { DockHeader } from './dock-header';
 import calendarIcon from '../assets/zoom/calendar-days.svg';

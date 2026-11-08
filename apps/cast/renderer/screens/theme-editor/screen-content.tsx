@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { StagePanel } from '../../features/canvas/stage-panel';
+import { StagePanel } from '../../features/canvas';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { DropdownMenu, Panel } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';

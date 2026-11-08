@@ -3,7 +3,7 @@ import type { Id } from '@lumacast/kernel';
 import { usePresentationMediaLayer } from '../../../contexts/playback/playback-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
-import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
+import { compareByKey, useMediaBinSort } from '../../../hooks/use-bin-sort';
 
 export function useMediaBin(filterText: string) {
   const { mediaAssets: allMediaAssets } = useProjectContent();

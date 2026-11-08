@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { IconGroup } from '@renderer/components/icon-group';
 import { useShapeInspector } from './use-shape-inspector';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 import type { SlideBackgroundFit, StrokePosition } from '@lumacast/composition';
 import { parseNumber } from '@renderer/utils/slides';
 

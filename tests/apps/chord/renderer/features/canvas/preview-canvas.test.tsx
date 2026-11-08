@@ -33,11 +33,11 @@ vi.mock('../../../../../../apps/chord/renderer/store', () => ({
   useChordStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state),
 }));
 
-vi.mock('../../../../../../apps/chord/renderer/features/canvas/build-frame-scene', () => ({
+vi.mock('../../../../../../apps/chord/renderer/rendering/build-frame-scene', () => ({
   buildFrameScene: () => mocks.scene,
 }));
 
-vi.mock('../../../../../../apps/chord/renderer/features/canvas/chord-stage', () => ({
+vi.mock('../../../../../../apps/chord/renderer/rendering/chord-stage', () => ({
   ChordStage: () => <div data-testid="rendered-preview" />,
   computeStageFit: () => ({ scale: 1, offsetX: 0, offsetY: 0 }),
 }));

@@ -3,13 +3,13 @@
 // range only.
 import { useEffect, useRef } from 'react';
 import { useChordStore } from '../../store';
-import { importAudio } from '../library/import-flows';
-import { timelineEndMs, useAudioWaveform } from '../playback';
+import { timelineEndMs } from '../../utils/timeline-end';
+import { useAudioWaveform } from './use-audio-waveform';
 import { msToPx } from './timeline-math';
 
 export const AUDIO_TRACK_HEIGHT_PX = 56;
 
-export function AudioTrack() {
+export function AudioTrack({ onImportAudio }: { onImportAudio: () => void }) {
   const audio = useChordStore((state) => state.document.project.audio);
   const audioUrl = useChordStore((state) => state.media.audioUrl);
   const view = useChordStore((state) => state.timeline);
@@ -62,7 +62,7 @@ export function AudioTrack() {
         {audio ? (
           <span className="truncate paragraph-xs text-tertiary" title={audio.name}>{audio.name}</span>
         ) : (
-          <button type="button" onClick={() => void importAudio()} className="w-fit label-xs text-brand hover:underline">
+          <button type="button" onClick={onImportAudio} className="w-fit label-xs text-brand hover:underline">
             Import audio
           </button>
         )}

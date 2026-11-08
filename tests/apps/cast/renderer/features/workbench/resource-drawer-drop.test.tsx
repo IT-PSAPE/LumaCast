@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { ResourceDrawer } from '../../../../../../apps/cast/renderer/features/workbench/resource-drawer';
+import { ResourceDrawer } from '../../../../../../apps/cast/renderer/screens/show/resource-drawer';
 
 // Scoped media-bin drop contract: the resource drawer imports files dropped
 // on it only when they match the active media tab. Anything else — a .cst
@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   importMedia: vi.fn(),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/workbench/resource-drawer-context', () => ({
+vi.mock('../../../../../../apps/cast/renderer/screens/show/resource-drawer-context', () => ({
   useResourceDrawer: () => ({
     drawerTab: mocks.drawerTab,
     setDrawerTab: vi.fn(),

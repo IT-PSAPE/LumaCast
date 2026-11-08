@@ -13,7 +13,6 @@ import { THEME_PRESETS } from '../../../shared/theme-presets';
 import type { MediaFit, TextStyle, TransitionKind } from '../../../shared/project';
 import { useChordStore } from '../../store';
 import { NativeColorPicker } from '../../components/native-color-picker';
-import { importBackground } from '../library/import-flows';
 import { useSystemFonts } from './use-system-fonts';
 
 const WEIGHT_OPTIONS = [
@@ -42,7 +41,7 @@ const FIT_OPTIONS: Array<{ value: MediaFit; label: string }> = [
   { value: 'fill', label: 'Fill' },
 ];
 
-export function ThemeTab() {
+export function ThemeTab({ onImportBackground }: { onImportBackground: () => void }) {
   const theme = useChordStore((s) => s.document.project.theme);
   const composition = useChordStore((s) => s.document.project.composition);
   const background = useChordStore((s) => s.document.project.background);
@@ -255,7 +254,7 @@ export function ThemeTab() {
             value={background.kind}
             onValueChange={(value) => {
               if (value === 'color') setBackground({ kind: 'color', color: background.kind === 'color' ? background.color : '#000000' }, null);
-              else void importBackground();
+              else onImportBackground();
             }}
           >
             <SegmentedControl.Label fill value="color">Colour</SegmentedControl.Label>
@@ -270,7 +269,7 @@ export function ThemeTab() {
               <div className="flex items-center justify-between gap-2">
                 <span className="label-xs min-w-0 flex-1 truncate text-secondary">{background.media.name}</span>
                 <div className="flex shrink-0 gap-1">
-                  <PlainButton onClick={() => void importBackground()}>Choose…</PlainButton>
+                  <PlainButton onClick={onImportBackground}>Choose…</PlainButton>
                   <ReacstButton.Icon
                     label="Remove background"
                     onClick={() => setBackground({ kind: 'color', color: '#000000' }, null)}

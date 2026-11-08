@@ -14,7 +14,7 @@ import type {
 import { ReacstButton, SegmentedControl, Label, Select, Checkbox, TextField, useConfirm } from '@lumacast/ui';
 import { FieldTextarea } from '@renderer/components/form/field';
 import { AgentConnections } from './agent-connections';
-import { Section } from '@renderer/features/inspector/inspector-section';
+import { Section } from '@renderer/components/layout/inspector-section';
 
 const RISK_CLASS_LABELS: Record<ActionRiskClass, string> = {
   read: 'Read',

@@ -13,7 +13,7 @@ vi.mock('../../../../../../apps/chord/renderer/store', () => ({
   ),
 }));
 
-vi.mock('../../../../../../apps/chord/renderer/features/library/import-flows', () => ({
+vi.mock('../../../../../../apps/chord/renderer/shell/media-import', () => ({
   importAudio: vi.fn(),
   importBackground: vi.fn(),
   importLyrics: vi.fn(),
@@ -34,8 +34,8 @@ vi.mock('../../../../../../apps/chord/renderer/features/playback/audio-element',
 
 import { Timeline } from '../../../../../../apps/chord/renderer/features/timeline/timeline';
 import { Inspector } from '../../../../../../apps/chord/renderer/features/inspector/inspector';
-import { Workspace } from '../../../../../../apps/chord/renderer/features/shell/workspace';
-import { ShellStatusBar } from '../../../../../../apps/chord/renderer/features/shell/status-bar';
+import { Workspace } from '../../../../../../apps/chord/renderer/shell/workspace';
+import { ShellStatusBar } from '../../../../../../apps/chord/renderer/shell/status-bar';
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
@@ -56,7 +56,7 @@ function empty(): TestChordStore {
 describe('empty untitled project', () => {
   it('Timeline shows a 10s transport readout and empty-track hints, no NaN', () => {
     empty();
-    const { container } = render(<Timeline />);
+    const { container } = render(<Timeline onImportAudio={() => {}} />);
     expect(screen.getByRole('button', { name: /0:00.*\/.*/ })).toBeInTheDocument();
     expect(screen.getByText('Drop an audio file here')).toBeInTheDocument();
     expect(screen.getByText('Drop a lyric file, or add a cue')).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe('empty untitled project', () => {
 
   it('Inspector shows the empty lyrics state', () => {
     empty();
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     expect(screen.getByText('No lyrics yet')).toBeInTheDocument();
   });
 

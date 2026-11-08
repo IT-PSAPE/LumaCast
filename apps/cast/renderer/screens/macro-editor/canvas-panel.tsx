@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import { ReacstButton, EmptyState } from '@lumacast/ui';
-import { useInspector } from '@renderer/features/inspector/inspector-context';
+import { useInspector } from '../../features/inspector';
 import { useMacroEditorScreen } from './screen-context';
 import { CanvasCueCard } from './canvas-cue-card';
 

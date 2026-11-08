@@ -2,8 +2,8 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
 import type { RenderScene, SceneSurface } from '@lumacast/composition';
 
-const SceneStage = lazy(() =>
-  import('@renderer/features/canvas/scene-stage').then((module) => ({ default: module.SceneStage })),
+const SceneRenderStage = lazy(() =>
+  import('@renderer/rendering/scene-render-stage').then((module) => ({ default: module.SceneRenderStage })),
 );
 
 interface LazySceneStageProps {
@@ -54,7 +54,7 @@ export function LazySceneStage({ scene, surface, className }: LazySceneStageProp
     <div ref={hostRef} className={className}>
       {visible ? (
         <Suspense fallback={null}>
-          <SceneStage scene={scene} surface={surface} className="absolute inset-0 pointer-events-none" />
+          <SceneRenderStage scene={scene} surface={surface} className="absolute inset-0 pointer-events-none" />
         </Suspense>
       ) : null}
     </div>

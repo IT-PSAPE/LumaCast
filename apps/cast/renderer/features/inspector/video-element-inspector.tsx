@@ -3,7 +3,7 @@ import type { SlideBackgroundFit, VideoElementPayload } from '@lumacast/composit
 import { readMediaFit } from '@lumacast/composition';
 import { FieldInput } from '@renderer/components/form/field';
 import { EmptyState, Label, Select, Checkbox } from '@lumacast/ui';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { parseNumber } from '../../utils/slides';
 

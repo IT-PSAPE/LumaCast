@@ -37,7 +37,7 @@ function makeProject(overrides: Partial<StreamProject> = {}): StreamProject {
 
 function setup(initialProject = makeProject(), extraParams: Partial<UseScenesParams> = {}) {
   const selectSource = vi.fn();
-  const stopRuntime = vi.fn();
+  const duplicateSceneRuntimes = vi.fn().mockResolvedValue({ commit: vi.fn(), rollback: vi.fn() });
   const { result } = renderHook(() => {
     const [project, setProject] = useState<StreamProject | null>(initialProject);
     const scenes = useScenes({
@@ -47,18 +47,12 @@ function setup(initialProject = makeProject(), extraParams: Partial<UseScenesPar
       working: false,
       setWorking: vi.fn(),
       selectSource,
-      runtimes: { current: new Map() },
-      applicationAudioInputs: { current: new Map() },
-      applicationAudioSessions: { current: new Map() },
-      attachRuntime: vi.fn(),
-      stopRuntime,
-      startApplicationAudioRuntime: vi.fn(),
-      startSystemAudioRuntime: vi.fn(),
+      sceneRuntimePort: { duplicateSceneRuntimes },
       ...extraParams,
     } satisfies UseScenesParams);
     return { project, scenes };
   });
-  return { result, selectSource, stopRuntime };
+  return { result, selectSource, duplicateSceneRuntimes };
 }
 
 describe('useScenes transition behavior', () => {
@@ -193,6 +187,43 @@ describe('useScenes collection mutations', () => {
     expect(project?.liveSceneId).toBe('program');
   });
 
+  it('delegates active runtime duplication through the capture capability', async () => {
+    const source: StreamSource = {
+      id: 'camera-1', name: 'Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1, height: 1 },
+    };
+    const duplicateSceneRuntimes = vi.fn().mockResolvedValue({ commit: vi.fn(), rollback: vi.fn() });
+    const { result } = setup(makeProject({
+      scenes: [{ id: 'program', name: 'Program', sources: [source] }, { id: 'preview', name: 'Preview', sources: [] }],
+    }), { sceneRuntimePort: { duplicateSceneRuntimes } });
+
+    await act(async () => { await result.current.scenes.duplicateActiveScene('program'); });
+
+    const duplicate = result.current.project?.scenes.find((scene) => scene.name === 'Program Copy');
+    expect(duplicate).toBeDefined();
+    expect(duplicateSceneRuntimes).toHaveBeenCalledWith([
+      expect.objectContaining({ source, duplicate: expect.objectContaining({ name: 'Camera' }) }),
+    ]);
+  });
+
+  it('rolls back duplicated runtimes if the scene commit flow fails', async () => {
+    const lease = { commit: vi.fn(), rollback: vi.fn() };
+    const setActionError = vi.fn();
+    const selectSource = vi.fn(() => { throw new Error('selection failed'); });
+    const { result } = setup(makeProject(), {
+      sceneRuntimePort: { duplicateSceneRuntimes: vi.fn().mockResolvedValue(lease) },
+      setActionError,
+      selectSource,
+    });
+
+    await act(async () => { await result.current.scenes.duplicateActiveScene('program'); });
+
+    expect(lease.commit).not.toHaveBeenCalled();
+    expect(lease.rollback).toHaveBeenCalledOnce();
+    expect(setActionError).toHaveBeenCalledWith(expect.stringContaining('selection failed'));
+    expect(result.current.project?.scenes.map((scene) => scene.name)).toEqual(['Program', 'Preview']);
+  });
+
   it('deletes a selected group in one project update and keeps active and live scene ids valid', () => {
     const project = makeProject({
       scenes: [
@@ -234,7 +265,7 @@ describe('useScenes collection mutations', () => {
   });
 
   it('does not eagerly stop sources when their editable scene is deleted', () => {
-    const { result, stopRuntime } = setup(makeProject({
+    const { result, duplicateSceneRuntimes } = setup(makeProject({
       scenes: [
         { id: 'program', name: 'Program', sources: [] },
         { id: 'preview', name: 'Preview', sources: [makeSceneReference('source', 'program')] },
@@ -245,7 +276,7 @@ describe('useScenes collection mutations', () => {
     act(() => result.current.scenes.deleteScenes(['preview']));
 
     expect(result.current.project?.scenes.map((scene) => scene.id)).toEqual(['program']);
-    expect(stopRuntime).not.toHaveBeenCalled();
+    expect(duplicateSceneRuntimes).not.toHaveBeenCalled();
   });
 
   it('persists scene reorder by id while preserving scene objects and project fields', () => {

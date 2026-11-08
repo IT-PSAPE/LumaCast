@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { AppLayoutContent } from '../../../../apps/cast/renderer/app-layout-content';
+import { AppLayoutContent } from '../../../../apps/cast/renderer/shell/app-layout-content';
 
 const mocks = vi.hoisted(() => ({
   cast: {
@@ -10,21 +10,28 @@ const mocks = vi.hoisted(() => ({
     retrySnapshotLoad: vi.fn().mockResolvedValue(undefined),
   },
   useAppMenu: vi.fn(),
+  openCommandPalette: vi.fn(),
 }));
 
 vi.mock('../../../../apps/cast/renderer/contexts/app-context', () => ({
   useCast: () => mocks.cast,
 }));
 
-vi.mock('../../../../apps/cast/renderer/hooks/use-app-menu', () => ({
+vi.mock('../../../../apps/cast/renderer/application/use-app-menu', () => ({
   useAppMenu: mocks.useAppMenu,
 }));
 
-vi.mock('../../../../apps/cast/renderer/features/workbench/app-toolbar', () => ({
-  AppToolbar: () => <div data-testid="app-toolbar" />,
+vi.mock('../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
+  useCommandPalette: () => ({ open: mocks.openCommandPalette }),
 }));
 
-vi.mock('../../../../apps/cast/renderer/features/workbench/status-bar', () => ({
+vi.mock('../../../../apps/cast/renderer/features/workbench/app-toolbar', () => ({
+  AppToolbar: ({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) => (
+    <button data-testid="app-toolbar" type="button" onClick={onOpenCommandPalette} />
+  ),
+}));
+
+vi.mock('../../../../apps/cast/renderer/shell/status-bar', () => ({
   StatusBar: () => <div data-testid="status-bar" />,
 }));
 
@@ -37,6 +44,7 @@ beforeEach(() => {
   mocks.cast.snapshot = null;
   mocks.cast.isLoadingSnapshot = false;
   mocks.cast.snapshotLoadError = null;
+  mocks.openCommandPalette.mockReset();
 });
 
 afterEach(() => {
@@ -84,5 +92,13 @@ describe('AppLayoutContent startup shell', () => {
 
     fireEvent.click(getByRole('button', { name: 'Retry startup' }));
     expect(mocks.cast.retrySnapshotLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it('composes command-palette opening through the toolbar callback', () => {
+    const { getByTestId } = render(<AppLayoutContent />);
+
+    fireEvent.click(getByTestId('app-toolbar'));
+
+    expect(mocks.openCommandPalette).toHaveBeenCalledTimes(1);
   });
 });

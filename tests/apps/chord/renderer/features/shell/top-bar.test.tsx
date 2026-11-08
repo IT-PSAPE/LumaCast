@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestStore, type TestChordStore } from '../../test-store';
-import { useShellUiState } from '../../../../../../apps/chord/renderer/features/shell/shell-ui-state';
+import { useShellUiState } from '../../../../../../apps/chord/renderer/shell/shell-ui-state';
 
 let testStore: TestChordStore;
 
@@ -9,7 +9,7 @@ vi.mock('../../../../../../apps/chord/renderer/store', () => ({
   useChordStore: (selector: (state: TestChordStore) => unknown) => selector(testStore),
 }));
 
-vi.mock('../../../../../../apps/chord/renderer/features/library/import-flows', () => ({
+vi.mock('../../../../../../apps/chord/renderer/shell/media-import', () => ({
   importAudio: vi.fn(),
   importBackground: vi.fn(),
   importLyrics: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock('../../../../../../apps/chord/renderer/features/export/export-dialog', (
   useExport: () => ({}),
 }));
 
-import { TopBar } from '../../../../../../apps/chord/renderer/features/shell/top-bar';
+import { TopBar } from '../../../../../../apps/chord/renderer/shell/top-bar';
 
 beforeEach(() => {
   useShellUiState.setState({ exportDialogOpen: false, cueFormatChooserOpen: false });
@@ -72,7 +72,7 @@ describe('TopBar', () => {
   });
 
   it('collapses the three imports into one keyboard-reachable menu', async () => {
-    const { importAudio } = await import('../../../../../../apps/chord/renderer/features/library/import-flows');
+    const { importAudio } = await import('../../../../../../apps/chord/renderer/shell/media-import');
     testStore = createTestStore();
     render(<TopBar />);
     const trigger = screen.getByRole('button', { name: /Import/ });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject } from '../../../../../../apps/chord/shared/project-schema';
 import type { ChordCue, ChordProject } from '../../../../../../apps/chord/shared/project';
-import { buildFrameScene, resolveTimelineEndMs } from '../../../../../../apps/chord/renderer/features/canvas/build-frame-scene';
+import { buildFrameScene, resolveTimelineEndMs } from '../../../../../../apps/chord/renderer/rendering/build-frame-scene';
 
 const NOW = '2026-01-01T00:00:00.000Z';
 

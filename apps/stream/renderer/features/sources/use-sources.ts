@@ -20,9 +20,9 @@ import { canReferenceScene } from '../../../shared/scene-reference-graph';
 import { normalizeSourceRotation } from '../../../shared/source-geometry';
 import { AUDIO_TRACKS, type AudioFilters, type AudioMonitoring, type AudioTrack, type ChromaKeyFilter, type MediaKind, type SourceCrop, type SourceFilters, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, createDefaultTextStyle } from '../../../shared/desktop-api';
 import type { StreamAPI } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 import { getOriginSourceId, toRuntimeSource } from '../../source-runtime';
-import { createSource, DEFAULT_AUDIO_FILTERS, DEFAULT_CHROMA_KEY, DEFAULT_SOURCE_CROP, DEFAULT_SOURCE_FILTERS, defaultTransform } from './helpers';
+import { createSource, DEFAULT_AUDIO_FILTERS, DEFAULT_CHROMA_KEY, DEFAULT_SOURCE_CROP, DEFAULT_SOURCE_FILTERS, defaultTransform } from '../../shared/source-factory';
 import { canResizeSourceTree, isSourceTransformableInTree, selectedSourceRoots, sourceCanvasSelectionOrder, sourceRowOrder, translateSourceSelection } from '../../source-selection';
 
 export type SourceSelectionEvent = Pick<SelectionModifiers, 'shiftKey' | 'metaKey' | 'ctrlKey'> & { type?: string };

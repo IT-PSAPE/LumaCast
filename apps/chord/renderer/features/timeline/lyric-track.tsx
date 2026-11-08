@@ -10,7 +10,7 @@ import { activeCueIndexAt, cueEndMs, quantizeToFrame, snapTimeMs } from '../../.
 import type { ChordCue } from '../../../shared/project';
 import type { SelectMode } from '../../store/types';
 import { useChordStore } from '../../store';
-import { timelineEndMs } from '../playback';
+import { timelineEndMs } from '../../utils/timeline-end';
 import { msToPx, pxToMs, snapCandidates } from './timeline-math';
 
 export const LYRIC_TRACK_HEIGHT_PX = 56;

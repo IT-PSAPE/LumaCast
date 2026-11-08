@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render } from '@testing-library/react';
 import type { RenderNode, RenderScene } from '@lumacast/composition';
-import { SlideRenderHost } from '../../../../../../apps/cast/renderer/features/render/slide-render-host';
-import { renderContactSheet, renderSlideToImage, SlideRenderError, type RenderedSlide } from '../../../../../../apps/cast/renderer/features/render/render-slide';
+import { SlideRenderHost } from '../../../../../../apps/cast/renderer/rendering/slide-render-host';
+import { renderContactSheet, renderSlideToImage, SlideRenderError, type RenderedSlide } from '../../../../../../apps/cast/renderer/rendering/slide-render';
 
 // jsdom cannot rasterize Konva, so the whole rendering surface is mocked:
 // react-konva's <Stage> forwards its ref to a shared fake stage object

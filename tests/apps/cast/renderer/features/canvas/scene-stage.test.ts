@@ -153,7 +153,7 @@ vi.mock('@lumacast/canvas', () => ({
   useSceneStageViewport: mocks.useSceneStageViewport,
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/canvas/scene-node', () => ({
+vi.mock('../../../../../../apps/cast/renderer/rendering/scene-node', () => ({
   SceneNode: () => null,
 }));
 
@@ -190,6 +190,7 @@ vi.mock('../../../../../../apps/cast/renderer/rendering/capture-surface-registry
 
 import { getCaptureSurface, setCaptureSurface } from '../../../../../../apps/cast/renderer/rendering/capture-surface-registry';
 import { SceneStage, pinFixedViewportStagePixelRatio, publishCaptureSurface } from '../../../../../../apps/cast/renderer/features/canvas/scene-stage';
+import { SceneRenderStage } from '../../../../../../apps/cast/renderer/rendering/scene-render-stage';
 
 function createStage(pixelRatio = 2) {
   const canvasElement = document.createElement('canvas');
@@ -282,7 +283,7 @@ describe('scene-stage capture pixel ratio', () => {
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
 
     const { rerender } = render(
-      h(SceneStage, {
+      h(SceneRenderStage, {
         scene,
         fixedViewport: { width: 1920, height: 1080 },
         ndiCaptureSource: 'audience',
@@ -293,7 +294,7 @@ describe('scene-stage capture pixel ratio', () => {
     mocks.setCaptureSurface.mockClear();
 
     rerender(
-      h(SceneStage, {
+      h(SceneRenderStage, {
         scene,
         fixedViewport: { width: 1920, height: 1080 },
         ndiCaptureSource: 'audience',
@@ -310,7 +311,7 @@ describe('scene-stage capture pixel ratio', () => {
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
 
     const { rerender } = render(
-      h(SceneStage, {
+      h(SceneRenderStage, {
         scene,
         fixedViewport: { width: 1920, height: 1080 },
         ndiCaptureSource: 'audience',
@@ -320,7 +321,7 @@ describe('scene-stage capture pixel ratio', () => {
     expect(mocks.useSceneStageViewport).toHaveBeenCalledTimes(1);
 
     rerender(
-      h(SceneStage, {
+      h(SceneRenderStage, {
         scene,
         fixedViewport: { width: 1920, height: 1080 },
         ndiCaptureSource: 'audience',
@@ -338,7 +339,7 @@ describe('scene-stage capture pixel ratio', () => {
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
 
     const { unmount } = render(
-      h(SceneStage, {
+      h(SceneRenderStage, {
         scene,
         fixedViewport: { width: 1920, height: 1080 },
         ndiCaptureSource: 'audience',
@@ -358,7 +359,7 @@ describe('scene-stage capture pixel ratio', () => {
 describe('scene-stage editable context menu — group/align/distribute items', () => {
   function openMenu() {
     const scene = createScene();
-    const { container } = render(h(SceneStage, { scene, editable: true }));
+    const { container } = render(h(SceneStage, { scene }));
     const root = container.firstElementChild as HTMLElement;
     fireEvent.contextMenu(root);
     return container;

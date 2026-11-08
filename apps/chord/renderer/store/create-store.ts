@@ -25,7 +25,7 @@ import {
   timedCuesFromCues,
   trimCue as trimCuePure,
 } from '../../shared/cue-model';
-import { timelineEndMs } from '../features/playback';
+import { timelineEndMs } from '../utils/timeline-end';
 import type { ChordDesktopAPI } from '../../shared/desktop-api';
 import type { ChordCue, ChordProject } from '../../shared/project';
 import type { ChordStore } from './types';

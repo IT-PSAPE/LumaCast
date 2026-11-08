@@ -3,7 +3,7 @@ import { Rect } from 'react-konva';
 import { describe, expect, it } from 'vitest';
 import type { Id } from '@lumacast/kernel';
 import type { Slide, SlideBackground, SlideElement } from '@lumacast/composition';
-import { buildRenderScene, buildResolvedRenderScene } from '../../../../../apps/cast/renderer/features/canvas/build-render-scene';
+import { buildRenderScene, buildResolvedRenderScene } from '../../../../../apps/cast/renderer/rendering/build-render-scene';
 import { SceneNodeMedia, SceneNodeShape, SceneNodeText, renderSceneNodeContent, needsOpaqueBackdrop, SceneSlideBackground } from '@lumacast/canvas';
 import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '@lumacast/composition';
 

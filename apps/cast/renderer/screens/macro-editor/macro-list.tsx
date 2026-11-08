@@ -5,7 +5,7 @@ import { SortableList, useSortableOrder, type SortableOrderCommit } from '@rende
 import { commitSelectedReorder, runSelectionActions } from '@lumacast/selection';
 import type { Macro } from '@lumacast/automation';
 import { useConfirm } from '@lumacast/ui';
-import { useAutomation } from '@renderer/features/automation/automation-context';
+import { useAutomation } from '../../features/automation';
 import { useMultiSelection, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
 import { MacroListItem } from './macro-list-item';
 

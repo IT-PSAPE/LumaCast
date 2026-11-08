@@ -1,5 +1,5 @@
 import { EmptyState, Panel, ReacstButton, Tabs } from '@lumacast/ui';
-import { useInspector } from '@renderer/features/inspector/inspector-context';
+import { useInspector } from '../../features/inspector';
 import { useMacroEditorScreen } from './screen-context';
 import { MacroInspector } from './macro-inspector';
 import { CueInspector } from './cue-inspector';

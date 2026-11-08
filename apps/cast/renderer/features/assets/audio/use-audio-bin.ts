@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useAudio } from '../../../contexts/playback/playback-context';
 import { filterByText } from '../../../utils/filter-by-text';
-import { compareByKey, useAudioBinSort } from '../../workbench/use-bin-sort';
+import { compareByKey, useAudioBinSort } from '../../../hooks/use-bin-sort';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export function useAudioBin() {

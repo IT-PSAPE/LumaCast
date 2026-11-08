@@ -5,7 +5,7 @@
 import { cueEndMs } from '../../../shared/cue-model';
 import type { ChordCue } from '../../../shared/project';
 import type { TimelineView } from '../../store/types';
-import { formatClock, formatTimecode } from '../playback';
+import { formatClock, formatTimecode } from '../../utils/format-time';
 
 /** Width, in px, reserved for each track's header column (matches the `w-32` header in every track row). */
 export const TRACK_HEADER_WIDTH_PX = 128;

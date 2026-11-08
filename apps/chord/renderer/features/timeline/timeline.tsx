@@ -4,7 +4,7 @@
 import { useEffect, useRef } from 'react';
 import type { WheelEvent as ReactWheelEvent } from 'react';
 import { useChordStore } from '../../store';
-import { timelineEndMs } from '../playback';
+import { timelineEndMs } from '../../utils/timeline-end';
 import { AUDIO_TRACK_HEIGHT_PX, AudioTrack } from './audio-track';
 import { LYRIC_TRACK_HEIGHT_PX, LyricTrack } from './lyric-track';
 import { Playhead } from './playhead';
@@ -17,7 +17,11 @@ const TIMELINE_HEIGHT_PX = 220;
 const TRACKS_HEIGHT_PX = RULER_HEIGHT_PX + AUDIO_TRACK_HEIGHT_PX + LYRIC_TRACK_HEIGHT_PX;
 const WHEEL_ZOOM_FACTOR = 1.1;
 
-export function Timeline() {
+export interface TimelineProps {
+  onImportAudio: () => void;
+}
+
+export function Timeline({ onImportAudio }: TimelineProps) {
   useTimelineShortcuts();
 
   const view = useChordStore((state) => state.timeline);
@@ -80,7 +84,7 @@ export function Timeline() {
       <div ref={scrollContainerRef} className="relative flex-1 overflow-y-auto overflow-x-hidden" onWheel={handleWheel}>
         <div className="relative" style={{ height: TRACKS_HEIGHT_PX }} data-ui-region="timeline-tracks">
           <TimeRuler />
-          <AudioTrack />
+          <AudioTrack onImportAudio={onImportAudio} />
           <LyricTrack />
           <Playhead />
         </div>

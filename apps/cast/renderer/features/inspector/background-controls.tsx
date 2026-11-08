@@ -8,7 +8,7 @@ import { MediaPickerDialog, type MediaPickerAssetKind } from '@renderer/componen
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { parseNumber } from '@renderer/utils/slides';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 type BackgroundKind = 'none' | 'color' | 'gradient' | 'image' | 'video';
 

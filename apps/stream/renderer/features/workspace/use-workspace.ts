@@ -4,7 +4,7 @@ import { flattenSourceNodes } from '../../../shared/source-tree';
 import type {
   SceneCollectionSummary, StreamAPI, StreamProfileSummary, StreamProject, StreamSource, StreamWorkspace,
 } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 
 export type WorkspaceDialogKind = 'new' | 'duplicate' | 'rename' | 'delete';
 

@@ -13,8 +13,9 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
 import { useSlideSelectionKeyboard } from '../../hooks/use-slide-selection-keyboard';
 import { useSlideBulkActions } from './use-slide-bulk-actions';
+import type { SlideBrowserIntegrations } from './slide-browser-integrations';
 
-export function SingleSlideList() {
+export function SingleSlideList({ integrations }: { integrations: SlideBrowserIntegrations }) {
   const { rows: persistedRows, currentSlideIndex, selectSlide, openSlide } = useOutlineView();
   const { reorderSlide, setCurrentSlideIndex, duplicateSlide, deleteSlide } = useSlides();
   const { currentItemRef } = useNavigation();
@@ -79,6 +80,7 @@ export function SingleSlideList() {
         onOpen={openSlide}
         onRangeSelect={selection.selectSlide}
         actionSlideIds={selection.actionSlideIds(row.slide.id)}
+        {...integrations}
       />
     );
   }
@@ -112,6 +114,7 @@ export function SingleSlideList() {
               onOpen={openSlide}
               onRangeSelect={selection.selectSlide}
               actionSlideIds={selection.actionSlideIds(activeRow.slide.id)}
+              {...integrations}
               overlay
             />
           ) : null}

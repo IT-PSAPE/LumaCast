@@ -1,7 +1,7 @@
 import { Trash2 } from 'lucide-react';
 import { ReacstButton, Label, Select } from '@lumacast/ui';
 import { FieldInput } from '@renderer/components/form/field';
-import { Section } from '@renderer/features/inspector/inspector-section';
+import { Section } from '@renderer/components/layout/inspector-section';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { CUE_KIND_LABELS } from '@lumacast/automation';
 import { parseNumber } from '@renderer/utils/slides';

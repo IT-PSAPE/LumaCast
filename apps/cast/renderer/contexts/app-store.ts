@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import { recordObsEvent } from '../features/observability/metrics-store';
 import { createDefaultNdiOutputConfigs } from '@lumacast/protocol';
 import {
   applyPatch,
@@ -56,9 +55,7 @@ interface AppStoreState {
   setNdiDiagnostics: (diagnostics: NdiDiagnostics | null) => void;
   setNdiOutputConfigsState: (configs: NdiOutputConfigMap) => void;
   setNdiOutputStateValue: (state: NdiOutputState) => void;
-  setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => void;
-  toggleAudienceOutput: () => void;
-  toggleStageOutput: () => void;
+  setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => Promise<void>;
   updateNdiOutputConfig: (name: NdiOutputName, config: Partial<NdiOutputConfig>) => void;
 }
 
@@ -490,26 +487,15 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
   setNdiOutputConfigsState: (configs) => set({ ndiOutputConfigs: configs }),
   setNdiOutputStateValue: (value) => set({ ndiOutputState: value }),
 
-  setNdiOutputEnabled: (name, enabled) => {
-    recordObsEvent('ndi', `NDI output ${enabled ? 'enabled' : 'disabled'}`, { name });
-    void window.castApi
-      .setNdiOutputEnabled(name, enabled)
-      .then((next) => set({ ndiOutputState: next }))
-      .catch((error) => {
-        console.error('[AppStore] Failed to update output state:', error);
-        recordObsEvent('error', 'Failed to toggle NDI output', { name, enabled, error: String(error) }, 'error');
-        set({ statusText: `Failed to toggle ${name} output` });
-      });
-  },
-
-  toggleAudienceOutput: () => {
-    const current = get().ndiOutputState;
-    get().setNdiOutputEnabled('audience', !current.audience);
-  },
-
-  toggleStageOutput: () => {
-    const current = get().ndiOutputState;
-    get().setNdiOutputEnabled('stage', !current.stage);
+  setNdiOutputEnabled: async (name, enabled) => {
+    try {
+      const next = await window.castApi.setNdiOutputEnabled(name, enabled);
+      set({ ndiOutputState: next });
+    } catch (error) {
+      console.error('[AppStore] Failed to update output state:', error);
+      set({ statusText: `Failed to toggle ${name} output` });
+      throw error;
+    }
   },
 
   updateNdiOutputConfig: (name, config) => {

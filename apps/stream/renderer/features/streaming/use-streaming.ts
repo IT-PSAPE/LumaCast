@@ -9,8 +9,8 @@ import {
   createDefaultStreamServiceSettings,
   type StreamAPI, type StreamOutputSettings, type StreamProject, type StreamRuntimeStatus, type StreamServiceSettings,
 } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
-import { providerErrorMessage } from '../shared/provider-error';
+import { friendlyError } from '../../shared/friendly-error';
+import { providerErrorMessage } from '../../shared/provider-error';
 
 interface ActiveStreaming {
   id: string;

@@ -4,8 +4,8 @@ import { AGENT_PROVIDERS, agentProviderBaseUrl, inferModelVendor, prettifyModelI
 import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentModelInfo, AgentProviderId } from '@lumacast/protocol';
 import { ReacstButton, Label, Select, TextField } from '@lumacast/ui';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';
-import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
-import { Section } from '@renderer/features/inspector/inspector-section';
+import { ModelVendorLogo } from '../../features/agent';
+import { Section } from '@renderer/components/layout/inspector-section';
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 type Commit = (patch: AgentConfigUpdate) => Promise<void>;

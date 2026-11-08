@@ -18,7 +18,7 @@ afterEach(() => {
 describe('Inspector', () => {
   it('shows the empty state on the Cue tab with nothing selected', () => {
     testStore = createTestStore({ inspectorTab: 'cue', selection: [] });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     expect(screen.getByText('No lyrics yet')).toBeInTheDocument();
   });
 
@@ -29,7 +29,7 @@ describe('Inspector', () => {
       selection: [],
       document: { project: { ...project, cues: [{ id: 'a', startMs: 0, endMs: null, text: 'Hello', override: null }] }, path: null },
     });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     expect(screen.getByText('Select a lyric on the timeline')).toBeInTheDocument();
   });
 
@@ -43,7 +43,7 @@ describe('Inspector', () => {
         path: null,
       },
     });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     const toggle = screen.getByLabelText('Detach from theme');
     fireEvent.click(toggle);
     expect(testStore.detachCue).toHaveBeenCalledWith('a');
@@ -59,7 +59,7 @@ describe('Inspector', () => {
         path: null,
       },
     });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     const toggle = screen.getByLabelText('Detach from theme');
     fireEvent.click(toggle);
     expect(testStore.relinkCue).toHaveBeenCalledWith('a');
@@ -80,7 +80,7 @@ describe('Inspector', () => {
       },
     });
 
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: 'Delete 5 cues' }));
 
     expect(testStore.deleteCues).toHaveBeenCalledTimes(1);
@@ -89,7 +89,7 @@ describe('Inspector', () => {
 
   it('theme tab edits (font size) call setTheme with the merged text style', () => {
     testStore = createTestStore({ inspectorTab: 'theme' });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     const input = screen.getByLabelText('Font size');
     fireEvent.change(input, { target: { value: '80' } });
     fireEvent.blur(input);
@@ -100,7 +100,7 @@ describe('Inspector', () => {
 
   it('theme tab position quick action ("Center horizontally") calls setTheme', () => {
     testStore = createTestStore({ inspectorTab: 'theme' });
-    render(<Inspector />);
+    render(<Inspector onImportBackground={() => {}} />);
     fireEvent.click(screen.getByText('Center horizontally'));
     expect(testStore.setTheme).toHaveBeenCalledTimes(1);
     const [patch] = vi.mocked(testStore.setTheme).mock.calls[0]!;

@@ -2,7 +2,7 @@ import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign, TextVe
 import { applyTextVisualPayload, readTextFormatting, readTextVisualPayload, type TextFormattingState, type TextVisualState } from '@lumacast/composition';
 import { parseNumber } from '../../utils/slides';
 import { useElements } from '../../contexts/canvas/canvas-context';
-import { useSystemFonts } from './use-system-fonts';
+import { useSystemFonts } from '../../hooks/use-system-fonts';
 import type { CSSProperties } from 'react';
 
 interface FontOption {

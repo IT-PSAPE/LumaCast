@@ -18,7 +18,7 @@ import {
 } from '../../../shared/export-presets';
 import { COMPOSITION_PRESETS, FRAME_RATES, type FrameRate } from '../../../shared/project';
 import { useChordStore } from '../../store';
-import { resolveTimelineEndMs } from '../canvas/build-frame-scene';
+import { resolveTimelineEndMs } from '../../rendering/build-frame-scene';
 import { estimateAudioBitrate } from './export-plan';
 import { useExport } from './use-export';
 

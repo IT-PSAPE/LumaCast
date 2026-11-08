@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import type { MediaAsset } from '@lumacast/composition';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
-import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
+import { compareByKey, useMediaBinSort } from '../../../hooks/use-bin-sort';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export type MediaBinKind = 'image' | 'video' | 'audio';

@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useNdi } from '../../../../apps/stream/renderer/use-ndi';
+import { useNdi } from '../../../../apps/stream/renderer/application/use-ndi';
 import { createDefaultProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 import type { NdiFrame, StreamNdiAPI } from '../../../../apps/stream/shared/ndi';
 import type { UseCaptureResult } from '../../../../apps/stream/renderer/features/capture/use-capture';

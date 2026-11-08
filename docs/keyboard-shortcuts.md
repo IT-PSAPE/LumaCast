@@ -7,7 +7,7 @@ defined in the codebase:
   (`Menu.buildFromTemplate`), whose `accelerator` strings are Electron
   accelerators.
 - `packages/commands/src/shortcuts.ts` — the in-app (renderer) keyboard handler
-  consumed by `apps/cast/renderer/hooks/use-keyboard-shortcuts.ts`.
+  consumed by `apps/cast/renderer/application/use-keyboard-shortcuts.ts`.
 
 If either file changes, update this document in the same change.
 

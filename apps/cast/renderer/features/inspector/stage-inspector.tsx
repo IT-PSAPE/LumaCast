@@ -4,7 +4,7 @@ import { useCast } from '../../contexts/app-context';
 import { useStageEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { EntityBackgroundInspector } from './entity-background-inspector';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 export function StageInspector() {
   const { setStatusText } = useCast();

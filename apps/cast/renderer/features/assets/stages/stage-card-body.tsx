@@ -6,7 +6,7 @@ import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
-import { buildRenderScene } from '../../canvas/build-render-scene';
+import { buildRenderScene } from '../../../rendering/build-render-scene';
 import { useStageEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
 import type { SelectionModifiers } from '@lumacast/selection';

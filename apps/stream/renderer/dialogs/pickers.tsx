@@ -3,7 +3,7 @@ import { ChevronDown, Headphones } from 'lucide-react';
 import { Checkbox, Modal, Select } from '@lumacast/ui';
 import { WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE, type CaptureAudioMode } from '../../shared/capture-audio';
 import type { AudioApplicationOption, CaptureCursorMode, DesktopSourceOption } from '../../shared/desktop-api';
-import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture/helpers';
+import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture';
 
 const CURSOR_MODE_OPTIONS: ReadonlyArray<{ value: CaptureCursorMode; label: string }> = [
   { value: 'always', label: 'Always' },

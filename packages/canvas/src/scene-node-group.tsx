@@ -28,7 +28,7 @@ interface SceneNodeGroupProps {
 // `listening=false` excludes all of its descendants from the hit graph, not
 // just itself) and a click anywhere in the group's bounding box instead hits
 // this component's own invisible hit rect, whose event bubbles up to the
-// outer Konva `Group` that app/renderer/features/canvas/scene-node.tsx
+// outer Konva `Group` that apps/cast/renderer/rendering/scene-node.tsx
 // renders for the group element itself — the node that actually carries the
 // selection/drag/transform handlers. Selecting a child directly is not
 // supported (the whole group selects as one unit).

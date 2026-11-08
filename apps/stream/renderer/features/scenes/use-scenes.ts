@@ -1,10 +1,11 @@
-import { useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { createSceneTransition, type SceneTransition, type SceneTransitionType } from '../../scene-transition';
 import { removeSourceVisibilityHotkeys } from '../../scene-hotkeys';
 import { flattenSourceLeaves, flattenSourceNodes, removeSceneReferenceSources } from '../../../shared/source-tree';
-import type { StreamProject, StreamScene, StreamSource } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
-import { cloneSceneSource } from '../sources/helpers';
+import type { StreamProject, StreamScene } from '../../../shared/desktop-api';
+import type { SceneRuntimeLease, SceneRuntimePort } from '../../shared/scene-runtime-port';
+import { friendlyError } from '../../shared/friendly-error';
+import { cloneSceneSource } from '../../shared/source-factory';
 
 export interface UseScenesParams {
   project: StreamProject | null;
@@ -14,15 +15,8 @@ export interface UseScenesParams {
   setWorking: Dispatch<SetStateAction<boolean>>;
   selectSource: (sourceId: string | null) => void;
 
-  // Capture primitives needed to carry a scene's live runtimes over to its duplicate.
-  runtimes: RefObject<Map<string, MediaStream>>;
-  /** Only checked for key membership here (`.has(id)`) — the value type is capture's concern. */
-  applicationAudioInputs: RefObject<Map<string, unknown>>;
-  applicationAudioSessions: RefObject<Map<string, { pid: number; path: string }>>;
-  attachRuntime: (source: StreamSource, stream: MediaStream, programActiveOverride?: boolean) => Promise<void>;
-  stopRuntime: (sourceId: string) => void;
-  startApplicationAudioRuntime: (source: StreamSource, application: { pid: number; path: string; name: string }) => Promise<void>;
-  startSystemAudioRuntime: (source: StreamSource) => Promise<void>;
+  /** Scoped Capture capability; Scenes does not inspect runtime storage or lifecycle details. */
+  sceneRuntimePort: SceneRuntimePort;
   /** Current immutable Program root, used as the outgoing transition scene. */
   programSceneId?: string | null;
   /** Runtime-aware gate that also permits a same-scene config commit. */
@@ -71,8 +65,7 @@ export interface UseScenesResult {
 export function useScenes(params: UseScenesParams): UseScenesResult {
   const {
     project, setProjectValue, setActionError, working, setWorking, selectSource,
-    runtimes, applicationAudioInputs, applicationAudioSessions, attachRuntime, stopRuntime,
-    startApplicationAudioRuntime, startSystemAudioRuntime,
+    sceneRuntimePort,
   } = params;
 
   const [sceneDialog, setSceneDialog] = useState<'rename' | 'delete' | null>(null);
@@ -164,30 +157,24 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
       name: (original.name + ' Copy').slice(0, 120),
       sources: original.sources.map(cloneSceneSource),
     } satisfies StreamScene;
+    let runtimeLease: SceneRuntimeLease | null = null;
     try {
       const originalLeaves = flattenSourceLeaves(original.sources);
       const duplicateLeaves = flattenSourceLeaves(clone.sources);
-      for (let index = 0; index < originalLeaves.length; index += 1) {
-        const originalSource = originalLeaves[index]!;
-        const runtime = runtimes.current.get(originalSource.id);
-        if (!runtime) continue;
-        if (originalSource.kind === 'application-audio') {
-          const session = applicationAudioSessions.current.get(originalSource.id);
-          if (!session) throw new Error(`The application-audio capture for ${originalSource.name} is no longer active.`);
-          await startApplicationAudioRuntime(duplicateLeaves[index]!, { ...session, name: originalSource.name });
-        } else if (originalSource.kind === 'desktop-audio' && applicationAudioInputs.current.has(originalSource.id)) {
-          await startSystemAudioRuntime(duplicateLeaves[index]!);
-        } else await attachRuntime(duplicateLeaves[index]!, runtime.clone());
-      }
+      runtimeLease = await sceneRuntimePort.duplicateSceneRuntimes(originalLeaves.map((source, index) => ({
+        source,
+        duplicate: duplicateLeaves[index]!,
+      })));
+      selectSource(null);
       setProjectValue((current) => ({
         ...current,
         activeSceneId: clone.id,
         liveSceneId: current.studioMode ? current.liveSceneId : clone.id,
         scenes: [...current.scenes, clone],
       }));
-      selectSource(null);
+      runtimeLease.commit();
     } catch (error) {
-      for (const source of flattenSourceLeaves(clone.sources)) stopRuntime(source.id);
+      runtimeLease?.rollback();
       setActionError(`Could not duplicate scene: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { GroupElementPayload, SlideElement } from '@lumacast/composition';
-import { buildRenderScene } from '../../../../../../apps/cast/renderer/features/canvas/build-render-scene';
+import { buildRenderScene } from '../../../../../../apps/cast/renderer/rendering/build-render-scene';
 
 const T0 = '2026-01-01T00:00:00.000Z';
 

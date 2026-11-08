@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { recordObsEvent } from '../features/observability/metrics-store';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useObservabilityPort } from './observability-port';
 import type { AppSnapshot, NdiDiagnostics, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { ThemeMode } from '../types/ui';
@@ -54,6 +54,7 @@ interface NdiLiveStateSlice {
 // ─── Provider (bootstrap-only; state lives in zustand store) ────────
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  const { record } = useObservabilityPort();
   const retrySnapshotLoad = useAppStore((s) => s.retrySnapshotLoad);
   const setSystemPref = useAppStore((s) => s.setSystemPref);
   const setNdiDiagnostics = useAppStore((s) => s.setNdiDiagnostics);
@@ -109,16 +110,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const nextName = sender?.senderName ?? null;
         if (previousName === nextName) continue;
         if (!previousName && nextName) {
-          recordObsEvent('ndi', 'Sender created', { output: name, senderName: nextName });
+          record('ndi', 'Sender created', { output: name, senderName: nextName });
         } else if (previousName && !nextName) {
-          recordObsEvent('ndi', 'Sender destroyed', { output: name, senderName: previousName });
+          record('ndi', 'Sender destroyed', { output: name, senderName: previousName });
         } else if (previousName && nextName) {
-          recordObsEvent('ndi', 'Sender renamed', { output: name, from: previousName, to: nextName });
+          record('ndi', 'Sender renamed', { output: name, from: previousName, to: nextName });
         }
         prev[name] = nextName;
       }
       if (diagnostics.lastError && diagnostics.lastError !== lastErrorRef.current) {
-        recordObsEvent('error', 'NDI error', { error: diagnostics.lastError }, 'error');
+        record('error', 'NDI error', { error: diagnostics.lastError }, 'error');
       }
       lastErrorRef.current = diagnostics.lastError;
       setNdiDiagnostics(diagnostics);
@@ -155,7 +156,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       unsubscribeLibraryProgress();
       unsubscribePersistenceProgress();
     };
-  }, [applyPatchLocally, handlePersistenceProgress, setMediaDerivativeStatusText, setNdiDiagnostics, setNdiOutputConfigsState, setNdiOutputStateValue]);
+  }, [applyPatchLocally, handlePersistenceProgress, record, setMediaDerivativeStatusText, setNdiDiagnostics, setNdiOutputConfigsState, setNdiOutputStateValue]);
 
   return <>{children}</>;
 }
@@ -200,9 +201,16 @@ export function useTheme(): ThemeSlice {
 export function useNdi(): NdiSlice {
   const outputConfigs = useAppStore((s) => s.ndiOutputConfigs);
   const outputState = useAppStore((s) => s.ndiOutputState);
-  const setOutputEnabled = useAppStore((s) => s.setNdiOutputEnabled);
-  const toggleAudienceOutput = useAppStore((s) => s.toggleAudienceOutput);
-  const toggleStageOutput = useAppStore((s) => s.toggleStageOutput);
+  const setStoreOutputEnabled = useAppStore((s) => s.setNdiOutputEnabled);
+  const { record } = useObservabilityPort();
+  const setOutputEnabled = useCallback((name: NdiOutputName, enabled: boolean) => {
+    record('ndi', `NDI output ${enabled ? 'enabled' : 'disabled'}`, { name });
+    void setStoreOutputEnabled(name, enabled).catch((error) => {
+      record('error', 'Failed to toggle NDI output', { name, enabled, error: String(error) }, 'error');
+    });
+  }, [record, setStoreOutputEnabled]);
+  const toggleAudienceOutput = useCallback(() => setOutputEnabled('audience', !outputState.audience), [outputState.audience, setOutputEnabled]);
+  const toggleStageOutput = useCallback(() => setOutputEnabled('stage', !outputState.stage), [outputState.stage, setOutputEnabled]);
   const updateOutputConfig = useAppStore((s) => s.updateNdiOutputConfig);
   return useMemo(
     () => ({

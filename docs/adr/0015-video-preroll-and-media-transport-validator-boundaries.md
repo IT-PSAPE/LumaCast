@@ -64,7 +64,8 @@ Issue #238 closes those gaps while preserving the existing safety invariants:
   - re-stats the underlying file on later requests instead of keeping a stale
     lifetime metadata cache.
 - **Make NDI audio attachment idempotent per DOM media element.**
-  `ndi-audio-capture.ts` now keeps a persistent WeakMap record per element:
+  `apps/cast/renderer/runtime/ndi-audio-capture.ts` now keeps a persistent
+  WeakMap record per element:
   `{ desiredConnected, source, connected, context }`. Removing an element before
   async context setup completes prevents late connection; re-adding reconnects
   the same source node instead of calling `createMediaElementSource()` twice.

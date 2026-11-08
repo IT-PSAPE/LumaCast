@@ -5,10 +5,10 @@
 import { Toaster } from '@lumacast/ui';
 import { getApi } from './api';
 import { ConfirmHost } from './components/confirm-dialog';
-import { ShellStatusBar } from './features/shell/status-bar';
-import { TitleBar } from './features/shell/title-bar';
-import { Workspace } from './features/shell/workspace';
-import { useMenuCommands } from './features/shell/menu-commands';
+import { ShellStatusBar } from './shell/status-bar';
+import { TitleBar } from './shell/title-bar';
+import { Workspace } from './shell/workspace';
+import { useMenuCommands } from './shell/menu-commands';
 import { useDebouncedEffect } from './hooks/use-debounced-effect';
 import { useSystemThemeAttribute } from './hooks/use-system-theme';
 import { useChordStore } from './store';

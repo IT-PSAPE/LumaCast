@@ -63,10 +63,6 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/slide-context', () => ({
   useSlides: () => ({ liveSlide: mocks.liveSlide }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/observability/metrics-store', () => ({
-  recordObsEvent: vi.fn(),
-}));
-
 function wrapper({ children }: { children: ReactNode }) {
   return <AutomationProvider>{children}</AutomationProvider>;
 }

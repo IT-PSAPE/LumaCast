@@ -14,7 +14,7 @@ vi.mock('../../../../../../apps/cast/renderer/features/agent/chat/agent-chat-tri
   AgentChatTrigger: () => <button type="button">Assistant</button>,
 }));
 
-import { StatusBar } from '../../../../../../apps/cast/renderer/features/workbench/status-bar';
+import { StatusBar } from '../../../../../../apps/cast/renderer/shell/status-bar';
 
 const dotOf = (label: string) => screen.getByText(label).querySelector('span[aria-hidden="true"]');
 

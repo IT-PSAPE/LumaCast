@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { MediaAsset } from '@lumacast/composition';
 import { MediaBinPanel } from '../../../../../../../apps/cast/renderer/features/assets/media/media-bin-panel';
-import { useKeyboardShortcuts } from '../../../../../../../apps/cast/renderer/hooks/use-keyboard-shortcuts';
+import { useKeyboardShortcuts } from '../../../../../../../apps/cast/renderer/application/use-keyboard-shortcuts';
 
 function PanelWithGlobalShortcuts() {
   useKeyboardShortcuts();
@@ -78,7 +78,7 @@ vi.mock('../../../../../../../apps/cast/renderer/features/items/deck-browser-con
   useDeckBrowser: () => ({ setSlideBrowserMode: vi.fn() }),
 }));
 
-vi.mock('../../../../../../../apps/cast/renderer/features/command-palette/command-palette-context', () => ({
+vi.mock('../../../../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
   useCommandPalette: () => ({ open: vi.fn() }),
 }));
 

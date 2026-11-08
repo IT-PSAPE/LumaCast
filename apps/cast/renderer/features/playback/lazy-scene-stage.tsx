@@ -2,8 +2,8 @@ import { Suspense, lazy } from 'react';
 import type { RenderScene, SceneSurface } from '@lumacast/composition';
 import type { NdiOutputName } from '@lumacast/protocol';
 
-const SceneStage = lazy(() =>
-  import('../canvas/scene-stage').then((module) => ({ default: module.SceneStage })),
+const SceneRenderStage = lazy(() =>
+  import('../../rendering/scene-render-stage').then((module) => ({ default: module.SceneRenderStage })),
 );
 
 interface LazySceneStageProps {
@@ -17,7 +17,7 @@ interface LazySceneStageProps {
 export function LazySceneStage(props: LazySceneStageProps) {
   return (
     <Suspense fallback={<div data-testid="lazy-scene-stage-fallback" className={props.className} />}>
-      <SceneStage {...props} />
+      <SceneRenderStage {...props} />
     </Suspense>
   );
 }

@@ -211,7 +211,7 @@ vi.mock('@lumacast/canvas', () => ({
   useElementSelection: () => mocks.selectionState,
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/canvas/build-render-scene', () => ({
+vi.mock('../../../../../../apps/cast/renderer/rendering/build-render-scene', () => ({
   buildRenderScene: (frame: { id: string } | null, elements: SlideElement[]) => ({
     sceneId: frame?.id ?? 'empty',
     slide: frame ?? { id: 'empty', background: null },

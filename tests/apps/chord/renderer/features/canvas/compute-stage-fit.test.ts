@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeStageFit } from '../../../../../../apps/chord/renderer/features/canvas/chord-stage';
+import { computeStageFit } from '../../../../../../apps/chord/renderer/rendering/chord-stage';
 
 describe('computeStageFit', () => {
   it('fits a width-constrained composition into a narrower viewport, centering vertically', () => {

@@ -44,12 +44,3 @@ export function normalizeLyricText(text: string): string {
     .replace(/[\u2028\u2029]/g, '\n')
     .replace(/^[ \t\n]+|[ \t\n]+$/g, '');
 }
-
-export function parseLyricImportText(text: string): string[] {
-  const normalized = text.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n');
-
-  return normalized
-    .split(/\n+/g)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-}

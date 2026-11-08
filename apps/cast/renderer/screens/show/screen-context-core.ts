@@ -1,5 +1,5 @@
 import { createScreenContext } from '../../contexts/create-screen-context';
-import type { useDeckBrowserView } from '../../features/items/use-deck-browser-view';
+import type { useDeckBrowserView } from '../../features/items';
 
 export interface ShowScreenContextValue {
   meta: {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { SceneNode } from '../../../../../../apps/cast/renderer/features/canvas/scene-node';
+import { SceneNode } from '../../../../../../apps/cast/renderer/rendering/scene-node';
 
 vi.mock('react-konva', async () => {
   const ReactModule = await import('react');
@@ -10,6 +10,9 @@ vi.mock('react-konva', async () => {
     return ReactModule.createElement('div', {
       ref,
       'data-testid': 'scene-node',
+      'data-listening': String(props.listening),
+      'data-draggable': String(props.draggable),
+      'data-has-click': String(Boolean(props.onClick)),
       onClick: (event: React.MouseEvent<HTMLDivElement>) => handler?.({ evt: event.nativeEvent, cancelBubble: false }),
     }, props.children as React.ReactNode);
   });
@@ -42,17 +45,18 @@ describe('SceneNode selection presses', () => {
       <SceneNode
         node={{ id: 'shape-1', visual: { locked: false } } as never}
         surface="deck-editor"
-        editable
+        interactions={{
+          onSelect,
+          onDoubleClick: vi.fn(),
+          onDragStart: vi.fn(),
+          onDragMove: vi.fn(),
+          onDragEnd: vi.fn(),
+          onTransform: vi.fn(),
+          onTransformEnd: vi.fn(),
+          onContextMenu: vi.fn(),
+          setNodeRef: vi.fn(),
+        }}
         isBeingEdited={false}
-        onSelect={onSelect}
-        onDoubleClick={vi.fn()}
-        onDragStart={vi.fn()}
-        onDragMove={vi.fn()}
-        onDragEnd={vi.fn()}
-        onTransform={vi.fn()}
-        onTransformEnd={vi.fn()}
-        onContextMenu={vi.fn()}
-        setNodeRef={vi.fn()}
       />,
     );
     return screen.getByTestId('scene-node');
@@ -84,5 +88,18 @@ describe('SceneNode selection presses', () => {
     const onSelect = vi.fn();
     fireEvent.click(renderNode(onSelect), { button: 2 });
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('renders without interactive handlers in read-only mode', () => {
+    render(
+      <SceneNode
+        node={{ id: 'shape-1', visual: { locked: false } } as never}
+        surface="deck-editor"
+      />,
+    );
+    const node = screen.getByTestId('scene-node');
+    expect(node).toHaveAttribute('data-listening', 'false');
+    expect(node).toHaveAttribute('data-draggable', 'false');
+    expect(node).toHaveAttribute('data-has-click', 'false');
   });
 });

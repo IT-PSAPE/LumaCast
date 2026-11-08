@@ -87,7 +87,7 @@ describe('ndi-audio-capture', () => {
       resolveModule = resolve;
     });
     const media = document.createElement('video');
-    const module = await import('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture');
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
 
     module.addNdiAudioElement(media);
     module.removeNdiAudioElement(media);
@@ -102,7 +102,7 @@ describe('ndi-audio-capture', () => {
 
   it('reuses the same MediaElementAudioSourceNode when an element is removed and added again', async () => {
     const media = document.createElement('video');
-    const module = await import('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture');
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
 
     module.addNdiAudioElement(media);
     await flushAsyncAudioSetup();
@@ -123,7 +123,7 @@ describe('ndi-audio-capture', () => {
   });
 
   it('requests one direct transport per enabled output when capture starts and keeps IPC as the not-ready fallback', async () => {
-    const module = await import('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture');
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
     module.setNdiAudioEnabledOutputs(new Set(['audience', 'stage']));
     expect(window.castApi.requestNdiAudioTransport).not.toHaveBeenCalled();
 
@@ -172,7 +172,7 @@ describe('ndi-audio-capture', () => {
   });
 
   it('transfers an announced audio port into the worklet and resets it when the output disables', async () => {
-    const module = await import('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture');
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
     module.setNdiAudioEnabledOutputs(new Set(['audience']));
     module.addNdiAudioElement(document.createElement('audio'));
     await flushAsyncAudioSetup();
@@ -196,7 +196,7 @@ describe('ndi-audio-capture', () => {
   });
 
   it('gives each ready direct output its own transferred buffer in FIFO emission order', async () => {
-    const module = await import('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture');
+    const module = await import('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture');
     module.addNdiAudioElement(document.createElement('audio'));
     await flushAsyncAudioSetup();
 

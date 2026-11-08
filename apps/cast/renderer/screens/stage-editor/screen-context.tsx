@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type ReactNode } from 'react';
 import { useStageEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { useEditorLeftPanelNav } from '../../features/workbench/use-editor-left-panel-nav';
+import { useEditorLeftPanelNav } from '../../features/workbench';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
 interface StageEditorScreenContextValue {

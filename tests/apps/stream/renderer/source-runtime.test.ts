@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getVisibleSourceIdsForScenes } from '../../../../apps/stream/shared/scene-reference-graph';
 import { mergeRuntimeSources, getOriginSourceId, getSourceRuntimeId, preserveDesktopCaptureRuntime, toRuntimeProject, toRuntimeSource } from '../../../../apps/stream/renderer/source-runtime';
 import { bindDesktopCaptureSource } from '../../../../apps/stream/renderer/desktop-capture-binding';
-import { cloneSceneSource, createSource } from '../../../../apps/stream/renderer/features/sources/helpers';
+import { cloneSceneSource, createSource } from '../../../../apps/stream/renderer/shared/source-factory';
 import { createDefaultProject, type StreamProject, type StreamScene, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 
 function source(overrides: Partial<StreamSource> = {}): StreamSource {

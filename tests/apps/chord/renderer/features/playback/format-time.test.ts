@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatClock,
   formatTimecode,
-} from '../../../../../../apps/chord/renderer/features/playback/format-time';
+} from '../../../../../../apps/chord/renderer/utils/format-time';
 
 describe('formatTimecode', () => {
   it('formats MM:SS:FF at zero', () => {

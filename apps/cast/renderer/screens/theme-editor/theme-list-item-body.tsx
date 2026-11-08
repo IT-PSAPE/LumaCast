@@ -2,7 +2,7 @@ import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
-import { buildRenderScene } from '../../features/canvas/build-render-scene';
+import { buildRenderScene } from '../../rendering/build-render-scene';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';

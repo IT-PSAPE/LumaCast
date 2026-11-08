@@ -32,7 +32,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
     backgroundColor: '#171717',
-    // Custom title bar (renderer/features/shell/title-bar.tsx) replaces the
+    // Custom title bar (renderer/shell/title-bar.tsx) replaces the
     // native one; native window controls stay (traffic lights / caption overlay).
     chrome: windowChromeOptions(process.platform),
     webPreferences: createSecureWebPreferences(PRELOAD_PATH),

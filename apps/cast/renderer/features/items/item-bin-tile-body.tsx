@@ -6,7 +6,7 @@ import { useContextMenuTrigger } from '@lumacast/ui';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { writeItemDragData } from '../../utils/item-drag';
-import { buildThumbnailScene } from '../canvas/build-render-scene';
+import { buildThumbnailScene } from '../../rendering/build-render-scene';
 import type { ItemLike, ItemProps } from './item-bin-types';
 import { ItemContextMenuItems } from './item-context-menu-items';
 import { ScenePreview } from './scene-preview';

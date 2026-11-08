@@ -6,7 +6,7 @@ import { WINDOW_ONLY_AUDIO_UNAVAILABLE_MESSAGE, captureAudioApplicationName, cap
 import { primaryShortcutLabel, supportsApplicationAudioCapture, textFontFamiliesForPlatform, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
 import { getSlidePlaybackRevision, isSlidePlaybackManuallyPaused, setSourceSlideshowAutoAdvance, subscribeSlidePlayback } from '../slideshow';
-import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture/helpers';
+import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture';
 import {
   AUDIO_TRACKS,
   CAMERA_FRAME_RATE_OPTIONS,

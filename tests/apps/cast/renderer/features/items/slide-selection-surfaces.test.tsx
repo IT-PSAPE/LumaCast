@@ -37,13 +37,17 @@ vi.mock('../../../../../../apps/cast/renderer/features/automation/slide-bindings
   SlideBindingsBadge: () => null,
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/items/slide-actions-menu', () => ({
+vi.mock('../../../../../../apps/cast/renderer/screens/shared/slide-actions-menu', () => ({
   SlideActionsMenu: () => null,
 }));
 
 const scene = { width: 1920, height: 1080 } as RenderScene;
 const noopIndex = () => undefined;
 const noopRange = () => undefined;
+const slideBrowserIntegrations = {
+  renderBindingsBadge: () => null,
+  renderActionsMenu: () => null,
+};
 
 function slide(id: string): Slide {
   return {
@@ -77,7 +81,7 @@ describe('slide selection surfaces', () => {
     const grid = render(<SlideGridTileBody
       slideId="slide-grid" index={1} scene={scene} selected={false} focused={false}
       isLive={false} isEmpty={false} onActivate={onActivate} onFocus={onFocus}
-      onRangeSelect={onRangeSelect} actionSlideIds={['slide-grid']}
+      onRangeSelect={onRangeSelect} actionSlideIds={['slide-grid']} {...slideBrowserIntegrations}
     />);
     fireEvent.click(grid.container.firstElementChild!, { ctrlKey: true });
     expect(onRangeSelect).toHaveBeenCalledWith(1, false, true);
@@ -91,7 +95,7 @@ describe('slide selection surfaces', () => {
     const list = render(<SlideOutlineRowBody
       row={{ slide: slide('slide-list'), elements: [], index: 2, state: 'queued' }}
       scene={scene} isFocused={false} isSelected={false} onSelect={onSelect}
-      onOpen={onOpen} onRangeSelect={onListRangeSelect} actionSlideIds={['slide-list']}
+      onOpen={onOpen} onRangeSelect={onListRangeSelect} actionSlideIds={['slide-list']} {...slideBrowserIntegrations}
     />);
     fireEvent.click(list.container.firstElementChild!, { metaKey: true });
     expect(onListRangeSelect).toHaveBeenCalledWith(2, false, true);
@@ -116,6 +120,7 @@ describe('slide selection surfaces', () => {
       slideId: 'runtime:lyric:song:blank:start', index: 0, scene, selected: false,
       focused: false, isLive: false, isEmpty: true, onActivate: noopIndex,
       onFocus: noopIndex, onRangeSelect: noopRange, actionSlideIds: [],
+      ...slideBrowserIntegrations,
     };
     const view = render(<SlideGridTileBody {...props} isGenerated />);
     expect(screen.getByText('Auto-generated')).toBeInTheDocument();
@@ -127,7 +132,7 @@ describe('slide selection surfaces', () => {
     render(<SlideOutlineRowBody
       row={{ slide: { ...slide('blank'), runtimeBlank: 'end' }, elements: [], index: 2, state: 'queued' }}
       scene={scene} isFocused={false} isSelected={false} onSelect={noopIndex}
-      onOpen={noopIndex} onRangeSelect={noopRange} actionSlideIds={['blank']}
+      onOpen={noopIndex} onRangeSelect={noopRange} actionSlideIds={['blank']} {...slideBrowserIntegrations}
     />);
     expect(screen.getByText('Auto-generated')).toBeInTheDocument();
   });
@@ -147,6 +152,7 @@ describe('slide selection surfaces', () => {
         onFocus={noopIndex}
         onRangeSelect={noopRange}
         actionSlideIds={['slide-grid']}
+        {...slideBrowserIntegrations}
       />,
     ],
     [
@@ -160,6 +166,7 @@ describe('slide selection surfaces', () => {
         onOpen={noopIndex}
         onRangeSelect={noopRange}
         actionSlideIds={['slide-list']}
+        {...slideBrowserIntegrations}
       />,
     ],
     [

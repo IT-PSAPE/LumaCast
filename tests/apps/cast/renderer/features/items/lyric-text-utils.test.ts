@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TextElementPayload } from '@lumacast/composition';
-import { buildLyricTextElement, normalizeLyricText, parseLyricImportText } from '../../../../../../apps/cast/renderer/features/items/lyric-text-utils';
+import { parseLyricImportText } from '../../../../../../apps/cast/renderer/utils/parse-lyric-import-text';
+import { buildLyricTextElement, normalizeLyricText } from '../../../../../../apps/cast/renderer/features/items/lyric-text-utils';
 import { DEFAULT_LYRIC_LAYOUT_CONFIG, type LyricLayoutConfig } from '../../../../../../apps/cast/renderer/features/items/lyric-layout-config';
 
 describe('parseLyricImportText', () => {

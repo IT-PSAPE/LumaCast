@@ -12,7 +12,7 @@ import type {
   YouTubeLiveDetails,
 } from '../../shared/desktop-api';
 import { getStreamService, validateStreamServiceSettings } from '../../shared/stream-services';
-import { providerErrorMessage } from '../features/shared/provider-error';
+import { providerErrorMessage } from '../shared/provider-error';
 import { DockHeader } from './dock-header';
 import { YouTubeSettingsDialog, CreateYouTubeStreamDialog } from './youtube-dialogs';
 import { YouTubeStreamDetails } from './youtube-stream-details';

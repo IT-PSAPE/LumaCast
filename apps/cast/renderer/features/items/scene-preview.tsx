@@ -1,5 +1,5 @@
 import { SceneFrame } from '../../components/display/scene-frame';
-import { buildThumbnailScene } from '../canvas/build-render-scene';
+import { buildThumbnailScene } from '../../rendering/build-render-scene';
 import { LazySceneStage } from '../../components/display/lazy-scene-stage';
 
 export function ScenePreview({ scene }: { scene: ReturnType<typeof buildThumbnailScene> | null }) {

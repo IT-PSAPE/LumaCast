@@ -6,7 +6,7 @@ import { useElements } from '../../contexts/canvas/canvas-context';
 import { FieldInput } from '../../components/form/field';
 import { IconGroup } from '../../components/icon-group';
 import { parseNumber } from '../../utils/slides';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 function selectionOrigin(elements: SlideElement[]) {
   if (elements.length === 0) return null;

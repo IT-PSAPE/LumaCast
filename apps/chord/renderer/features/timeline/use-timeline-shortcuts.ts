@@ -5,7 +5,7 @@
 import { useEffect } from 'react';
 import { nextCueStart, previousCueStart } from '../../../shared/cue-model';
 import { useChordStore } from '../../store';
-import { timelineEndMs } from '../playback';
+import { timelineEndMs } from '../../utils/timeline-end';
 import { deleteSelectedCues, duplicateSelectedCue, trimSelectedCueToPlayhead } from './cue-commands';
 
 export function isEditableTarget(target: EventTarget | null): boolean {

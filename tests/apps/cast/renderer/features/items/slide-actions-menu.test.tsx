@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SlideActionsMenu } from '../../../../../../apps/cast/renderer/features/items/slide-actions-menu';
+import { SlideActionsMenu } from '../../../../../../apps/cast/renderer/screens/shared/slide-actions-menu';
 
 const mocks = vi.hoisted(() => ({
   duplicateSlide: vi.fn(),

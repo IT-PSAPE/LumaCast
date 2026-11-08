@@ -23,8 +23,8 @@ const { recordObsEvent, matchMediaMock, defaultMediaQuery } = vi.hoisted(() => {
   };
 });
 
-vi.mock('../../../../../apps/cast/renderer/features/observability/metrics-store', () => ({
-  recordObsEvent,
+vi.mock('../../../../../apps/cast/renderer/contexts/observability-port', () => ({
+  useObservabilityPort: () => ({ record: recordObsEvent }),
 }));
 
 const baselineState = useAppStore.getState();
@@ -259,6 +259,25 @@ describe('app-context selectors', () => {
 
     expect(renders).toBe(2);
     expect(result.current.state.outputState.audience).toBe(true);
+  });
+
+  it('records NDI output requests and failures through the composed observability port', async () => {
+    const setNdiOutputEnabled = vi.fn()
+      .mockResolvedValueOnce({ audience: true, stage: false })
+      .mockRejectedValueOnce(new Error('offline'));
+    Object.defineProperty(window, 'castApi', { configurable: true, value: { setNdiOutputEnabled } });
+    const { result } = renderHook(() => useNdi());
+
+    act(() => result.current.actions.toggleAudienceOutput());
+    await waitFor(() => expect(setNdiOutputEnabled).toHaveBeenCalledWith('audience', true));
+    await waitFor(() => expect(useAppStore.getState().ndiOutputState.audience).toBe(true));
+
+    act(() => result.current.actions.setOutputEnabled('stage', true));
+    await waitFor(() => expect(recordObsEvent).toHaveBeenCalledWith('error', 'Failed to toggle NDI output', {
+      name: 'stage', enabled: true, error: 'Error: offline',
+    }, 'error'));
+    expect(recordObsEvent).toHaveBeenCalledWith('ndi', 'NDI output enabled', { name: 'audience' });
+    expect(recordObsEvent).toHaveBeenCalledWith('ndi', 'NDI output enabled', { name: 'stage' });
   });
 
   it('keeps derived NDI live state stable when only sender counters change', () => {

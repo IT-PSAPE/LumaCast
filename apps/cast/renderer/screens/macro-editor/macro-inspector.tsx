@@ -1,8 +1,8 @@
 import { Trash2 } from 'lucide-react';
 import { ReacstButton, Label, Select, TextField, Textarea } from '@lumacast/ui';
 import { FieldInput } from '@renderer/components/form/field';
-import { Section } from '@renderer/features/inspector/inspector-section';
-import { useAutomation } from '@renderer/features/automation/automation-context';
+import { Section } from '@renderer/components/layout/inspector-section';
+import { useAutomation } from '../../features/automation';
 import { parseNumber } from '@renderer/utils/slides';
 import { useMacroEditorScreen } from './screen-context';
 import type { OnScopeExit, ScopeLevel } from '@lumacast/automation';

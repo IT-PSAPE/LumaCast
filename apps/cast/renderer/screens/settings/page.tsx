@@ -3,10 +3,10 @@ import { SelectableRow } from '../../components/display/selectable-row';
 import { AppearanceSettingsPanel } from './appearance-settings-panel';
 import { MediaLibrarySettingsPanel } from './media-library-settings-panel';
 import { AgentSettingsPanel } from './agent-settings-panel';
-import { ObservabilityPanel } from '../../features/observability/observability-panel';
-import { OutputSettingsPanel } from '../../features/playback/output-settings-panel';
-import { OverlaySettingsPanel } from '../../features/assets/overlays/overlay-settings-panel';
-import { ImportExportPanel } from '../../features/items/import-export-panel';
+import { ObservabilityPanel } from '../../features/observability';
+import { OutputSettingsPanel } from '../../features/playback';
+import { OverlaySettingsPanel } from '../../features/assets';
+import { ImportExportPanel } from '../../features/items';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 

@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { useDeckBrowserView } from '../../features/items/use-deck-browser-view';
+import { useDeckBrowserView } from '../../features/items';
 import { ShowScreenContextProvider, type ShowScreenContextValue } from './screen-context-core';
 
 export function ShowScreenContextBridge({ children }: { children: ReactNode }) {

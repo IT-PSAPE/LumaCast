@@ -1,7 +1,7 @@
 import { applyVisualPayload, readMediaFit, readVisualPayload, type ImageElementPayload, type SlideBackgroundFit, type VisualPayloadState } from '@lumacast/composition';
 import { parseNumber } from '../../utils/slides';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { alignElementDraft } from '../canvas/align-element-draft';
+import { alignElementDraft } from '../../utils/align-element-draft';
 import type { ElementInspectorDraft } from '../../types/ui';
 
 interface ShapeInspectorState {

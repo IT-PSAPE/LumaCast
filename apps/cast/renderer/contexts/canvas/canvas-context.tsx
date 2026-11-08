@@ -19,7 +19,7 @@ import { useElementInspectorSync } from '../element/use-element-inspector-sync';
 import { useElementSelection } from '@lumacast/canvas';
 import type { ElementContextValue } from '../../types/element-context.types';
 import { cloneElements } from '../../utils/element-context-utils';
-import { buildLayeredRenderScene, buildRenderScene, buildThumbnailScene } from '../../features/canvas/build-render-scene';
+import { buildLayeredRenderScene, buildRenderScene, buildThumbnailScene } from '../../rendering/build-render-scene';
 import type { RenderScene, SceneSourcePolicy, SceneSurface } from '@lumacast/composition';
 import { useActiveEditorSource } from './use-active-editor-source';
 import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';

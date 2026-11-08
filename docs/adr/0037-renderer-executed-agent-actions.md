@@ -51,7 +51,7 @@ an output right now.
   promise always resolves with an `AgentActionResponse`: a missing window or an
   expired timeout resolves as `failed`, an abort as `cancelled`. An `ask`
   request has no timeout, because it is waiting on a person.
-- `app/renderer/features/agent/use-agent-action-dispatcher.ts` is the gate.
+- `apps/cast/renderer/application/agent/use-agent-action-dispatcher.ts` is the gate.
   It processes requests strictly sequentially, resolves permission, flushes the
   active editor's staged edits before any write, executes, and answers. Main
   actions that return a `SnapshotPatch` are applied through

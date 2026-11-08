@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { LazySceneStage } from '../../../../../../apps/cast/renderer/features/playback/lazy-scene-stage';
 
-vi.mock('../../../../../../apps/cast/renderer/features/canvas/scene-stage', () => ({
-  SceneStage: ({
+vi.mock('../../../../../../apps/cast/renderer/rendering/scene-render-stage', () => ({
+  SceneRenderStage: ({
     surface,
     className,
     ndiCaptureSource,

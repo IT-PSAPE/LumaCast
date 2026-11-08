@@ -24,16 +24,13 @@ import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useSlides } from '@renderer/contexts/slide-context';
 import { usePlaybackCommands } from '@renderer/contexts/playback/playback-context';
-import { recordObsEvent } from '@renderer/features/observability/metrics-store';
-import { AUTOMATION_LIVE_SLIDE_EVENT, AUTOMATION_TRIGGER_EVENT, type AutomationLiveSlideEventDetail, type AutomationTriggerEventDetail } from './automation-events';
+import { AUTOMATION_LIVE_SLIDE_EVENT, AUTOMATION_TRIGGER_EVENT, type AutomationLiveSlideEventDetail, type AutomationTriggerEventDetail } from '@renderer/utils/automation-events';
 
 // The runtime's ports are structurally-typed (issue #219 W8): the runtime
 // declares its own minimal port interfaces so the package never imports
 // app code, and these real implementations satisfy them by shape alone.
 // `AutomationPlaybackPort` (package) and `PlaybackCommandPort` (app) are the
 // same shape; assigning the latter where the former is expected needs no cast.
-const AUTOMATION_OBSERVABILITY_PORT: AutomationObservabilityPort = { record: recordObsEvent };
-
 const AUTOMATION_REAL_CLOCK: AutomationClock = {
   now: () => Date.now(),
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
@@ -79,7 +76,10 @@ interface AutomationContextValue {
 
 const AutomationContext = createContext<AutomationContextValue | null>(null);
 
-export function AutomationProvider({ children }: { children: ReactNode }) {
+export function AutomationProvider({ children, observability }: {
+  children: ReactNode;
+  observability?: AutomationObservabilityPort;
+}) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
   const { cues, macros, triggerBindings, cuesById, macrosById, liveSlidesById } = useProjectContent();
   const playback = usePlaybackCommands();
@@ -112,13 +112,13 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   const portsRef = useRef<AutomationRuntimePorts>({
     playback,
     clock: AUTOMATION_REAL_CLOCK,
-    observability: AUTOMATION_OBSERVABILITY_PORT,
+    observability,
     onStatusText: setStatusText,
   });
   portsRef.current = {
     playback,
     clock: AUTOMATION_REAL_CLOCK,
-    observability: AUTOMATION_OBSERVABILITY_PORT,
+    observability,
     onStatusText: setStatusText,
   };
   const runtimeRef = useRef<AutomationRuntime | null>(null);

@@ -7,7 +7,7 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useProgramScene } from '../../contexts/canvas/canvas-context';
 import { useProgramOverlayPlayback } from '../../contexts/playback/playback-context';
-import { buildOverlayRenderNodeId } from '../canvas/build-render-scene';
+import { buildOverlayRenderNodeId } from '../../rendering/build-render-scene';
 
 export interface ProgramOutput {
   scene: RenderScene;

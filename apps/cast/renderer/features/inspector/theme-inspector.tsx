@@ -4,7 +4,7 @@ import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { EntityBackgroundInspector } from './entity-background-inspector';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 export function ThemeInspector() {
   const { setStatusText } = useCast();

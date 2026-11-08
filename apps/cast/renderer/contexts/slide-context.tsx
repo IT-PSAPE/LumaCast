@@ -10,7 +10,7 @@ import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
 import { useNavigation } from './navigation-context';
 import { itemRefKey, useProjectContent } from './use-project-content';
-import { dispatchAutomationLiveSlideEvent, dispatchAutomationTriggerEvent } from '../features/automation/automation-events';
+import { dispatchAutomationLiveSlideEvent, dispatchAutomationTriggerEvent } from '../utils/automation-events';
 
 // #219 item-model refactor decision D9: selection stays keyed on playlist
 // entry ids (preserved across the migration) for the playlist/live cases;

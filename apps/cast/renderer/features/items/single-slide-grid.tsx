@@ -14,8 +14,9 @@ import { useSlideReorder } from './use-slide-reorder';
 import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
 import { useSlideSelectionKeyboard } from '../../hooks/use-slide-selection-keyboard';
 import { useSlideBulkActions } from './use-slide-bulk-actions';
+import type { SlideBrowserIntegrations } from './slide-browser-integrations';
 
-export function SingleSlideGrid() {
+export function SingleSlideGrid({ integrations }: { integrations: SlideBrowserIntegrations }) {
   const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
   const { slides: persistedSlides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide, duplicateSlide, deleteSlide } = useSlides();
   const getThumbnailScene = useThumbnailScene();
@@ -98,6 +99,7 @@ export function SingleSlideGrid() {
               onFocus={setCurrentSlideIndex}
               onRangeSelect={selection.selectSlide}
               actionSlideIds={selection.actionSlideIds(activeSlide.id)}
+              {...integrations}
               overlay
             />
           ) : null}
@@ -134,6 +136,7 @@ export function SingleSlideGrid() {
                   onFocus={setCurrentSlideIndex}
                   onRangeSelect={selection.selectSlide}
                   actionSlideIds={selection.actionSlideIds(slide.id)}
+                  {...integrations}
                 />
               );
             })}

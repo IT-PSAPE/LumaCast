@@ -6,13 +6,12 @@ import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
+import type { SlideBrowserIntegrations } from './slide-browser-integrations';
 import type { RenderScene } from '@lumacast/composition';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { getLabelColors } from '@renderer/utils/label-colors';
-import { SlideActionsMenu } from './slide-actions-menu';
 
-export interface SlideGridTileProps {
+export interface SlideGridTileProps extends SlideBrowserIntegrations {
   slideId: Id;
   index: number;
   scene: RenderScene;
@@ -45,6 +44,8 @@ export function SlideGridTileBody({
   onFocus,
   onRangeSelect,
   actionSlideIds,
+  renderBindingsBadge,
+  renderActionsMenu,
   containerRef,
   containerStyle,
   dragging = false,
@@ -120,7 +121,7 @@ export function SlideGridTileBody({
           </Thumbnail.Overlay>
         ) : null}
         <Thumbnail.Overlay position="top-right">
-          <SlideBindingsBadge slideId={slideId} />
+          {renderBindingsBadge(slideId)}
         </Thumbnail.Overlay>
         <Thumbnail.Caption className="border-secondary py-0.5" style={tagColors ?? undefined}>
           <div className="flex min-w-0 items-center gap-2">
@@ -132,7 +133,7 @@ export function SlideGridTileBody({
       {!overlay ? (
         <ContextMenu.Portal>
           <ContextMenu.Menu>
-            <SlideActionsMenu slideIds={actionSlideIds} />
+            {renderActionsMenu(actionSlideIds)}
           </ContextMenu.Menu>
         </ContextMenu.Portal>
       ) : null}

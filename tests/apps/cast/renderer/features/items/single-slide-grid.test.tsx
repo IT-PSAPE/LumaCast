@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SingleSlideGrid } from '../../../../../../apps/cast/renderer/features/items/single-slide-grid';
 
+const integrations = { renderBindingsBadge: () => null, renderActionsMenu: () => null };
+
 const mocks = vi.hoisted(() => ({
   navigation: { value: null as unknown },
   slides: { value: null as unknown },
@@ -138,7 +140,7 @@ describe('SingleSlideGrid', () => {
     };
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
     mocks.deckBrowser.value = { gridItemSize: 3 };
-    render(<SingleSlideGrid />);
+    render(<SingleSlideGrid integrations={integrations} />);
 
     expect(screen.getByRole('button', { name: 'blank-start' })).toHaveAttribute('data-generated', 'true');
     expect(screen.getByRole('button', { name: 'blank-end' })).toHaveAttribute('data-generated', 'true');
@@ -171,7 +173,7 @@ describe('SingleSlideGrid', () => {
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
     mocks.deckBrowser.value = { gridItemSize: 3 };
 
-    render(<SingleSlideGrid />);
+    render(<SingleSlideGrid integrations={integrations} />);
 
     expect(screen.getByText('slide-0')).not.toBeNull();
     expect(screen.getByText('slide-5')).not.toBeNull();
@@ -202,7 +204,7 @@ describe('SingleSlideGrid', () => {
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
     mocks.deckBrowser.value = { gridItemSize: 3 };
 
-    render(<SingleSlideGrid />);
+    render(<SingleSlideGrid integrations={integrations} />);
     fireEvent.click(screen.getByRole('button', { name: 'slide-0' }));
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { shiftKey: true });
 
@@ -231,7 +233,7 @@ describe('SingleSlideGrid', () => {
     mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
     mocks.deckBrowser.value = { gridItemSize: 3 };
 
-    render(<SingleSlideGrid />);
+    render(<SingleSlideGrid integrations={integrations} />);
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
 
     expect(activateSlide).not.toHaveBeenCalled();
@@ -265,7 +267,7 @@ describe('SingleSlideGrid', () => {
     mocks.deleteSlide.mockResolvedValue(undefined);
     const globalKeyboard = vi.fn();
     window.addEventListener('keydown', globalKeyboard);
-    const view = render(<SingleSlideGrid />);
+    const view = render(<SingleSlideGrid integrations={integrations} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
     fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'Delete' });

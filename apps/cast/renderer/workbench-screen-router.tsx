@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useWorkbench } from './contexts/workbench-context';
-import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
+import { useKeyboardShortcuts } from './application/use-keyboard-shortcuts';
 import type { WorkbenchMode } from './types/ui';
 
 // Show screen is the most common landing surface — keep it eagerly loaded so

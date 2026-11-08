@@ -3,7 +3,7 @@ import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/compositi
 import { Thumbnail } from '../../components/display/thumbnail';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { LazySceneStage } from '../../components/display/lazy-scene-stage';
-import { buildRenderScene } from '../../features/canvas/build-render-scene';
+import { buildRenderScene } from '../../rendering/build-render-scene';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';

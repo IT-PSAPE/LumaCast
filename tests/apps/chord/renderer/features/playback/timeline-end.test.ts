@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { timelineEndMs } from '../../../../../../apps/chord/renderer/features/playback/timeline-end';
+import { timelineEndMs } from '../../../../../../apps/chord/renderer/utils/timeline-end';
 import { createTestProject } from '../../test-store';
 import type { ChordCue } from '../../../../../../apps/chord/shared/project';
 

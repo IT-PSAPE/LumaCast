@@ -7,7 +7,7 @@ import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
-import { Section } from './inspector-section';
+import { Section } from '../../components/layout/inspector-section';
 
 const NO_TEMPLATE_VALUE = '';
 

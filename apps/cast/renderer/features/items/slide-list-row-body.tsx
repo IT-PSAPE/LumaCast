@@ -7,13 +7,12 @@ import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
+import type { SlideBrowserIntegrations } from './slide-browser-integrations';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { getLabelColors } from '../../utils/label-colors';
-import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
 import type { OutlineSlideRow } from './use-slide-list-view';
-import { SlideActionsMenu } from './slide-actions-menu';
 
-export interface SlideOutlineRowProps {
+export interface SlideOutlineRowProps extends SlideBrowserIntegrations {
   row: OutlineSlideRow;
   scene: RenderScene;
   isFocused: boolean;
@@ -29,7 +28,7 @@ export interface SlideOutlineRowProps {
   overlay?: boolean;
 }
 
-export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelect, onOpen, onRangeSelect, actionSlideIds, containerRef, containerStyle, dragging = false, dragHandleProps, overlay = false }: SlideOutlineRowProps) {
+export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelect, onOpen, onRangeSelect, actionSlideIds, renderBindingsBadge, renderActionsMenu, containerRef, containerStyle, dragging = false, dragHandleProps, overlay = false }: SlideOutlineRowProps) {
   const { slides, slideTagsById } = useProjectContent();
   const slideOwned = Boolean(row.slide.runtimeBlank) || slides.some((slide) => slide.id === row.slide.id);
   const tagColors = getLabelColors(row.slide.tagId ? slideTagsById.get(row.slide.tagId)?.colorKey ?? null : null);
@@ -78,10 +77,10 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand text-white shadow-sm"><Play size={12} strokeWidth={1.9} /></span>
           </Thumbnail.Overlay>
         ) : null}
-        <Thumbnail.Overlay position="bottom-left" className="bottom-2 left-2"><SlideBindingsBadge slideId={row.slide.id} /></Thumbnail.Overlay>
+        <Thumbnail.Overlay position="bottom-left" className="bottom-2 left-2">{renderBindingsBadge(row.slide.id)}</Thumbnail.Overlay>
       </Thumbnail.Row>
       {slideOwned && !overlay ? (
-        <ContextMenu.Portal><ContextMenu.Menu><SlideActionsMenu slideIds={actionSlideIds} /></ContextMenu.Menu></ContextMenu.Portal>
+        <ContextMenu.Portal><ContextMenu.Menu>{renderActionsMenu(actionSlideIds)}</ContextMenu.Menu></ContextMenu.Portal>
       ) : null}
     </>
   );

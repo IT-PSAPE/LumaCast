@@ -85,14 +85,14 @@ vi.mock('../../../../../apps/cast/renderer/contexts/workbench-context', () => ({
 vi.mock('../../../../../apps/cast/renderer/contexts/element/use-element-history', () => ({
   hasClipboardContent: () => fakes.hasClipboard,
 }));
-vi.mock('../../../../../apps/cast/renderer/features/command-palette/command-palette-context', () => ({
+vi.mock('../../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
   useCommandPalette: () => fakes.commandPalette,
 }));
 vi.mock('../../../../../apps/cast/renderer/features/items/deck-browser-context', () => ({
   useDeckBrowser: () => fakes.deckBrowser,
 }));
 
-import { useAppMenu } from '../../../../../apps/cast/renderer/hooks/use-app-menu';
+import { useAppMenu } from '../../../../../apps/cast/renderer/application/use-app-menu';
 
 const execCommandMock = vi.fn();
 let menuHandler: ((commandId: AppMenuCommandId) => Promise<void>) | null = null;

@@ -65,14 +65,14 @@ vi.mock('../../../../../apps/cast/renderer/contexts/canvas/canvas-context', () =
 vi.mock('../../../../../apps/cast/renderer/features/items/deck-browser-context', () => ({
   useDeckBrowser: () => fakes.deckBrowser,
 }));
-vi.mock('../../../../../apps/cast/renderer/features/command-palette/command-palette-context', () => ({
+vi.mock('../../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
   useCommandPalette: () => fakes.commandPalette,
 }));
 vi.mock('../../../../../apps/cast/renderer/contexts/workbench-context', () => ({
   useWorkbench: () => fakes.workbench,
 }));
 
-import { useKeyboardShortcuts } from '../../../../../apps/cast/renderer/hooks/use-keyboard-shortcuts';
+import { useKeyboardShortcuts } from '../../../../../apps/cast/renderer/application/use-keyboard-shortcuts';
 
 function keyDown(key: string, opts: Partial<Pick<KeyboardEvent, 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey'>> = {}): KeyboardEvent {
   return new KeyboardEvent('keydown', {

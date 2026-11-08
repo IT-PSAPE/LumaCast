@@ -1,13 +1,13 @@
 import { useCallback, useMemo, type ReactNode } from 'react';
 import type { ItemRef, ItemType } from '@lumacast/composition';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { useCreateItem } from '../../features/items/create-item';
+import { useCreateItem } from '../../features/items';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useDeckEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';
-import { useEditorLeftPanelNav } from '../../features/workbench/use-editor-left-panel-nav';
-import { useSlideNotesPanel } from '../../features/items/use-slide-notes-panel';
+import { useEditorLeftPanelNav } from '../../features/workbench';
+import { useSlideNotesPanel } from '../../features/items';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
 // #219 item-model refactor decision D9: there is no merged deckItems array

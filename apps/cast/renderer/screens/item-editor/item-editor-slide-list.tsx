@@ -6,9 +6,9 @@ import { getSlideVisualState } from '../../utils/slides';
 import { ItemEditorSlideListItem } from './item-editor-slide-list-item';
 import { SlideTile } from './slide-tile';
 import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
-import { SlideTagManagerProvider } from '../../features/items/slide-tag-manager';
-import { persistSlideReorder } from '../../features/items/use-slide-reorder';
-import { useSlideBulkActions } from '../../features/items/use-slide-bulk-actions';
+import { SlideTagManagerProvider } from '../../features/items';
+import { persistSlideReorder } from '../../features/items';
+import { useSlideBulkActions } from '../../features/items';
 import { useSlideSelectionKeyboard } from '../../hooks/use-slide-selection-keyboard';
 
 const slideId = (slide: ReturnType<typeof useItemEditorScreen>['state']['slides'][number]) => slide.id;

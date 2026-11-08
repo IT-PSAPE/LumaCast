@@ -1,4 +1,4 @@
-import { friendlyError } from './features/shared/friendly-error';
+import { friendlyError } from './shared/friendly-error';
 
 const elementActivity = new WeakMap<object, boolean>();
 

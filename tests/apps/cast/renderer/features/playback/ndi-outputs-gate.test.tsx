@@ -15,7 +15,7 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/app-context', () => ({
   }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/playback/ndi-audio-capture', () => ({
+vi.mock('../../../../../../apps/cast/renderer/runtime/ndi-audio-capture', () => ({
   setNdiAudioEnabledOutputs: mocks.setNdiAudioEnabledOutputs,
 }));
 

@@ -2,7 +2,7 @@
 // dispatches this event to fire a Trigger without importing the automation
 // feature directly, and the automation provider listens for it. The
 // `window.dispatchEvent` bridge function itself stays in
-// app/renderer/features/automation/automation-events.ts since packages must
+// apps/cast/renderer/utils/automation-events.ts since packages must
 // not touch `window`.
 import type { Id } from '@lumacast/kernel';
 import type { TriggerType } from './model';

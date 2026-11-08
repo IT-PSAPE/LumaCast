@@ -4,7 +4,7 @@ import type { ItemRef, ItemType, Lyric, Presentation } from '@lumacast/compositi
 import { useNavigation } from '../../contexts/navigation-context';
 import { itemRefKey, useProjectContent } from '../../contexts/use-project-content';
 import { filterByText } from '../../utils/filter-by-text';
-import { useDeckBinSort, compareByKey, type BinSort, type DeckBinSortKey } from '../workbench/use-bin-sort';
+import { useDeckBinSort, compareByKey, type BinSort, type DeckBinSortKey } from '../../hooks/use-bin-sort';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 // #219 item-model refactor decision D9: the bin shows independently ordered

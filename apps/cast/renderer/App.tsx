@@ -8,22 +8,26 @@ import { PlaybackSchedulesProvider } from './contexts/playback-schedules-context
 import { SlideProvider } from './contexts/slide-context';
 import { TimersProvider } from './contexts/timers/timers-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
-import { AgentActionDispatcher } from './features/agent/agent-action-dispatcher';
-import { AgentChatProvider } from './features/agent/chat/agent-chat-context';
-import { AgentChatPopup } from './features/agent/chat/agent-chat-popup';
-import { CommandPalette } from './features/command-palette/command-palette';
-import { CommandPaletteProvider } from './features/command-palette/command-palette-context';
-import { CreateItemProvider } from './features/items/create-item';
-import { LyricEditorProvider } from './features/items/lyric-editor';
-import { AutomationProvider } from './features/automation/automation-context';
-import { NdiOutputsGate } from './features/playback/ndi-outputs-gate';
-import { MediaResidencyBoundary } from './features/playback/media-residency-boundary';
-import { SlideRenderHost } from './features/render/slide-render-host';
-import { useObservabilityRuntime } from './features/observability/observability-runtime';
+import { AgentActionDispatcher } from './application/agent/agent-action-dispatcher';
+import { AgentChatProvider } from './features/agent';
+import { AgentChatPopup } from './features/agent';
+import { CommandPalette } from './application/command-palette';
+import { CommandPaletteProvider } from './contexts/command-palette-context';
+import { CreateItemProvider } from './features/items';
+import { LyricEditorProvider } from './features/items';
+import { AutomationProvider } from './features/automation';
+import { NdiOutputsGate } from './features/playback';
+import { MediaResidencyBoundary } from './features/playback';
+import { SlideRenderHost } from './rendering/slide-render-host';
+import { useObservabilityRuntime } from './features/observability';
+import { recordObsEvent } from './features/observability';
+import { ObservabilityPortProvider, type ObservabilityPort } from './contexts/observability-port';
 import { ErrorBoundary } from './components/feedback/error-boundary';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { AppLayoutContent } from './app-layout-content';
+import { AppLayoutContent } from './shell/app-layout-content';
 import { ConfirmProvider } from '@lumacast/ui';
+
+const observabilityPort: ObservabilityPort = { record: recordObsEvent };
 
 function ObservabilityRuntime() {
   useObservabilityRuntime();
@@ -62,43 +66,45 @@ export function App() {
         <ObservabilityRuntime />
         <ConfirmProvider>
           <AgentChatProvider>
-            <AppProvider>
-              <TimersProvider>
-                <AssetEditorProvider>
-                  <NavigationProvider>
-                    <PlaybackProvider>
-                      <SlideProvider>
-                        <PlaybackSchedulesProvider>
-                          <MediaResidencyBoundary>
-                            <AutomationProvider>
-                              <LyricEditorProvider>
-                                <CreateItemProvider>
-                                  <CanvasProvider>
-                                    <CommandPaletteProvider>
-                                      <NdiOutputsGate />
-                                      <SplitPanel>
-                                        <AppLayoutContent />
-                                        {/* Inside SplitPanel so workbench.togglePanel can reach the
-                                            panel-route context; every other provider it needs is above. */}
-                                        <AgentActionDispatcher />
-                                      </SplitPanel>
-                                      <CommandPalette />
-                                      <FileDropNavigationGuard />
-                                      <SlideRenderHost />
-                                      <AgentChatPopup.Root />
-                                    </CommandPaletteProvider>
-                                  </CanvasProvider>
-                                </CreateItemProvider>
-                              </LyricEditorProvider>
-                            </AutomationProvider>
-                          </MediaResidencyBoundary>
-                        </PlaybackSchedulesProvider>
-                      </SlideProvider>
-                    </PlaybackProvider>
-                  </NavigationProvider>
-                </AssetEditorProvider>
-              </TimersProvider>
-            </AppProvider>
+            <ObservabilityPortProvider port={observabilityPort}>
+              <AppProvider>
+                <TimersProvider>
+                  <AssetEditorProvider>
+                    <NavigationProvider>
+                      <PlaybackProvider>
+                        <SlideProvider>
+                          <PlaybackSchedulesProvider>
+                            <MediaResidencyBoundary>
+                              <AutomationProvider observability={observabilityPort}>
+                                <LyricEditorProvider>
+                                  <CreateItemProvider>
+                                    <CanvasProvider>
+                                      <CommandPaletteProvider>
+                                        <NdiOutputsGate />
+                                        <SplitPanel>
+                                          <AppLayoutContent />
+                                          {/* Inside SplitPanel so workbench.togglePanel can reach the
+                                              panel-route context; every other provider it needs is above. */}
+                                          <AgentActionDispatcher />
+                                        </SplitPanel>
+                                        <CommandPalette />
+                                        <FileDropNavigationGuard />
+                                        <SlideRenderHost />
+                                        <AgentChatPopup.Root />
+                                      </CommandPaletteProvider>
+                                    </CanvasProvider>
+                                  </CreateItemProvider>
+                                </LyricEditorProvider>
+                              </AutomationProvider>
+                            </MediaResidencyBoundary>
+                          </PlaybackSchedulesProvider>
+                        </SlideProvider>
+                      </PlaybackProvider>
+                    </NavigationProvider>
+                  </AssetEditorProvider>
+                </TimersProvider>
+              </AppProvider>
+            </ObservabilityPortProvider>
           </AgentChatProvider>
         </ConfirmProvider>
       </WorkbenchProvider>

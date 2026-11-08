@@ -1,5 +1,5 @@
 // Store-level tests for `createChordStore`. The shared cue/theme/project
-// pure helpers and the playback feature's `timelineEndMs` are mocked with
+// pure helpers and the renderer time utility's `timelineEndMs` are mocked with
 // small, deterministic stand-ins (owned by other in-flight agents) so these
 // tests exercise the STORE's own orchestration — undo/redo bookkeeping,
 // transaction batching, label recording, dirty flags, zoom math, and
@@ -119,7 +119,7 @@ vi.mock('../../../../../apps/chord/shared/cue-model', () => ({
 
 const timelineEndMsMock = vi.fn((project: ChordProject) => project.audio?.durationMs ?? 10_000);
 
-vi.mock('../../../../../apps/chord/renderer/features/playback', () => ({
+vi.mock('../../../../../apps/chord/renderer/utils/timeline-end', () => ({
   timelineEndMs: (project: ChordProject) => timelineEndMsMock(project),
   AudioElement: () => null,
 }));

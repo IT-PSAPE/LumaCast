@@ -9,7 +9,7 @@ import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { getLabelColors } from '../../utils/label-colors';
-import { SlideActionsMenu } from '../../features/items/slide-actions-menu';
+import { SlideActionsMenu } from '../shared/slide-actions-menu';
 
 export interface SlideTileProps {
   slideId: Id;

@@ -6,7 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { frameDurationMs } from '../../../shared/cue-model';
 import { useChordStore } from '../../store';
-import { timelineEndMs } from './timeline-end';
+import { timelineEndMs } from '../../utils/timeline-end';
 
 export function usePlaybackClock(audioElement: HTMLAudioElement | null): void {
   const playing = useChordStore((state) => state.playback.playing);

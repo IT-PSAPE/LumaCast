@@ -4,7 +4,7 @@ import { validateRecordingFilenameFormat } from '../../../shared/recording-filen
 import type { AudioMixerEngine } from '../../audio-mixer';
 import type { RecordingTrackId, StreamAPI, StreamProject, StreamRecordingPreferences } from '../../../shared/desktop-api';
 import { createDefaultStreamRecordingPreferences } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 
 interface ActiveRecording {
   id: string;

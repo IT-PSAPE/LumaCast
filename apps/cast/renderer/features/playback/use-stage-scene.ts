@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { TextElementPayload } from '@lumacast/composition';
 import { useSlides } from '../../contexts/slide-context';
-import { buildRenderScene } from '../canvas/build-render-scene';
+import { buildRenderScene } from '../../rendering/build-render-scene';
 import type { BindingValue } from '@lumacast/composition';
 import type { RenderScene } from '@lumacast/composition';
 import { useStagePlayback } from '../../contexts/playback/playback-context';

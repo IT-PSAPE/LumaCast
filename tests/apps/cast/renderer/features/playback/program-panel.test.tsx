@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { ProgramPanel } from '../../../../../../apps/cast/renderer/features/playback/program-panel';
+import { ProgramPanel } from '../../../../../../apps/cast/renderer/screens/show/program-panel';
 
 // Covers the program-panel composition refactor: the optional surface label
 // is a compound child decision (all-mode composes a badge into each cell,

@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
 import { Panel, ReacstButton, Tabs } from '@lumacast/ui';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
-import { useInspector } from '@renderer/features/inspector/inspector-context';
-import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
-import { MultiSelectionInspector } from '@renderer/features/inspector/multi-selection-inspector';
-import { StageInspector } from '@renderer/features/inspector/stage-inspector';
-import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
-import { BindingInspector } from '@renderer/features/inspector/binding-inspector';
-import { VideoElementInspector } from '@renderer/features/inspector/video-element-inspector';
+import { useInspector } from '../../features/inspector';
+import { ShapeElementInspector } from '../../features/inspector';
+import { MultiSelectionInspector } from '../../features/inspector';
+import { StageInspector } from '../../features/inspector';
+import { TextElementInspector } from '../../features/inspector';
+import { BindingInspector } from '../../features/inspector';
+import { VideoElementInspector } from '../../features/inspector';
 import type { InspectorTab } from '@renderer/types/ui';
 import { useStageEditorScreen } from './screen-context';
 

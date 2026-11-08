@@ -1,4 +1,4 @@
-import { SlideTimingModal } from '../../features/items/slide-timing-modal';
+import { SlideTimingModal } from '../../features/items';
 import { useCallback, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
@@ -6,7 +6,7 @@ import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel'
 import { EmptyState, DropdownMenu, Panel } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { FieldTextarea } from '../../components/form/field';
-import { StagePanel } from '../../features/canvas/stage-panel';
+import { StagePanel } from '../../features/canvas';
 import { useItemEditorScreen } from './screen-context';
 import { ItemPicker } from './item-picker';
 import { ItemEditorSlideList } from './item-editor-slide-list';

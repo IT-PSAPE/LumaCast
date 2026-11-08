@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { MenubarMenu } from '@lumacast/ui';
-import { collectMenuActions, serializeAppMenus } from '../../chrome/app-menu';
+import { collectMenuActions, serializeAppMenus } from '../../shared/app-menu';
 import type { StreamAPI } from '../../../shared/desktop-api';
 import type { StreamPlatform } from '../../../shared/platform-capabilities';
 

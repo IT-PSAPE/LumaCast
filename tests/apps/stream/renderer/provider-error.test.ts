@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { providerErrorMessage } from '../../../../apps/stream/renderer/features/shared/provider-error';
+import { providerErrorMessage } from '../../../../apps/stream/renderer/shared/provider-error';
 
 describe('providerErrorMessage', () => {
   it('hides Electron IPC wrappers and build environment names', () => {

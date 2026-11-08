@@ -1,10 +1,10 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useCapture, type UseCaptureParams } from '../../../../apps/stream/renderer/features/capture/use-capture';
+import { useCapture, type ApplicationAudioInput, type UseCaptureParams } from '../../../../apps/stream/renderer/features/capture/use-capture';
 import { createDefaultProject, type DesktopSourceOption, type StreamAPI, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 import { toRuntimeProject } from '../../../../apps/stream/renderer/source-runtime';
 import type { RuntimeSource } from '../../../../apps/stream/renderer/source-runtime';
-import { DEFAULT_AUDIO_FILTERS } from '../../../../apps/stream/renderer/features/sources/helpers';
+import { DEFAULT_AUDIO_FILTERS } from '../../../../apps/stream/renderer/shared/source-factory';
 
 const mixerMock = vi.hoisted(() => {
   const instances: any[] = [];
@@ -54,11 +54,11 @@ class FakeMediaStream {
   getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
 }
 
-function createFakeApplicationAudioInput() {
+function createFakeApplicationAudioInput(): ApplicationAudioInput {
   const stream = fakeStream(new FakeTrack('audio', 'Native helper audio'));
   return {
     stream,
-    node: { port: { postMessage: vi.fn() } },
+    node: { port: { postMessage: vi.fn() } } as unknown as AudioWorkletNode,
     close: vi.fn(() => stream.getTracks().forEach((track) => track.stop())),
   };
 }
@@ -213,6 +213,146 @@ describe('useCapture runtime ownership and Program audio routing', () => {
     expect(result.current.sourceStatuses[runtimeSource.id]).toEqual({ state: 'ready' });
     expect(mixerMock.instances).toHaveLength(0);
     expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it('duplicates only visible scene runtimes through the Capture capability', async () => {
+    const source = makeSource('camera', { id: 'camera-origin' });
+    const params = makeHookParams(source, { activeSourceIds: new Set() });
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const { result } = renderHook(() => useCapture(params));
+    const track = new FakeTrack('video', 'Original camera');
+    const stream = {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+      getAudioTracks: () => [],
+      clone: vi.fn(() => fakeStream(new FakeTrack('video', 'Cloned camera'))),
+    } as unknown as MediaStream;
+    const originalRuntimeId = params.allSources[0]!.id;
+    result.current.runtimes.current.set(originalRuntimeId, stream);
+    const visibleClone = { ...source, id: 'camera-clone-visible' };
+    const hiddenClone = { ...source, id: 'camera-clone-hidden' };
+    const hiddenSource = { ...source, id: 'camera-origin-hidden' };
+    const port = result.current.createSceneRuntimePort(new Set([source.id]));
+
+    await act(async () => {
+      const lease = await port.duplicateSceneRuntimes([
+        { source, duplicate: visibleClone },
+        { source: hiddenSource, duplicate: hiddenClone },
+      ]);
+      lease.commit();
+    });
+
+    const visibleRuntimeId = toRuntimeProject(makeProject(visibleClone)).scenes[0]!.sources[0]!.id;
+    const hiddenRuntimeId = toRuntimeProject(makeProject(hiddenClone)).scenes[0]!.sources[0]!.id;
+    expect(stream.clone).toHaveBeenCalledOnce();
+    expect(result.current.runtimes.current.has(visibleRuntimeId)).toBe(true);
+    expect(result.current.runtimes.current.has(hiddenRuntimeId)).toBe(false);
+  });
+
+  it('preserves output viewport identity when duplicating a browser capture runtime', async () => {
+    const source = makeBrowserSource(true);
+    const params = makeHookParams(source, { activeSourceIds: new Set() });
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const { result } = renderHook(() => useCapture(params));
+    const track = new FakeTrack('video', 'Browser capture');
+    const stream = {
+      getTracks: () => [track],
+      getVideoTracks: () => [track],
+      getAudioTracks: () => [],
+      clone: vi.fn(() => fakeStream(new FakeTrack('video', 'Browser clone'))),
+    } as unknown as MediaStream;
+    result.current.runtimes.current.set(params.allSources[0]!.id, stream);
+    const duplicate = { ...source, id: 'browser-clone' };
+    const port = result.current.createSceneRuntimePort(new Set([source.id]));
+
+    await act(async () => {
+      const lease = await port.duplicateSceneRuntimes([{ source, duplicate }]);
+      lease.commit();
+    });
+
+    const duplicateRuntimeId = toRuntimeProject(makeProject(duplicate)).scenes[0]!.sources[0]!.id;
+    expect(result.current.runtimes.current.has(duplicateRuntimeId)).toBe(true);
+  });
+
+  it('restarts application and system audio through Capture when duplicating a scene', async () => {
+    const applicationPath = '/Applications/Editor.app/Contents/MacOS/Editor';
+    const applicationSource: StreamSource = {
+      id: 'application-audio-origin', name: 'Editor audio', kind: 'application-audio', visible: true,
+      muted: false, volume: 1, applicationPath, transform: { x: 0, y: 0, width: 100, height: 100 },
+    };
+    const systemSource: StreamSource = {
+      id: 'system-audio-origin', name: 'System audio', kind: 'desktop-audio', visible: true,
+      muted: false, volume: 1, transform: { x: 0, y: 0, width: 100, height: 100 },
+    };
+    const api = makeApi();
+    const params = makeHookParams(applicationSource, { api, activeSourceIds: new Set(), programSourceIds: new Set() });
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const { result } = renderHook(() => useCapture(params));
+    const applicationRuntimeId = params.allSources[0]!.id;
+    const systemRuntimeId = toRuntimeProject(makeProject(systemSource)).scenes[0]!.sources[0]!.id;
+    const applicationInput = createFakeApplicationAudioInput();
+    const systemInput = createFakeApplicationAudioInput();
+    result.current.runtimes.current.set(applicationRuntimeId, applicationInput.stream);
+    result.current.runtimes.current.set(systemRuntimeId, systemInput.stream);
+    result.current.applicationAudioInputs.current.set(applicationRuntimeId, applicationInput);
+    result.current.applicationAudioSessions.current.set(applicationRuntimeId, { pid: 42, path: applicationPath });
+    result.current.applicationAudioInputs.current.set(systemRuntimeId, systemInput);
+    const applicationDuplicate = { ...applicationSource, id: 'application-audio-copy' };
+    const systemDuplicate = { ...systemSource, id: 'system-audio-copy' };
+    const port = result.current.createSceneRuntimePort(new Set([applicationSource.id, systemSource.id]));
+
+    await act(async () => {
+      const lease = await port.duplicateSceneRuntimes([
+        { source: applicationSource, duplicate: applicationDuplicate },
+        { source: systemSource, duplicate: systemDuplicate },
+      ]);
+      lease.commit();
+    });
+
+    const applicationDuplicateRuntimeId = toRuntimeProject(makeProject(applicationDuplicate)).scenes[0]!.sources[0]!.id;
+    const systemDuplicateRuntimeId = toRuntimeProject(makeProject(systemDuplicate)).scenes[0]!.sources[0]!.id;
+    expect(api.startApplicationAudioCapture).toHaveBeenCalledWith(applicationDuplicateRuntimeId, 42, applicationPath);
+    expect(api.startSystemAudioCapture).toHaveBeenCalledWith(systemDuplicateRuntimeId);
+    expect(result.current.applicationAudioSessions.current.get(applicationDuplicateRuntimeId)).toEqual({ pid: 42, path: applicationPath });
+    expect(result.current.applicationAudioInputs.current.has(systemDuplicateRuntimeId)).toBe(true);
+  });
+
+  it('cleans up earlier runtime clones when a later native audio clone fails', async () => {
+    const cameraSource = makeSource('camera', { id: 'camera-before-native-audio' });
+    const applicationSource: StreamSource = {
+      id: 'application-audio-without-session', name: 'Missing session', kind: 'application-audio', visible: true,
+      muted: false, volume: 1, applicationPath: '/Applications/Editor.app',
+      transform: { x: 0, y: 0, width: 100, height: 100 },
+    };
+    const params = makeHookParams(cameraSource, { activeSourceIds: new Set(), programSourceIds: new Set() });
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const { result } = renderHook(() => useCapture(params));
+    const cameraRuntimeId = params.allSources[0]!.id;
+    const applicationRuntimeId = toRuntimeProject(makeProject(applicationSource)).scenes[0]!.sources[0]!.id;
+    const clonedTrack = new FakeTrack('video', 'Cloned camera');
+    const cameraStream = {
+      getTracks: () => [new FakeTrack('video', 'Original camera')],
+      getVideoTracks: () => [new FakeTrack('video', 'Original camera')],
+      getAudioTracks: () => [],
+      clone: vi.fn(() => fakeStream(clonedTrack)),
+    } as unknown as MediaStream;
+    result.current.runtimes.current.set(cameraRuntimeId, cameraStream);
+    result.current.runtimes.current.set(applicationRuntimeId, fakeStream(new FakeTrack('audio', 'App audio')));
+    result.current.applicationAudioInputs.current.set(applicationRuntimeId, createFakeApplicationAudioInput());
+    const cameraDuplicate = { ...cameraSource, id: 'camera-duplicate-before-failure' };
+    const applicationDuplicate = { ...applicationSource, id: 'application-duplicate-failing' };
+    const port = result.current.createSceneRuntimePort(new Set([cameraSource.id, applicationSource.id]));
+
+    await act(async () => {
+      await expect(port.duplicateSceneRuntimes([
+        { source: cameraSource, duplicate: cameraDuplicate },
+        { source: applicationSource, duplicate: applicationDuplicate },
+      ])).rejects.toThrow('capture for Missing session is no longer active');
+    });
+
+    const cameraDuplicateRuntimeId = toRuntimeProject(makeProject(cameraDuplicate)).scenes[0]!.sources[0]!.id;
+    expect(result.current.runtimes.current.has(cameraDuplicateRuntimeId)).toBe(false);
+    expect(clonedTrack.stop).toHaveBeenCalledOnce();
   });
 
   it('automatically rebinds a saved window on its committed runtime and persists the fresh capture ID', async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { BrowserSourceActivity, StreamAPI } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 import type { RuntimeSource } from '../../source-runtime';
 
 export interface BrowserSessionStatus {

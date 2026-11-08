@@ -2,7 +2,7 @@ import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction }
 import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from '../../projector-window';
 import { multiviewTileCapacityFor, openMultiviewWindow, type MultiviewWindowControl } from '../../multiview-window';
 import type { StreamProject } from '../../../shared/desktop-api';
-import { friendlyError } from '../shared/friendly-error';
+import { friendlyError } from '../../shared/friendly-error';
 
 export interface UseMultiviewParams {
   project: StreamProject | null;

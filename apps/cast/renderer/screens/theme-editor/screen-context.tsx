@@ -2,7 +2,7 @@ import { useCallback, useMemo, type ReactNode } from 'react';
 import type { ThemeOwnerType } from '@lumacast/composition';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
-import { useEditorLeftPanelNav } from '../../features/workbench/use-editor-left-panel-nav';
+import { useEditorLeftPanelNav } from '../../features/workbench';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
 interface ThemeEditorScreenContextValue {

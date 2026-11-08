@@ -5,8 +5,8 @@ import { BinShell } from '../../../../../../apps/cast/renderer/components/layout
 
 const sceneStageMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@renderer/features/canvas/scene-stage', () => ({
-  SceneStage: (props: { className?: string }) => {
+vi.mock('@renderer/rendering/scene-render-stage', () => ({
+  SceneRenderStage: (props: { className?: string }) => {
     sceneStageMock(props);
     return <div data-testid="scene-stage" className={props.className} />;
   },

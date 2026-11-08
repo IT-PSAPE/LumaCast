@@ -4,7 +4,7 @@ import type { SlideElement } from '@lumacast/composition';
 import { EmptyState } from '@lumacast/ui';
 import { SortableList, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
-import { useInspector } from '@renderer/features/inspector/inspector-context';
+import { useInspector } from '../../features/inspector';
 import { SortableLayerRow } from './sortable-layer-row';
 import type { SelectionModifiers } from '@lumacast/selection';
 

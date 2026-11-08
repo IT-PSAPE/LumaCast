@@ -3,7 +3,7 @@ import type { MenuEntry, MenuItem, MenubarMenu } from '@lumacast/ui';
 import {
   buildAppMenus, collectMenuActions, serializeAppMenus, shortcutToAccelerator,
   type AppMenuActions, type AppMenuContext, type SerializedMenuItem,
-} from '../../../../apps/stream/renderer/chrome/app-menu';
+} from '../../../../apps/stream/renderer/shared/app-menu';
 
 function isItem(entry: MenuEntry): entry is MenuItem {
   return 'id' in entry;

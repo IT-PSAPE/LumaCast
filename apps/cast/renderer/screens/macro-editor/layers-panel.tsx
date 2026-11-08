@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { EmptyState } from '@lumacast/ui';
 import { SortableList, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
-import { useInspector } from '@renderer/features/inspector/inspector-context';
+import { useInspector } from '../../features/inspector';
 import { useMacroEditorScreen, type MacroEditorCueRow } from './screen-context';
 import { SortableLayerRow } from './sortable-layer-row';
 

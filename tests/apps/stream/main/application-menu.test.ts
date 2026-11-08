@@ -18,7 +18,7 @@ vi.mock('../../../../apps/stream/node_modules/electron/index.js', () => electron
 
 import { Menu, webContents } from 'electron';
 import { applyApplicationMenu, validateSerializedMenu } from '../../../../apps/stream/main/application-menu';
-import type { SerializedMenuItem } from '../../../../apps/stream/renderer/chrome/app-menu';
+import type { SerializedMenuItem } from '../../../../apps/stream/renderer/shared/app-menu';
 
 const originalPlatform = process.platform;
 

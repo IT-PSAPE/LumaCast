@@ -52,7 +52,7 @@ vi.mock('@lumacast/ui', () => ({
   useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
 }));
 
-import { importAudio, importBackground, importLyrics } from '../../../../../../apps/chord/renderer/features/library/import-flows';
+import { importAudio, importBackground, importLyrics } from '../../../../../../apps/chord/renderer/shell/media-import';
 
 function importedFile(overrides: Partial<ImportedFile> = {}): ImportedFile {
   return { kind: 'audio', path: '/tmp/file', name: 'file', url: null, sizeBytes: 100, ...overrides };

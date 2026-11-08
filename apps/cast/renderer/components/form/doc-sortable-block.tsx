@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { cn, Label } from '@lumacast/ui'
-import { parseLyricImportText } from '@renderer/features/items/lyric-text-utils'
+import { parseLyricImportText } from '@renderer/utils/parse-lyric-import-text'
 import type { Block } from './doc-editor'
 
 export type SortableBlockProps = {

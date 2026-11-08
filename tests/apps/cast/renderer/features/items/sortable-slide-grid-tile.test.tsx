@@ -5,6 +5,7 @@ import { SortableSlideGridTile } from '../../../../../../apps/cast/renderer/feat
 import { SortableSlideOutlineRow } from '../../../../../../apps/cast/renderer/features/items/sortable-slide-outline-row';
 
 const mocks = vi.hoisted(() => ({ useSortableItem: vi.fn(() => ({ handleProps: {} })) }));
+const integrations = { renderBindingsBadge: () => null, renderActionsMenu: () => null };
 vi.mock('@renderer/components/layout/sortable-list', () => ({ useSortableItem: mocks.useSortableItem }));
 vi.mock('../../../../../../apps/cast/renderer/features/items/slide-grid-tile', () => ({ SlideGridTile: () => null }));
 vi.mock('../../../../../../apps/cast/renderer/features/items/slide-list-row', () => ({ SlideOutlineRow: () => null }));
@@ -17,6 +18,7 @@ describe('generated slide drag handles', () => {
       slideId="slide" index={0} scene={{ width: 1920, height: 1080 } as RenderScene}
       selected={false} focused={false} isLive={false} isEmpty={true} isGenerated={isGenerated}
       onActivate={vi.fn()} onFocus={vi.fn()} onRangeSelect={vi.fn()} actionSlideIds={['slide']}
+      {...integrations}
     />);
     expect(mocks.useSortableItem).toHaveBeenCalledWith('slide', isGenerated);
   });
@@ -26,6 +28,7 @@ describe('generated slide drag handles', () => {
       row={{ slide: { id: 'slide', runtimeBlank: isGenerated ? 'start' : undefined } as Slide, index: 0, state: 'queued', elements: [] }}
       scene={{ width: 1920, height: 1080 } as RenderScene} isFocused={false} isSelected={false}
       onSelect={vi.fn()} onOpen={vi.fn()} onRangeSelect={vi.fn()} actionSlideIds={['slide']}
+      {...integrations}
     />);
     expect(mocks.useSortableItem).toHaveBeenCalledWith('slide', isGenerated);
   });

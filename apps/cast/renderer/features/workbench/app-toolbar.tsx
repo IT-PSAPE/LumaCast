@@ -6,7 +6,6 @@ import type { PaneId, SplitId } from '@renderer/components/layout/panel-split/wo
 import { usePanelRoute } from '@renderer/components/layout/panel-split/split-panel';
 import { ReacstButton, SegmentedControl, WindowChrome, cv } from '@lumacast/ui';
 import { useNdi } from '@renderer/contexts/app-context';
-import { useCommandPalette } from '../command-palette/command-palette-context';
 import { InlineMenuBar } from './inline-menu-bar';
 import { OverflowViewMenu } from './overflow-view-menu';
 
@@ -41,10 +40,9 @@ interface PanelToggleProps {
   children: ReactNode;
 }
 
-export function AppToolbar() {
+export function AppToolbar({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) {
   const { state: { workbenchMode }, actions: { setWorkbenchMode } } = useWorkbench();
   const { state: { outputState }, actions: { toggleAudienceOutput, toggleStageOutput } } = useNdi();
-  const { open: openCommandPalette } = useCommandPalette();
 
   function handleWorkbenchModeChange(nextValue: string | string[]) {
     if (Array.isArray(nextValue)) return;
@@ -76,7 +74,7 @@ export function AppToolbar() {
         <div className="min-w-0 max-w-md flex-1 [-webkit-app-region:no-drag]">
           <button
             type="button"
-            onClick={openCommandPalette}
+            onClick={onOpenCommandPalette}
             aria-label="Open command palette"
             title={`Search commands (${isMac ? '⌘' : 'Ctrl+'}K)`}
             className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-control border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"

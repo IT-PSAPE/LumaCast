@@ -10,7 +10,7 @@ import { StatusDot, type StatusTone } from './status-dot';
 //      App.tsx for LIVE and REC): live/recording = --color-error (red).
 //   2. apps/stream/renderer/style.css (.live-tag, used by
 //      docks/scenes-dock.tsx for LIVE): live = --color-success (green).
-//   3. apps/cast/renderer/features/workbench/status-bar.tsx (and
+//   3. apps/cast/renderer/shell/status-bar.tsx (and
 //      app-toolbar.tsx): live = bg-success, idle = bg-error (inverted again).
 //
 // Standardised treatment: `soft` tints at 15% (matches Button `take`/`danger`

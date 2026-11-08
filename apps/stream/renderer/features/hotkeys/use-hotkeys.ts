@@ -4,8 +4,8 @@ import type {
   StreamAPI, StreamGlobalHotkeys, StreamHotkeyAction, StreamProject, StreamSource,
 } from '../../../shared/desktop-api';
 import { isSourceTransformableInTree } from '../../source-selection';
-import { friendlyError } from '../shared/friendly-error';
-import { defaultTransform } from '../sources/helpers';
+import { friendlyError } from '../../shared/friendly-error';
+import { defaultTransform } from '../../shared/source-factory';
 
 export interface UseHotkeysParams {
   api: StreamAPI;

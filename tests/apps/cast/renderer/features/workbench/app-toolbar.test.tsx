@@ -42,7 +42,7 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/app-context', () => ({
   }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/command-palette/command-palette-context', () => ({
+vi.mock('../../../../../../apps/cast/renderer/contexts/command-palette-context', () => ({
   useCommandPalette: () => ({ open: vi.fn() }),
 }));
 
@@ -57,6 +57,7 @@ vi.mock('../../../../../../apps/cast/renderer/components/layout/panel-split/spli
 // shortcut label, so the global must exist before the component module loads.
 (window as unknown as { castApi: { platform: string } }).castApi = { platform: 'darwin' };
 const { AppToolbar } = await import('../../../../../../apps/cast/renderer/features/workbench/app-toolbar');
+const noCommandPalette = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -68,12 +69,12 @@ afterEach(() => {
 });
 
 function applicationViewsGroup() {
-  return render(<AppToolbar />).getByRole('group', { name: 'Application views' });
+  return render(<AppToolbar onOpenCommandPalette={noCommandPalette} />).getByRole('group', { name: 'Application views' });
 }
 
 describe('AppToolbar "Application views" switcher', () => {
   it('shows only Show, Edit, and Themes as group segments, with the rest behind the overflow trigger', () => {
-    const { getByRole } = render(<AppToolbar />);
+    const { getByRole } = render(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const group = within(getByRole('group', { name: 'Application views' }));
 
     for (const name of ['Show', 'Edit', 'Themes']) {
@@ -86,13 +87,13 @@ describe('AppToolbar "Application views" switcher', () => {
   });
 
   it('still switches the workbench mode from the visible segments', () => {
-    const { getByRole, rerender } = render(<AppToolbar />);
+    const { getByRole, rerender } = render(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const group = within(getByRole('group', { name: 'Application views' }));
 
     fireEvent.click(group.getByRole('button', { name: 'Edit' }));
     expect(mocks.workbenchActions.setWorkbenchMode).toHaveBeenCalledWith('item-editor');
 
-    rerender(<AppToolbar />);
+    rerender(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const updated = within(getByRole('group', { name: 'Application views' }));
     expect(updated.getByRole('button', { name: 'Edit' }).getAttribute('aria-pressed')).toBe('true');
     expect(updated.getByRole('button', { name: 'More views' }).getAttribute('aria-pressed')).toBe('false');
@@ -114,7 +115,7 @@ describe('AppToolbar "Application views" switcher', () => {
   });
 
   it('lists the hidden screens in the overflow menu and switching from it moves the pressed state to the trigger', () => {
-    const { getByRole, rerender } = render(<AppToolbar />);
+    const { getByRole, rerender } = render(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const group = within(getByRole('group', { name: 'Application views' }));
 
     fireEvent.click(group.getByRole('button', { name: 'More views' }));
@@ -125,14 +126,14 @@ describe('AppToolbar "Application views" switcher', () => {
     fireEvent.click(getByRole('menuitem', { name: 'Macros' }));
     expect(mocks.workbenchActions.setWorkbenchMode).toHaveBeenCalledWith('macro-editor');
 
-    rerender(<AppToolbar />);
+    rerender(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const updated = within(getByRole('group', { name: 'Application views' }));
     expect(updated.getByRole('button', { name: 'More views' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('wires the explicit show-screen panel parts to their split panes', () => {
     mocks.isPanelVisible.mockReturnValue(true);
-    const { getByRole } = render(<AppToolbar />);
+    const { getByRole } = render(<AppToolbar onOpenCommandPalette={noCommandPalette} />);
     const group = within(getByRole('group', { name: 'Panel visibility' }));
 
     fireEvent.click(group.getByRole('button', { name: 'Left' }));

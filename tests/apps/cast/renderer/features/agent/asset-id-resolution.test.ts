@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   UnknownMediaAssetError,
   resolveAssetIdReferences,
-} from '../../../../../../apps/cast/renderer/features/agent/asset-id-resolution';
+} from '../../../../../../apps/cast/renderer/application/agent/asset-id-resolution';
 
 const SOURCES: Record<string, string> = {
   'asset-1': 'cast-media://token-1',

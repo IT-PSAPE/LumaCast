@@ -4,7 +4,7 @@ import type { ThemeOwnerType } from '@lumacast/composition';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';
 import { filterByText } from '../../../utils/filter-by-text';
-import { compareByKey, useThemeBinSort, type BinSort, type BinTabSortKey } from '../../workbench/use-bin-sort';
+import { compareByKey, useThemeBinSort, type BinSort, type BinTabSortKey } from '../../../hooks/use-bin-sort';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export interface ThemeBinSection {

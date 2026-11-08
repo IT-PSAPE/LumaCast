@@ -14,7 +14,7 @@ vi.mock('../../../../apps/cast/renderer/contexts/workbench-context', () => ({
   useWorkbench: () => ({ state: { workbenchMode: mocks.workbenchMode } }),
 }));
 
-vi.mock('../../../../apps/cast/renderer/hooks/use-keyboard-shortcuts', () => ({
+vi.mock('../../../../apps/cast/renderer/application/use-keyboard-shortcuts', () => ({
   useKeyboardShortcuts: () => {},
 }));
 

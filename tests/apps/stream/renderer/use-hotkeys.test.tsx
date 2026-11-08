@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useHotkeys, type UseHotkeysParams } from '../../../../apps/stream/renderer/features/hotkeys/use-hotkeys';
-import { defaultTransform } from '../../../../apps/stream/renderer/features/sources/helpers';
+import { defaultTransform } from '../../../../apps/stream/renderer/shared/source-factory';
 import { createDefaultProject, type StreamAPI, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 
 afterEach(() => cleanup());

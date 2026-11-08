@@ -1,7 +1,7 @@
 import { Suspense, lazy, useEffect } from 'react';
 import type { NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
-import { setNdiAudioEnabledOutputs } from './ndi-audio-capture';
+import { setNdiAudioEnabledOutputs } from '../../runtime/ndi-audio-capture';
 
 const NdiOutputs = lazy(() =>
   import('./ndi-outputs').then((module) => ({ default: module.NdiOutputs })),

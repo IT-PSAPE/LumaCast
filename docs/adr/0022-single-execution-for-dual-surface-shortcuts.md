@@ -15,9 +15,9 @@ were built separately and were never reconciled:
 
 - the native application menu (`app/main/application-menu.ts`), whose
   `accelerator` strings Electron registers with the OS and which delivers an
-  `AppMenuCommandId` to `app/renderer/hooks/use-app-menu.ts`;
+  `AppMenuCommandId` to `apps/cast/renderer/application/use-app-menu.ts`;
 - the renderer's window `keydown` listener
-  (`app/renderer/hooks/use-keyboard-shortcuts.ts`), which matches the
+  (`apps/cast/renderer/application/use-keyboard-shortcuts.ts`), which matches the
   `SHORTCUTS` table in `packages/commands/src/shortcuts.ts`.
 
 Twelve chords are declared on both surfaces, and both surfaces implement the

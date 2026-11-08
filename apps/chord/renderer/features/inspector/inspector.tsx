@@ -6,7 +6,11 @@ import { useChordStore } from '../../store';
 import { CueTab } from './cue-tab';
 import { ThemeTab } from './theme-tab';
 
-export function Inspector() {
+export interface InspectorProps {
+  onImportBackground: () => void;
+}
+
+export function Inspector({ onImportBackground }: InspectorProps) {
   const inspectorTab = useChordStore((s) => s.inspectorTab);
   const setInspectorTab = useChordStore((s) => s.setInspectorTab);
 
@@ -26,7 +30,7 @@ export function Inspector() {
         <CueTab />
       </Tabs.Panel>
       <Tabs.Panel value="theme" className="flex flex-col">
-        <ThemeTab />
+        <ThemeTab onImportBackground={onImportBackground} />
       </Tabs.Panel>
     </Tabs>
     </Panel>

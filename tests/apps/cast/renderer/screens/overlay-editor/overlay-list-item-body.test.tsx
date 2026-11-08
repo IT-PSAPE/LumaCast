@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   mediaProxyMap: new Map(),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/features/canvas/build-render-scene', () => ({
+vi.mock('../../../../../../apps/cast/renderer/rendering/build-render-scene', () => ({
   buildRenderScene: (...args: unknown[]) => mocks.buildRenderScene(...args),
 }));
 

@@ -1,6 +1,14 @@
 import { Logo } from '@renderer/components/assets';
-import { SlideBrowserContent } from '../../features/items/slide-browser-content';
-import type { SlideBrowserContentVariant } from '../../features/items/use-deck-browser-view';
+import { SlideBrowserContent } from '../../features/items';
+import type { SlideBrowserContentVariant } from '../../features/items';
+import type { SlideBrowserIntegrations } from '../../features/items';
+import { SlideBindingsBadge } from '../../features/automation';
+import { SlideActionsMenu } from '../shared/slide-actions-menu';
+
+const integrations: SlideBrowserIntegrations = {
+  renderBindingsBadge: (slideId) => <SlideBindingsBadge slideId={slideId} />,
+  renderActionsMenu: (slideIds) => <SlideActionsMenu slideIds={slideIds} />,
+};
 
 interface ShowBrowserContentProps {
   variant: SlideBrowserContentVariant;
@@ -16,6 +24,6 @@ export function ShowBrowserContent({ variant }: ShowBrowserContentProps) {
       );
     case 'single-grid':
     case 'single-list':
-      return <SlideBrowserContent variant={variant} />;
+      return <SlideBrowserContent variant={variant} integrations={integrations} />;
   }
 }

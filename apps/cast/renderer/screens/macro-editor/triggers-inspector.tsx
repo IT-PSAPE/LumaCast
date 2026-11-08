@@ -1,8 +1,8 @@
 import { X } from 'lucide-react';
 import { EmptyState, Label } from '@lumacast/ui';
-import { Section } from '@renderer/features/inspector/inspector-section';
+import { Section } from '@renderer/components/layout/inspector-section';
 import { useSlides } from '@renderer/contexts/slide-context';
-import { useAutomation } from '@renderer/features/automation/automation-context';
+import { useAutomation } from '../../features/automation';
 import { useMacroEditorScreen } from './screen-context';
 
 export function TriggersInspector() {

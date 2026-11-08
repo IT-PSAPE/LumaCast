@@ -10,8 +10,8 @@ import type Konva from 'konva';
 import { useChordStore } from '../../store';
 import { frameDurationMs } from '../../../shared/cue-model';
 import type { TextBox } from '../../../shared/project';
-import { buildFrameScene } from './build-frame-scene';
-import { ChordStage, computeStageFit, type StageFit } from './chord-stage';
+import { buildFrameScene } from '../../rendering/build-frame-scene';
+import { ChordStage, computeStageFit, type StageFit } from '../../rendering/chord-stage';
 import { useBackgroundVideoSync } from './use-background-video-sync';
 
 const PREVIEW_SLIDE_ID = 'chord-preview';

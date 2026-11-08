@@ -1,24 +1,13 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import type { SystemMetricsSnapshot } from '@lumacast/protocol';
+import type { ObsEventCategory, ObsEventLevel } from '../../contexts/observability-port';
+export type { ObsEventCategory, ObsEventLevel } from '../../contexts/observability-port';
 
 // Ring-buffered domain events for the observability timeline. Events are
 // also logged to the console so the main-process file logger captures them
 // for post-mortem reproduction; this store only holds the recent tail for
 // in-app display.
-
-export type ObsEventCategory =
-  | 'ndi'
-  | 'layer'
-  | 'overlay'
-  | 'playback'
-  | 'slide'
-  | 'system'
-  | 'audio'
-  | 'video'
-  | 'error';
-
-export type ObsEventLevel = 'info' | 'warn' | 'error';
 
 export interface ObsEvent {
   id: number;
