@@ -5,23 +5,20 @@
 // this server's HTML injects, and tool/browser-preview/build.mjs for how both
 // files get bundled.
 //
-// Read-only by construction: the resolved database (+ -wal/-shm siblings, if
-// present) is copied to a fresh temp directory once at startup, and
-// CastRepository opens that COPY — never the original file. CastRepository's
-// constructor always runs `PRAGMA journal_mode=WAL` and friends on open
-// (packages/persistence-sqlite/src/store.ts's `applyConnectionTuning`), which
-// are writes even absent any application-level mutation; node:sqlite's
-// `readOnly` flag would reject exactly those pragma writes. Copy-then-open-
-// normally is therefore the option that is both genuinely non-destructive to
-// the user's real database and compatible with `CastRepository` exactly as
-// written, without forking persistence-sqlite to plumb a `readOnly` option
-// through its constructor.
+// SQLite backs up a read-only source connection into a consistent private
+// snapshot, including committed WAL state. Only that destination is opened
+// by CastRepository, whose initialization performs migrations and PRAGMAs.
+// The private database is closed and removed after materializing the snapshot.
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { pipeline } from 'node:stream';
+import { backup, DatabaseSync, type BackupOptions } from 'node:sqlite';
 import { CastRepository, createTestRepository } from '@lumacast/persistence-sqlite';
-import { maskAppSnapshot, resolveManagedMedia, type ManagedMediaUse } from '../../apps/cast/main/media-capability';
+import { ManagedMediaRegistry, managedMediaUrl, looksLikeManagedMediaReference, maskAppSnapshot, resolveManagedMedia, type ManagedMediaUse } from '../../apps/cast/main/media-capability';
+import { getMediaLibraryDirectory, setMediaLibraryDirectory, mediaLibraryFileName } from '../../apps/cast/main/media-source-path';
+import type { AppSnapshot } from '@lumacast/protocol';
 
 const APP_NAME = 'LumaCast';
 const DEFAULT_PORT = 4318;
@@ -70,49 +67,50 @@ function defaultUserDataDir(): string {
   }
 }
 
-// Mirrors apps/cast/main/index.ts: `path.join(app.getPath('documents'), APP_NAME)`.
-function defaultDocumentsDir(): string {
-  return path.join(os.homedir(), 'Documents', APP_NAME);
-}
-
-function copyIfExists(src: string, dest: string): void {
-  if (fs.existsSync(src)) fs.copyFileSync(src, dest);
-}
-
-/**
- * Copies the database file plus its `-wal`/`-shm` siblings (if present) into
- * a fresh temp directory, so `CastRepository` opens a private, writable copy
- * and the user's real database file is never touched.
- */
-function copyDatabaseToTemp(dbPath: string): string {
+/** Uses SQLite's online backup API rather than racing separate DB/WAL file copies. */
+export async function createBrowserPreviewDatabaseSnapshot(dbPath: string, options?: BackupOptions) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-browser-preview-'));
-  const destDbPath = path.join(tempDir, path.basename(dbPath));
-  fs.copyFileSync(dbPath, destDbPath);
-  copyIfExists(`${dbPath}-wal`, `${destDbPath}-wal`);
-  copyIfExists(`${dbPath}-shm`, `${destDbPath}-shm`);
-  return destDbPath;
+  const destination = path.join(tempDir, 'snapshot.sqlite');
+  try {
+    const source = new DatabaseSync(dbPath, { readOnly: true, timeout: 5_000 });
+    try { await backup(source, destination, options ?? {}); }
+    finally { source.close(); }
+    return { dbPath: destination, cleanup: () => fs.rmSync(tempDir, { recursive: true, force: true }) };
+  } catch (error) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    throw error;
+  }
 }
 
-function buildRepository(options: CliOptions): CastRepository {
+export async function readBrowserPreviewSnapshot(dbPath: string, userDataPath: string): Promise<AppSnapshot> {
+  const temporary = await createBrowserPreviewDatabaseSnapshot(dbPath);
+  let repository: CastRepository | undefined;
+  try {
+    repository = new CastRepository({
+      dbPath: temporary.dbPath, userDataPath,
+      documentsPath: path.join(path.dirname(temporary.dbPath), 'documents'),
+    });
+    return repository.getSnapshot();
+  } finally {
+    try { repository?.close(); }
+    finally { temporary.cleanup(); }
+  }
+}
+
+async function loadSnapshot(options: CliOptions): Promise<AppSnapshot> {
   const userDataPath = options.userDataDir ?? defaultUserDataDir();
-  const documentsPath = defaultDocumentsDir();
   const dbPath = options.dbPath ?? path.join(userDataPath, 'lumacast.sqlite');
 
   if (!fs.existsSync(dbPath)) {
     console.log(`[browser-preview] no database found at ${dbPath}`);
     console.log('[browser-preview] serving a fresh, empty project instead (pass --db <path> to point at a real one)');
-    return createTestRepository({ seed: true }).repository;
+    const fixture = createTestRepository({ seed: true });
+    try { return fixture.repository.getSnapshot(); }
+    finally { fixture.close(); fixture.cleanup(); }
   }
 
-  console.log(`[browser-preview] reading a temp copy of ${dbPath}`);
-  const tempDbPath = copyDatabaseToTemp(dbPath);
-  try {
-    fs.mkdirSync(documentsPath, { recursive: true });
-  } catch {
-    // Non-fatal: nothing reachable in this read-only preview touches the
-    // documents directory.
-  }
-  return new CastRepository({ dbPath: tempDbPath, userDataPath, documentsPath });
+  console.log(`[browser-preview] reading a consistent snapshot of ${dbPath}`);
+  return readBrowserPreviewSnapshot(dbPath, userDataPath);
 }
 
 // ─── Static asset + index.html serving ──────────────────────────────────────
@@ -179,30 +177,44 @@ function injectShim(html: string): string {
   return html;
 }
 
-function serveIndexHtml(req: http.IncomingMessage, res: http.ServerResponse): void {
-  fs.readFile(path.join(RENDERER_ROOT, 'index.html'), 'utf8', (error, html) => {
+function serveIndexHtml(req: http.IncomingMessage, res: http.ServerResponse, rendererRoot: string): void {
+  const indexPath = resolveStaticPath(rendererRoot, '/index.html');
+  if (!indexPath) {
+    res.writeHead(403).end('Forbidden');
+    return;
+  }
+  fs.readFile(indexPath, 'utf8', (error, html) => {
     if (error) {
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('Renderer build not found. Run `npm run build:cast` first.');
       return;
     }
-    const host = req.headers.host ?? `localhost:${DEFAULT_PORT}`;
-    const origin = `http://${host}`;
+    const origin = `http://${req.headers.host}`;
     const rewritten = rewriteCsp(injectShim(html), origin);
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     res.end(rewritten);
   });
 }
 
-function resolveStaticPath(pathname: string): string | null {
-  const decoded = decodeURIComponent(pathname.split('?')[0] ?? '/');
-  const candidate = path.normalize(path.join(RENDERER_ROOT, decoded));
-  if (!candidate.startsWith(RENDERER_ROOT)) return null;
-  return candidate;
+function isWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
 }
 
-function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): void {
-  const filePath = resolveStaticPath(pathname);
+function resolveStaticPath(rendererRoot: string, pathname: string): string | null {
+  const candidate = path.normalize(path.join(rendererRoot, pathname));
+  if (!isWithin(rendererRoot, candidate)) return null;
+  try {
+    const canonical = fs.realpathSync(candidate);
+    return isWithin(rendererRoot, canonical) ? canonical : null;
+  } catch (error) {
+    // Missing routes still reach the SPA fallback; existing symlinks must stay inside the root.
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? candidate : null;
+  }
+}
+
+function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, pathname: string, rendererRoot: string): void {
+  const filePath = resolveStaticPath(rendererRoot, pathname);
   if (!filePath) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('Forbidden');
@@ -217,7 +229,7 @@ function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse, pa
       // genuine missing-asset 404, not a route.
       const basename = path.basename(pathname.split('?')[0] ?? '');
       if (error.code === 'ENOENT' && !basename.includes('.')) {
-        serveIndexHtml(req, res);
+        serveIndexHtml(req, res, rendererRoot);
         return;
       }
       res.writeHead(error.code === 'ENOENT' ? 404 : 500, { 'content-type': 'text/plain; charset=utf-8' });
@@ -256,6 +268,7 @@ function guessContentType(filePath: string): string {
 }
 
 function parseSingleByteRange(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  if (fileSize === 0) return null;
   const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
   if (!match) return null;
   const [, rawStart, rawEnd] = match;
@@ -276,29 +289,22 @@ function parseSingleByteRange(rangeHeader: string, fileSize: number): { start: n
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
-const CORS_HEADERS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, HEAD',
-  'access-control-allow-headers': 'range',
-  'access-control-expose-headers': 'accept-ranges, content-length, content-range, content-type',
-} as const;
-
 function intendedUseFromRequest(req: http.IncomingMessage): ManagedMediaUse | null {
   const destination = req.headers['sec-fetch-dest'];
   if (destination === 'image' || destination === 'video' || destination === 'audio') return destination;
   return null;
 }
 
-function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
+function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id: string, registry: ManagedMediaRegistry): void {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.writeHead(405, { ...CORS_HEADERS, 'content-type': 'text/plain; charset=utf-8' });
+    res.writeHead(405, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('Method not allowed');
     return;
   }
 
-  const resolution = resolveManagedMedia(`cast-media://${id}`, intendedUseFromRequest(req));
+  const resolution = registry.resolve(`cast-media://${id}`, intendedUseFromRequest(req));
   if (!resolution.ok) {
-    res.writeHead(404, { ...CORS_HEADERS, 'content-type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end(`Not found (${resolution.reason})`);
     return;
   }
@@ -307,7 +313,7 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
   try {
     size = fs.statSync(resolution.filePath).size;
   } catch {
-    res.writeHead(404, { ...CORS_HEADERS, 'content-type': 'text/plain; charset=utf-8' });
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('Not found (file missing)');
     return;
   }
@@ -319,7 +325,6 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
     const parsed = parseSingleByteRange(range, size);
     if (!parsed) {
       res.writeHead(416, {
-        ...CORS_HEADERS,
         'accept-ranges': 'bytes',
         'content-range': `bytes */${size}`,
         'content-type': contentType,
@@ -331,7 +336,6 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
 
     const { start, end } = parsed;
     const headers = {
-      ...CORS_HEADERS,
       'accept-ranges': 'bytes',
       'content-length': String(end - start + 1),
       'content-range': `bytes ${start}-${end}/${size}`,
@@ -343,12 +347,11 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
       res.end();
       return;
     }
-    fs.createReadStream(resolution.filePath, { start, end }).pipe(res);
+    pipeline(fs.createReadStream(resolution.filePath, { start, end }), res, () => {});
     return;
   }
 
   const headers = {
-    ...CORS_HEADERS,
     'accept-ranges': 'bytes',
     'content-length': String(size),
     'content-type': contentType,
@@ -359,12 +362,128 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
     res.end();
     return;
   }
-  fs.createReadStream(resolution.filePath).pipe(res);
+  pipeline(fs.createReadStream(resolution.filePath), res, () => {});
 }
 
 // ─── Boot ────────────────────────────────────────────────────────────────
 
-function main(): void {
+export interface BrowserPreviewOptions {
+  rendererRoot: string;
+  shimPath: string;
+  snapshot: AppSnapshot;
+  mediaLibraryDirectory: string | null;
+  port?: number;
+}
+
+function maskPreviewSnapshot(snapshot: AppSnapshot, libraryDirectory: string | null, registry: ManagedMediaRegistry): AppSnapshot {
+  const previousDirectory = getMediaLibraryDirectory();
+  let masked: AppSnapshot;
+  try {
+    setMediaLibraryDirectory(libraryDirectory);
+    masked = maskAppSnapshot(snapshot);
+  } finally { setMediaLibraryDirectory(previousDirectory); }
+
+  // Reuse the app's field-aware masking, but give each preview its own grants.
+  // Comparing the two trees avoids interpreting media-looking text as a file grant.
+  const reissue = (value: unknown, original: unknown): unknown => {
+    if (value === original) return value;
+    if (typeof value === 'string' && looksLikeManagedMediaReference(value)) {
+      const grant = resolveManagedMedia(value);
+      if (!grant.ok) return '';
+      const libraryFile = mediaLibraryFileName(grant.source);
+      const filePath = libraryFile && libraryDirectory ? path.join(libraryDirectory, libraryFile) : grant.filePath;
+      const id = registry.grant(filePath, grant.use);
+      return id ? managedMediaUrl(id) : '';
+    }
+    if (Array.isArray(value)) return value.map((child, index) => reissue(child, Array.isArray(original) ? original[index] : undefined));
+    if (value && typeof value === 'object') {
+      const source = original && typeof original === 'object' ? original as Record<string, unknown> : {};
+      return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, reissue(child, source[key])]));
+    }
+    return value;
+  };
+  return reissue(masked, snapshot) as AppSnapshot;
+}
+
+export function previewOriginForHost(host: string | undefined, port: number): string | null {
+  if (host === `127.0.0.1:${port}` || host === `localhost:${port}` ||
+      (port === 80 && (host === '127.0.0.1' || host === 'localhost'))) {
+    return `http://${port === 80 ? host.replace(/:80$/, '') : host}`;
+  }
+  return null;
+}
+
+/** Starts only on IPv4 loopback. Callers supply the snapshot and asset paths explicitly. */
+export async function startBrowserPreviewServer(options: BrowserPreviewOptions): Promise<http.Server> {
+  const rendererRoot = fs.realpathSync(options.rendererRoot);
+  const registry = new ManagedMediaRegistry();
+  const snapshotJson = JSON.stringify(maskPreviewSnapshot(options.snapshot, options.mediaLibraryDirectory, registry));
+  const server = http.createServer((req, res) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store');
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    const host = req.headers.host;
+    const hostHeaders = req.rawHeaders.filter((_, index) => index % 2 === 0 && req.rawHeaders[index].toLowerCase() === 'host');
+    const expectedOrigin = previewOriginForHost(host, port);
+    if (hostHeaders.length !== 1 || !expectedOrigin) {
+      res.writeHead(403).end('Forbidden');
+      return;
+    }
+    const origin = req.headers.origin;
+    const site = req.headers['sec-fetch-site'];
+    const normalizedOrigin = typeof origin === 'string' && port === 80 ? origin.replace(/:80$/, '') : origin;
+    if ((origin !== undefined && normalizedOrigin !== expectedOrigin) ||
+        (site !== undefined && site !== 'same-origin' && site !== 'none')) {
+      res.writeHead(403).end('Forbidden');
+      return;
+    }
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405, { Allow: 'GET, HEAD' }).end('Method not allowed');
+      return;
+    }
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent((req.url ?? '/').split('?')[0]);
+      if (!pathname.startsWith('/') || pathname.startsWith('//') || /[\u0000-\u001f\u007f\\]/.test(pathname)) throw new Error('Invalid path');
+    } catch {
+      res.writeHead(400).end('Invalid request path');
+      return;
+    }
+    if (pathname === '/snapshot') {
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(snapshotJson);
+      return;
+    }
+    if (pathname === '/__browser-shim.js') {
+      fs.readFile(options.shimPath, (error, data) => {
+        if (error) {
+          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' }).end('Browser preview shim not found.');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' }).end(data);
+      });
+      return;
+    }
+    const media = /^\/cast-media\/([^/]+)$/.exec(pathname);
+    if (media) {
+      serveCastMedia(req, res, media[1], registry);
+      return;
+    }
+    if (pathname === '/') serveIndexHtml(req, res, rendererRoot);
+    else serveStaticFile(req, res, pathname, rendererRoot);
+  });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(options.port ?? DEFAULT_PORT, '127.0.0.1', resolve);
+  });
+  return server;
+}
+
+export async function runBrowserPreviewCli(): Promise<void> {
   if (!fs.existsSync(path.join(RENDERER_ROOT, 'index.html'))) {
     console.error(`[browser-preview] renderer build not found at ${RENDERER_ROOT}`);
     console.error('[browser-preview] run `npm run build:cast` first');
@@ -372,61 +491,23 @@ function main(): void {
   }
 
   const options = parseArgs(process.argv.slice(2));
-  const repository = buildRepository(options);
+  const snapshot = await loadSnapshot(options);
   // Computed once at startup: this is a point-in-time, read-only preview, not
   // a live view, and managed media ids are stable for the life of this
   // process (media-capability.ts's registry key is (use, source), reused on
   // repeat grants) — recomputing per request would only re-derive the same
   // JSON at extra cost.
-  const snapshotJson = JSON.stringify(maskAppSnapshot(repository.getSnapshot()));
-
-  const server = http.createServer((req, res) => {
-    const pathname = (req.url ?? '/').split('?')[0] ?? '/';
-
-    if (pathname === '/snapshot') {
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(snapshotJson);
-      return;
-    }
-
-    if (pathname === '/__browser-shim.js') {
-      fs.readFile(SHIM_PATH, (error, data) => {
-        if (error) {
-          res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-          res.end('browser-shim.js not built. Run `npm run preview:browser` (not the server directly).');
-          return;
-        }
-        res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(data);
-      });
-      return;
-    }
-
-    const castMediaMatch = /^\/cast-media\/([^/]+)$/.exec(pathname);
-    if (castMediaMatch) {
-      serveCastMedia(req, res, castMediaMatch[1]!);
-      return;
-    }
-
-    if (pathname === '/') {
-      serveIndexHtml(req, res);
-      return;
-    }
-
-    serveStaticFile(req, res, pathname);
+  const server = await startBrowserPreviewServer({
+    rendererRoot: RENDERER_ROOT, shimPath: SHIM_PATH,
+    snapshot, port: options.port,
+    mediaLibraryDirectory: path.join(options.userDataDir ?? defaultUserDataDir(), 'media'),
   });
-
-  server.listen(options.port, () => {
-    console.log('');
-    console.log(`  ➜  LumaCast browser preview:  http://localhost:${options.port}/`);
-    console.log('');
-  });
+  console.log(`\n  ➜  LumaCast browser preview:  http://127.0.0.1:${options.port}/\n`);
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
+      server.closeAllConnections();
       server.close(() => process.exit(0));
     });
   }
 }
-
-main();

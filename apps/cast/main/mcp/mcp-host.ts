@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
+import { JsonRequestLimitError, readBoundedJsonRequest } from '@lumacast/desktop';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
@@ -7,6 +8,7 @@ import {
   ListResourcesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
+  isInitializeRequest,
   type CallToolResult,
   type ImageContent,
   type ReadResourceResult,
@@ -45,6 +47,13 @@ if (!parentPort) {
 const HOST_NAME = 'lumacast';
 const HOST_VERSION = '1.0.0';
 const CLIENT_SEEN_THROTTLE_MS = 60_000;
+
+export const MCP_REQUEST_LIMITS = {
+  maxBytes: 4 * 1024 * 1024, // SDK default; scene/tool payloads can exceed Flux's photo requests.
+  maxBatchMessages: 100,
+  maxElements: 100_000, // Bound aggregate work before SDK schemas or main-process dispatch.
+  maxDepth: 64,
+} as const;
 
 interface SessionEntry {
   server: Server;
@@ -226,28 +235,65 @@ async function handleMcpRequest(req: http.IncomingMessage, res: http.ServerRespo
   const sessionId = Array.isArray(sessionHeader) ? sessionHeader[0] : sessionHeader;
   const existing = sessionId ? sessions.get(sessionId) : undefined;
 
-  if (existing) {
-    await existing.transport.handleRequest(req, res);
-    if (req.method === 'DELETE') sessions.delete(sessionId!);
-    return;
-  }
-
-  if (sessionId !== undefined || req.method !== 'POST') {
-    // A known-shaped session id that names no live session, or a GET/DELETE
-    // with none at all, has nothing to attach to.
+  if (sessionId !== undefined && (!existing || existing.clientId !== client.id)) {
     res.writeHead(404, { 'content-type': 'text/plain' }).end('Not Found');
     return;
   }
 
-  // No session header on a POST: only valid as an `initialize` call, which
-  // the transport itself enforces (a non-initialize request here gets its
-  // own 400 from the transport).
+  if (!existing && req.method !== 'POST') {
+    res.writeHead(404, { 'content-type': 'text/plain' }).end('Not Found');
+    return;
+  }
+
+  let body: unknown;
+  if (req.method === 'POST') {
+    try { body = await readBoundedJsonRequest(req, MCP_REQUEST_LIMITS); }
+    catch (error) {
+      if (!(error instanceof JsonRequestLimitError)) throw error;
+      res.writeHead(error.status, { 'content-type': 'text/plain', connection: 'close' }).end(error.message);
+      return;
+    }
+  }
+  if (existing) {
+    await existing.transport.handleRequest(req, res, body);
+    return;
+  }
+  if (!isInitializeRequest(body)) {
+    res.writeHead(400, { 'content-type': 'text/plain' }).end('Initialize a session first');
+    return;
+  }
+
   const server = createMcpServer(client);
-  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: () => crypto.randomUUID() });
-  await server.connect(transport);
-  await transport.handleRequest(req, res);
-  if (transport.sessionId) {
-    sessions.set(transport.sessionId, { server, transport, clientId: client.id, clientName: client.name });
+  const transport = new StreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+    maxRequestBodySize: MCP_REQUEST_LIMITS.maxBytes,
+  });
+  let closed = false;
+  transport.onclose = () => {
+    closed = true;
+    if (transport.sessionId) sessions.delete(transport.sessionId);
+  };
+  let retained = false;
+  let aborted = false;
+  let closing: Promise<void> | undefined;
+  const closeServer = () => closing ??= server.close();
+  const onResponseClose = () => {
+    if (res.writableFinished) return;
+    aborted = true;
+    void closeServer().catch(() => {});
+  };
+  res.once('close', onResponseClose);
+  try {
+    await server.connect(transport);
+    if (aborted || res.destroyed) return;
+    await transport.handleRequest(req, res, body);
+    if (transport.sessionId && !closed && !aborted && (!res.destroyed || res.writableFinished)) {
+      sessions.set(transport.sessionId, { server, transport, clientId: client.id, clientName: client.name });
+      retained = true;
+    }
+  } finally {
+    res.off('close', onResponseClose);
+    if (!retained) await closeServer();
   }
 }
 
@@ -272,6 +318,8 @@ function startServer(command: Extract<McpHostCommand, { type: 'start' }>): void 
       emit({ type: 'error', message: error instanceof Error ? error.message : String(error) });
     });
   });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 10_000;
   httpServer = server;
 
   const tryListen = (port: number): void => {

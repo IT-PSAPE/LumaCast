@@ -33,7 +33,7 @@ IDE, `mcp-remote`). Three things shape that answer:
 
 ## Decision
 
-- **A third utility process, `app/main/mcp/mcp-host.ts`**, bundled to
+- **A third utility process, `apps/cast/main/mcp/mcp-host.ts`**, bundled to
   `out/main/mcp-host.js` by `electron.vite.config.ts`'s existing
   utility-host plugin (alongside `ndi-host.js`/`persistence-host.js`), runs an
   `http.Server` bound to **127.0.0.1 only** and speaks MCP Streamable HTTP at
@@ -47,14 +47,14 @@ IDE, `mcp-remote`). Three things shape that answer:
   and `resources/read` becomes a `call` message forwarded to main over the
   same `process.parentPort` command/event channel `persistence-host.ts` and
   `ndi-host.ts` already use, and is answered by exactly one `call-result`.
-  `McpService` (`app/main/mcp/mcp-service-proxy.ts`) is the only thing on the
+  `McpService` (`apps/cast/main/mcp/mcp-service-proxy.ts`) is the only thing on the
   main side that resolves a call: it decodes params
   (`decodeActionParams`), resolves the calling client's permissions
   (`resolvePrincipalPermissions`/`decideAction`, the same functions the
   in-app runtime uses), and — for anything not denied — calls the **same**
   `AgentActionBroker` the in-app assistant dispatches through. There is no
   second execution path.
-- **Security happens entirely in the host, before anything reaches the SDK
+- **Transport checks happen in the host, before anything reaches the SDK
   transport**, in this order: (1) an `Origin` header, if present, must name
   this exact loopback host and bound port, or the request is refused with
   403 (DNS-rebinding protection is a spec MUST; absent Origin is allowed,
@@ -64,11 +64,21 @@ IDE, `mcp-remote`). Three things shape that answer:
   against every configured client's `tokenHash` — an unknown or missing
   token is 401 with `WWW-Authenticate: Bearer`. The host re-implements this
   hashing/verification rather than importing
-  `app/main/agent/permission-policy.ts`, the same "two copies that must move
+  `apps/cast/main/agent/permission-policy.ts`, the same "two copies that must move
   in step" precedent `resolveLocalMediaSourcePath` set across the
   persistence utility-process boundary (docs/ARCHITECTURE.md, Managed Media
   Capabilities) — the host is bundled standalone and stays decoupled from
-  the rest of `app/main/agent`. Tokens are never logged.
+  the rest of `apps/cast/main/agent`. Tokens are never logged.
+- **Request work has explicit limits before schema validation.** The shared
+  `@lumacast/desktop` JSON reader bounds authenticated POST bodies to 4 MiB in
+  Cast and 1 MiB in Flux. Both cap a JSON-RPC batch at 100 messages, aggregate
+  object keys/array members at 100,000, and nesting at 64. Flux's high-level SDK
+  tool validator also receives an explicit element budget. Authentication and
+  origin checks precede reading; rejected bodies do not allocate a new session.
+- **Session identity includes the client.** An existing Cast session can only
+  be used by the authenticated client that created it; a different valid token
+  receives 404. Failed initialization closes the new server/transport and
+  releases subscriptions rather than retaining partial session state.
 - **One undo batch per call.** Each forwarded `call` runs inside its own
   `broker.beginBatch`/`endBatch` pair, so one MCP tool invocation costs the
   user exactly one undo entry — the same contract ADR-0038 gives one
@@ -87,7 +97,7 @@ IDE, `mcp-remote`). Three things shape that answer:
   explicit `start()` (from settings, or the next app launch when
   `mcp.enabled`).
 - **Config, not transport, is authoritative for clients.** Creating,
-  revoking, or re-permissioning an MCP client (`app/main/ipc.ts`) writes
+  revoking, or re-permissioning an MCP client (`apps/cast/main/ipc.ts`) writes
   `AgentConfigStore` and calls `McpService.refreshClients()`, which posts an
   `update-clients` command so a running host's bearer check reflects the
   change immediately, without a restart.

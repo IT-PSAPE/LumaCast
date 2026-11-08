@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { request } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -157,6 +158,104 @@ afterEach(async () => {
 });
 
 describe('mcp-host HTTP security', () => {
+  it('closes a new server when its peer aborts during asynchronous connection', async () => {
+    await import('../../../../../apps/cast/main/mcp/mcp-host');
+    const { Server } = await import('@modelcontextprotocol/sdk/server/index.js');
+    const port = await startHost();
+    let connected!: () => void;
+    const ready = new Promise<void>((resolve) => { connected = resolve; });
+    let resume!: () => void;
+    const paused = new Promise<void>((resolve) => { resume = resolve; });
+    const connect = Server.prototype.connect;
+    const close = vi.spyOn(Server.prototype, 'close');
+    const intercepted = vi.spyOn(Server.prototype, 'connect').mockImplementationOnce(async function (this: InstanceType<typeof Server>, transport) {
+      await connect.call(this, transport); connected(); await paused;
+    });
+    const req = request(endpointFor(port), { method: 'POST', headers: { ...bearer(), 'content-type': 'application/json', Accept: 'application/json, text/event-stream' } });
+    req.on('error', () => {});
+    try {
+      req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'abort-test', version: '1' } } }));
+      await ready;
+      req.destroy(new Error('Synthetic peer abort'));
+      await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
+      resume();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(close).toHaveBeenCalledOnce();
+    } finally { resume(); req.destroy(); intercepted.mockRestore(); close.mockRestore(); }
+  });
+
+  it('checks authentication and session ownership before parsing the body', async () => {
+    await import('../../../../../apps/cast/main/mcp/mcp-host');
+    const otherToken = 'another-client-token';
+    const port = await startHost({ clients: [testClient(), testClient({ id: 'client-2', tokenHash: hashToken(otherToken) })] });
+    const { client, transport } = await connectClient(port);
+    try {
+      expect((await fetch(endpointFor(port), { method: 'POST', body: '{' })).status).toBe(401);
+      const response = await fetch(endpointFor(port), {
+        method: 'POST',
+        headers: { ...bearer(otherToken), 'mcp-session-id': transport.sessionId! },
+        body: '{',
+      });
+      expect(response.status).toBe(404);
+      expect((await client.listTools()).tools.length).toBe(1);
+      expect(hostEvents().filter((event) => event.type === 'call')).toHaveLength(0);
+    } finally { await client.close(); }
+  });
+
+  it('retains a successful initialization after normal HTTP connection close', async () => {
+    await import('../../../../../apps/cast/main/mcp/mcp-host');
+    const port = await startHost();
+    const headers = { ...bearer(), Connection: 'close', 'content-type': 'application/json', Accept: 'application/json, text/event-stream' };
+    const response = await fetch(endpointFor(port), { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'close-test', version: '1' } } }) });
+    expect(response.status).toBe(200);
+    const sessionId = response.headers.get('mcp-session-id');
+    expect(sessionId).toBeTruthy();
+    await response.text();
+    const listed = await fetch(endpointFor(port), { method: 'POST', headers: { ...headers, 'mcp-session-id': sessionId!, 'mcp-protocol-version': '2025-03-26' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
+    expect(listed.status).toBe(200);
+    expect(await listed.text()).toContain('project_getOverview');
+  });
+
+  it('keeps a session when the SDK rejects its DELETE request', async () => {
+    await import('../../../../../apps/cast/main/mcp/mcp-host');
+    const port = await startHost();
+    const { client, transport } = await connectClient(port);
+    const sessionId = transport.sessionId!;
+    try {
+      const rejected = await fetch(endpointFor(port), {
+        method: 'DELETE',
+        headers: { ...bearer(), 'mcp-session-id': sessionId, 'mcp-protocol-version': 'unsupported-version' },
+      });
+      expect(rejected.status).toBe(400);
+      await rejected.text();
+      expect((await client.listTools()).tools.length).toBe(1);
+      await transport.terminateSession();
+      const closed = await fetch(endpointFor(port), { headers: { ...bearer(), 'mcp-session-id': sessionId } });
+      expect(closed.status).toBe(404);
+    } finally { await client.close(); }
+  });
+
+  it('rejects byte, batch, aggregate-element and nesting overflow before dispatch', async () => {
+    const { MCP_REQUEST_LIMITS } = await import('../../../../../apps/cast/main/mcp/mcp-host');
+    const port = await startHost();
+    const { client, transport } = await connectClient(port);
+    const send = (body: unknown) => fetch(endpointFor(port), {
+      method: 'POST',
+      headers: { ...bearer(), 'mcp-session-id': transport.sessionId!, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    let nested: unknown = {};
+    for (let i = 0; i <= MCP_REQUEST_LIMITS.maxDepth; i++) nested = { nested };
+    try {
+      expect((await send({ value: 'x'.repeat(MCP_REQUEST_LIMITS.maxBytes) })).status).toBe(413);
+      expect((await send(Array.from({ length: 101 }, () => ({ jsonrpc: '2.0', method: 'ping', id: 1 })))).status).toBe(400);
+      expect((await send({ values: Array(100_000).fill(0) })).status).toBe(413);
+      expect((await send(nested)).status).toBe(413);
+      expect((await client.listTools()).tools.length).toBe(1);
+      expect(hostEvents().filter((event) => event.type === 'call')).toHaveLength(0);
+    } finally { await client.close(); }
+  });
+
   it('responds 403 to a request with a disallowed Origin', async () => {
     await import('../../../../../apps/cast/main/mcp/mcp-host');
     const port = await startHost();

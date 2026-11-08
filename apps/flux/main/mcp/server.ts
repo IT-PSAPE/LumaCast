@@ -8,6 +8,7 @@
 import { editingGuide, editingInstructions } from "./editing-guide";
 import { lensDatabaseInfo } from "@lumacast/photo-imaging";
 import { importFormats } from "@lumacast/photo-model";
+import { JsonRequestLimitError, readBoundedJsonRequest } from "@lumacast/desktop";
 import { createServer } from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { realpath } from "node:fs/promises";
@@ -33,6 +34,14 @@ import {
   MAX_PHOTO_BATCH_SIZE,
   neutralRecipe,
 } from "@lumacast/photo-model";
+
+export const MCP_REQUEST_LIMITS = {
+  maxBytes: 1_048_576, // Preserve the existing tighter HTTP bound.
+  maxBatchMessages: 100,
+  // A valid 10k-photo batch can contain several keys per photo; count the whole request.
+  maxElements: 100_000,
+  maxDepth: 64,
+} as const;
 
 export async function assertAllowed(file: string, roots: string[]) {
   const canonical = await realpath(file);
@@ -81,6 +90,7 @@ export function createMcpServer(commands: Commands, roots: string[]) {
     {
       capabilities: { resources: { subscribe: true } },
       instructions: editingInstructions,
+      maxToolInputElements: MCP_REQUEST_LIMITS.maxElements,
     },
   );
   const id = z.string().min(1);
@@ -501,24 +511,19 @@ export async function startMcp(
       deny(404, "Not found");
       return;
     }
+    let initialized: { transport: StreamableHTTPServerTransport; server: McpServer } | undefined;
+    let aborted = false;
+    let closeInitialization: (() => Promise<void>) | undefined;
+    const onResponseClose = () => {
+      if (res.writableFinished) return;
+      aborted = true;
+      if (closeInitialization) void closeInitialization().catch(() => {});
+    };
     try {
       const sessionId = req.headers["mcp-session-id"];
       let session =
         typeof sessionId === "string" ? sessions.get(sessionId) : undefined;
-      let body: unknown;
-      if (req.method === "POST") {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        for await (const chunk of req) {
-          size += chunk.length;
-          if (size > 1_048_576) {
-            deny(413, "Request too large");
-            return;
-          }
-          chunks.push(chunk);
-        }
-        body = JSON.parse(Buffer.concat(chunks).toString());
-      }
+      const body = req.method === "POST" ? await readBoundedJsonRequest(req, MCP_REQUEST_LIMITS) : undefined;
       if (!session) {
         if (sessionId) {
           deny(404, "Session not found");
@@ -536,6 +541,7 @@ export async function startMcp(
         const transport: StreamableHTTPServerTransport =
           new StreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
+            maxRequestBodySize: MCP_REQUEST_LIMITS.maxBytes,
             onsessioninitialized: (id: string): void => {
               sessions.set(id, { transport, server, lastUsed: Date.now() });
             },
@@ -544,13 +550,30 @@ export async function startMcp(
           if (transport.sessionId) sessions.delete(transport.sessionId);
           void server.close();
         };
+        initialized = { transport, server };
+        let closing: Promise<void> | undefined;
+        closeInitialization = () => {
+          if (transport.sessionId) sessions.delete(transport.sessionId);
+          return closing ??= server.close();
+        };
+        res.once("close", onResponseClose);
         await server.connect(transport);
+        if (aborted || res.destroyed) return;
         session = { transport, server, lastUsed: Date.now() };
       }
       session.lastUsed = Date.now();
       await session.transport.handleRequest(req, res, body);
     } catch (e) {
-      if (!res.headersSent) deny(400, (e as Error).message);
+      if (!res.headersSent && !res.destroyed) {
+        if (e instanceof JsonRequestLimitError) res.setHeader("Connection", "close");
+        deny(e instanceof JsonRequestLimitError ? e.status : 400, (e as Error).message);
+      }
+    } finally {
+      res.off("close", onResponseClose);
+      // A malformed initialization must not leave an untracked transport alive.
+      if (initialized && (!initialized.transport.sessionId || aborted || (res.destroyed && !res.writableFinished))) {
+        await closeInitialization!();
+      }
     }
   });
   const expiry = setInterval(() => {

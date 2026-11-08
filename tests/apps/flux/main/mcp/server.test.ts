@@ -9,7 +9,10 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { test, expect } from 'vitest';
+import { test, expect, vi } from 'vitest';
+import { request } from 'node:http';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ResourceUpdatedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -18,7 +21,119 @@ import {
   Commands,
 } from '../../../../../packages/photo-library/src/index';
 import { renderImage } from '../../../../../packages/photo-imaging/src/index';
-import { assertAllowed, startMcp } from '../../../../../apps/flux/main/mcp/server';
+import { assertAllowed, createMcpServer, MCP_REQUEST_LIMITS, startMcp } from '../../../../../apps/flux/main/mcp/server';
+
+const initialize = { jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+  protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'lifecycle-test', version: '1' },
+} };
+const lifecycleHeaders = { Authorization: 'Bearer lifecycle-secret', 'content-type': 'application/json', Accept: 'application/json, text/event-stream' };
+
+test('MCP releases an initialization when its peer aborts during asynchronous connection', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-mcp-abort-'));
+  const service = await PhotoService.open(path.join(dir, 'catalog.json'));
+  const server = await startMcp(new Commands(service, renderImage), { token: 'lifecycle-secret', roots: [dir] });
+  let connected!: () => void;
+  const ready = new Promise<void>((resolve) => { connected = resolve; });
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => { resume = resolve; });
+  const connect = McpServer.prototype.connect;
+  const intercepted = vi.spyOn(McpServer.prototype, 'connect').mockImplementationOnce(async function (this: McpServer, transport) {
+    await connect.call(this, transport); connected(); await paused;
+  });
+  const req = request(server.url, { method: 'POST', headers: lifecycleHeaders });
+  req.on('error', () => {});
+  try {
+    req.end(JSON.stringify(initialize));
+    await ready;
+    expect(service.listenerCount('change')).toBe(1);
+    req.destroy(new Error('Synthetic peer abort'));
+    // Cleanup must occur while connect is still paused, before SDK request handling.
+    await vi.waitFor(() => expect(service.listenerCount('change')).toBe(0));
+    resume();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(service.listenerCount('change')).toBe(0);
+  } finally { resume(); intercepted.mockRestore(); req.destroy(); await server.close(); }
+});
+
+test('MCP retains successful sessions after normal HTTP connection close', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-mcp-close-'));
+  const service = await PhotoService.open(path.join(dir, 'catalog.json'));
+  const server = await startMcp(new Commands(service, renderImage), { token: 'lifecycle-secret', roots: [dir] });
+  try {
+    const response = await fetch(server.url, { method: 'POST', headers: { ...lifecycleHeaders, Connection: 'close' }, body: JSON.stringify(initialize) });
+    expect(response.status).toBe(200);
+    const sessionId = response.headers.get('mcp-session-id');
+    expect(sessionId).toBeTruthy();
+    await response.text();
+    const listed = await fetch(server.url, { method: 'POST', headers: { ...lifecycleHeaders, Connection: 'close', 'mcp-session-id': sessionId!, 'mcp-protocol-version': '2025-03-26' }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) });
+    expect(listed.status).toBe(200);
+    expect(await listed.text()).toContain('get_app_state');
+    expect(service.listenerCount('change')).toBe(1);
+  } finally { await server.close(); }
+  expect(service.listenerCount('change')).toBe(0);
+});
+
+test('MCP bounds authenticated HTTP input and releases failed initialization resources', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-mcp-budget-'));
+  const service = await PhotoService.open(path.join(dir, 'catalog.json'));
+  const commands = new Commands(service, renderImage);
+  const run = vi.spyOn(commands, 'run');
+  const server = await startMcp(commands, { token: 'budget-secret', roots: [dir] });
+  const headers = { Authorization: 'Bearer budget-secret', 'content-type': 'application/json' };
+  const send = (body: unknown, extra = {}) => fetch(server.url, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(body) });
+  const client = new Client({ name: 'budget-test', version: '1.0.0' });
+  try {
+    expect((await fetch(server.url, { method: 'POST', body: '{' })).status).toBe(401);
+    expect((await send({}, { Origin: 'https://evil.example' })).status).toBe(403);
+    expect((await send(Array(101).fill({}))).status).toBe(400);
+    expect((await send({ values: Array(100_000).fill(0) })).status).toBe(413);
+    let nested: unknown = {};
+    for (let i = 0; i <= MCP_REQUEST_LIMITS.maxDepth; i++) nested = { nested };
+    expect((await send(nested)).status).toBe(413);
+    const overflow = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+      const req = request(server.url, { method: 'POST', headers }, (res) => {
+        let text = ''; res.setEncoding('utf8');
+        res.on('data', (chunk) => { text += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode!, text }));
+      });
+      req.on('error', reject);
+      req.write('{"value":"'); req.write('x'.repeat(MCP_REQUEST_LIMITS.maxBytes)); req.end('"}');
+    });
+    expect(overflow.status).toBe(413);
+    expect(overflow.text).toContain('Request too large');
+    for (let i = 0; i < 20; i++) {
+      const failed = await send({ ...initialize, id: i }, { Accept: 'application/json' });
+      expect(failed.status).toBe(406);
+      await failed.text();
+    }
+    expect(service.listenerCount('change')).toBe(0);
+    expect(run).not.toHaveBeenCalled();
+    await client.connect(new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers } }));
+    expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+  } finally { await client.close(); await server.close(); }
+  expect(service.listenerCount('change')).toBe(0);
+});
+
+test('SDK tool validation has its own element ceiling and retains valid 10k-photo batches', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-mcp-sdk-budget-'));
+  const service = await PhotoService.open(path.join(dir, 'catalog.json'));
+  const commands = new Commands(service, renderImage);
+  const run = vi.spyOn(commands, 'run').mockResolvedValue({ ok: true } as never);
+  const server = createMcpServer(commands, [dir]);
+  const client = new Client({ name: 'sdk-budget-test', version: '1.0.0' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const accepted = await client.callTool({ name: 'update_photos_metadata', arguments: { ids: Array.from({ length: 10_000 }, (_, i) => String(i)), rating: 3 } });
+    expect(accepted.isError).toBeFalsy();
+    expect(run).toHaveBeenCalledOnce();
+    const rejected = await client.callTool({ name: 'update_photos_metadata', arguments: { ids: Array(100_001).fill('x') } });
+    expect(rejected.isError).toBe(true);
+    expect(JSON.stringify(rejected)).toContain('maximum of 100000 elements');
+    expect(run).toHaveBeenCalledOnce();
+  } finally { await client.close(); await server.close(); }
+});
 
 test('MCP authenticates, discovers, edits, previews and rejects stale/out-of-root requests', async () => {
   const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-mcp-'));

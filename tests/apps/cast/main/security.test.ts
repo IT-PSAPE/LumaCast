@@ -1,28 +1,39 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// security.ts imports BrowserWindow and net from 'electron' (used by
-// assertTrustedIpcSender / fetchLocalFileResponse, which this file does not
-// exercise) and resolveLocalMediaSourcePath from the lightweight main-process
-// path boundary
-// (a plain Node module with no Electron dependency, so it needs no mock).
-// Only the electron members actually referenced at module scope need stubs
-// so the import doesn't crash — following the pattern in
-// tests/apps/cast/main/application-menu.test.ts.
+const environment = vi.hoisted(() => ({ packaged: false }));
+
 vi.mock('electron', () => ({
+  app: { get isPackaged() { return environment.packaged; } },
   BrowserWindow: { fromWebContents: vi.fn() },
   net: { fetch: vi.fn() },
 }));
 
-import { net } from 'electron';
+import { BrowserWindow, net, type IpcMainInvokeEvent } from 'electron';
 import {
+  assertTrustedIpcSender,
   describeUrlSchemeForLogging,
   fetchLocalFileResponse,
+  getDevServerUrl,
   isApprovedExternalUrl,
   isTrustedWebContentsUrl,
+  resolveTrustedCastMediaRequest,
 } from '../../../../apps/cast/main/security';
+import { maskManagedMediaSource, revokeAllManagedMedia } from '../../../../apps/cast/main/media-capability';
+
+beforeEach(() => {
+  environment.packaged = false;
+  vi.stubEnv('ELECTRON_RENDERER_URL', 'http://localhost:5173/');
+  vi.mocked(BrowserWindow.fromWebContents).mockReset();
+  revokeAllManagedMedia();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
 
 // The packaged renderer path must come out identical to the one security.ts
 // derives for PACKAGED_RENDERER_INDEX_PATH (and that index.ts's
@@ -39,9 +50,14 @@ const ESCAPED_RENDERER_URL = pathToFileURL('/tmp/attacker-controlled/renderer/in
 describe('isTrustedWebContentsUrl (will-navigate allow-list)', () => {
   const cases: Array<{ name: string; url: string; expected: boolean }> = [
     { name: 'dev origin: localhost', url: 'http://localhost:5173/', expected: true },
-    { name: 'dev origin: 127.0.0.1', url: 'http://127.0.0.1:5173/', expected: true },
+    { name: 'other loopback hostname', url: 'http://127.0.0.1:5173/', expected: false },
+    { name: 'other loopback port', url: 'http://localhost:5174/', expected: false },
+    { name: 'other scheme on the configured host', url: 'https://localhost:5173/', expected: false },
     { name: 'dev origin host differs only by case', url: 'http://LOCALHOST:5173/', expected: true },
     { name: 'packaged renderer file:// path', url: PACKAGED_RENDERER_URL, expected: true },
+    { name: 'packaged projector query', url: `${PACKAGED_RENDERER_URL}?view=projector`, expected: true },
+    { name: 'packaged NDI output query', url: `${PACKAGED_RENDERER_URL}?view=ndi-output&output=audience`, expected: true },
+    { name: 'dev view query', url: 'http://localhost:5173/?view=ndi-output&output=stage', expected: true },
     { name: 'file:// escape outside the renderer directory', url: ESCAPED_RENDERER_URL, expected: false },
     { name: 'file:// path with no host, not the renderer entry', url: 'file:///etc/passwd', expected: false },
     { name: 'http:// to a non-allowed host', url: 'http://example.com/', expected: false },
@@ -248,5 +264,170 @@ describe('fetchLocalFileResponse', () => {
     });
 
     expect(statSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('configured development renderer trust', () => {
+  it.each([
+    'http://127.0.0.1:5199/renderer?view=app',
+    'https://localhost:8443/renderer?view=app',
+    'http://[::1]:5173/',
+  ])('trusts only the configured development origin: %s', (configured) => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', configured);
+    const expected = new URL(configured);
+    expect(getDevServerUrl()).toBe(expected.toString());
+    expected.searchParams.set('view', 'projector');
+    expect(isTrustedWebContentsUrl(expected.toString())).toBe(true);
+    expected.port = '5999';
+    expect(isTrustedWebContentsUrl(expected.toString())).toBe(false);
+  });
+
+  it.each([
+    undefined,
+    '',
+    'not a url',
+    'https://example.com/',
+    'http://localhost.evil.example/',
+    'http://user:secret@localhost:5173/',
+    'file:///tmp/renderer/index.html',
+    'javascript:alert(1)',
+  ])('falls back to file-only trust for invalid or missing config: %s', (configured) => {
+    vi.stubEnv('ELECTRON_RENDERER_URL', configured);
+    expect(getDevServerUrl()).toBeNull();
+    expect(isTrustedWebContentsUrl('http://localhost:5173/')).toBe(false);
+    expect(isTrustedWebContentsUrl(PACKAGED_RENDERER_URL)).toBe(true);
+  });
+
+  it('ignores a development URL in packaged builds', () => {
+    environment.packaged = true;
+    expect(getDevServerUrl()).toBeNull();
+    expect(isTrustedWebContentsUrl('http://localhost:5173/')).toBe(false);
+    expect(isTrustedWebContentsUrl('https://localhost:5173/')).toBe(false);
+    expect(isTrustedWebContentsUrl(`${PACKAGED_RENDERER_URL}?view=ndi-output&output=stage`)).toBe(true);
+  });
+});
+
+function ipcSender(url = PACKAGED_RENDERER_URL) {
+  const mainFrame = { url };
+  const sender = { mainFrame, getURL: vi.fn(() => url), isDestroyed: vi.fn(() => false) };
+  const window = { webContents: sender, isDestroyed: vi.fn(() => false) };
+  vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as unknown as BrowserWindow);
+  const event = { sender, senderFrame: mainFrame } as unknown as IpcMainInvokeEvent;
+  return { event, sender, window, mainFrame };
+}
+
+describe('assertTrustedIpcSender', () => {
+  it.each([
+    PACKAGED_RENDERER_URL,
+    `${PACKAGED_RENDERER_URL}?view=projector`,
+    `${PACKAGED_RENDERER_URL}?view=ndi-output&output=audience`,
+  ])('accepts the packaged main frame and query views at %s', (url) => {
+    environment.packaged = true;
+    expect(() => assertTrustedIpcSender(ipcSender(url).event)).not.toThrow();
+  });
+
+  it.each([
+    PACKAGED_RENDERER_URL,
+    `${PACKAGED_RENDERER_URL}?view=projector`,
+    `${PACKAGED_RENDERER_URL}?view=ndi-output&output=audience`,
+    'http://localhost:5173/',
+    'http://localhost:5173/?view=ndi-output&output=stage',
+  ])('accepts a live owned main frame at %s', (url) => {
+    const { event } = ipcSender(url);
+    expect(() => assertTrustedIpcSender(event)).not.toThrow();
+  });
+
+  it.each([null, undefined])('rejects an absent sender frame (%s)', (senderFrame) => {
+    const { event } = ipcSender();
+    expect(() => assertTrustedIpcSender({ ...event, senderFrame } as IpcMainInvokeEvent)).toThrow(/main frame/);
+  });
+
+  it('rejects a same-URL child frame', () => {
+    const { event, mainFrame } = ipcSender();
+    const childEvent = { ...event, senderFrame: { ...mainFrame } } as unknown as IpcMainInvokeEvent;
+    expect(() => assertTrustedIpcSender(childEvent)).toThrow(/main frame/);
+  });
+
+  it('rejects a sender with no owning BrowserWindow', () => {
+    const { event } = ipcSender();
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(null);
+    expect(() => assertTrustedIpcSender(event)).toThrow(/application window/);
+  });
+
+  it('rejects a sender merely attached to another window', () => {
+    const { event, window } = ipcSender();
+    window.webContents = ipcSender().sender;
+    vi.mocked(BrowserWindow.fromWebContents).mockReturnValue(window as unknown as BrowserWindow);
+    expect(() => assertTrustedIpcSender(event)).toThrow(/application window/);
+  });
+
+  it.each(['window', 'sender'] as const)('rejects a destroyed %s', (target) => {
+    const fixture = ipcSender();
+    fixture[target].isDestroyed.mockReturnValue(true);
+    expect(() => assertTrustedIpcSender(fixture.event)).toThrow(/application window/);
+  });
+
+  it.each([
+    'http://localhost:5174/',
+    'https://localhost:5173/',
+    'http://127.0.0.1:5173/',
+    'http://user:password@localhost:5173/',
+    ESCAPED_RENDERER_URL,
+  ])('rejects an untrusted main frame at %s', (url) => {
+    expect(() => assertTrustedIpcSender(ipcSender(url).event)).toThrow(/Untrusted IPC/);
+  });
+
+  it('rejects packaged loopback IPC even with a configured development URL', () => {
+    environment.packaged = true;
+    expect(() => assertTrustedIpcSender(ipcSender('http://localhost:5173/').event)).toThrow(/Untrusted IPC/);
+  });
+
+  it('checks both the current contents URL and frame URL without disclosing either', () => {
+    const contents = ipcSender();
+    contents.sender.getURL.mockReturnValue(ESCAPED_RENDERER_URL);
+    expect(() => assertTrustedIpcSender(contents.event)).toThrow(/^Untrusted IPC sender URL$/);
+    const frame = ipcSender();
+    frame.mainFrame.url = ESCAPED_RENDERER_URL;
+    expect(() => assertTrustedIpcSender(frame.event)).toThrow(/^Untrusted IPC frame URL$/);
+  });
+});
+
+describe('managed media renderer referrers', () => {
+  function request(referrer: string, headers: Headers | Record<string, string> = {}) {
+    return {
+      method: 'GET',
+      referrer,
+      headers,
+      url: maskManagedMediaSource(`cast-media://${encodeURIComponent('/tmp/security-media.mp4')}`, 'video'),
+    };
+  }
+
+  it.each([
+    '',
+    PACKAGED_RENDERER_URL,
+    `${PACKAGED_RENDERER_URL}?view=ndi-output&output=audience`,
+    'http://localhost:5173/?view=projector',
+  ])('preserves an absent or trusted referrer: %s', (referrer) => {
+    expect(resolveTrustedCastMediaRequest(request(referrer))).toEqual({ ok: true, filePath: '/tmp/security-media.mp4' });
+  });
+
+  it.each([
+    'http://localhost:5174/',
+    'https://localhost:5173/',
+    'http://user:password@localhost:5173/',
+    ESCAPED_RENDERER_URL,
+  ])('rejects an untrusted referrer: %s', (referrer) => {
+    expect(resolveTrustedCastMediaRequest(request(referrer))).toEqual({ ok: false, reason: 'untrusted-referrer' });
+  });
+
+  it('keeps absent packaged referrers working but denies a packaged loopback referrer', () => {
+    environment.packaged = true;
+    expect(resolveTrustedCastMediaRequest(request(''))).toEqual({ ok: true, filePath: '/tmp/security-media.mp4' });
+    expect(resolveTrustedCastMediaRequest(request('http://localhost:5173/'))).toEqual({ ok: false, reason: 'untrusted-referrer' });
+  });
+
+  it('uses the HTTP Referer header when present, including Headers and plain record shapes', () => {
+    expect(resolveTrustedCastMediaRequest(request(PACKAGED_RENDERER_URL, new Headers({ referer: 'http://localhost:5174/' })))).toEqual({ ok: false, reason: 'untrusted-referrer' });
+    expect(resolveTrustedCastMediaRequest(request('http://localhost:5174/', { Referer: PACKAGED_RENDERER_URL }))).toEqual({ ok: true, filePath: '/tmp/security-media.mp4' });
   });
 });

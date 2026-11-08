@@ -19,6 +19,7 @@ import {
   createNotFoundResponse,
   describeUrlSchemeForLogging,
   fetchLocalFileResponse,
+  getDevServerUrl,
   isApprovedExternalUrl,
   isTrustedWebContentsUrl,
   resolveTrustedCastMediaRequest,
@@ -190,8 +191,9 @@ function createRendererWindowOptions(width: number, height: number): BrowserWind
 }
 
 function loadRendererView(window: BrowserWindow, view: RendererView): void {
-  if (process.env.ELECTRON_RENDERER_URL) {
-    const targetUrl = new URL(process.env.ELECTRON_RENDERER_URL);
+  const devServerUrl = getDevServerUrl();
+  if (devServerUrl) {
+    const targetUrl = new URL(devServerUrl);
     if (view !== 'app') {
       targetUrl.searchParams.set('view', view);
     }

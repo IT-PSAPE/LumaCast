@@ -46,12 +46,13 @@ async function buildServer() {
         // extension is already CommonJS by Node's default resolution —
         // matching electron.vite.config.ts's buildNdiHostBundlePlugin, which
         // names its own CJS lib-mode output `ndi-host.js` the same way.
-        entry: path.resolve(REPO_ROOT, 'tool/browser-preview/server.ts'),
+        entry: path.resolve(REPO_ROOT, 'tool/browser-preview/cli.ts'),
         fileName: () => 'server.js',
         formats: ['cjs'],
       },
       rollupOptions: {
         external: ['electron', /^node:/, '@lumacast/ndi-native'],
+        output: { entryFileNames: 'server.js' },
       },
     },
     resolve: { alias: WORKSPACE_ALIAS },

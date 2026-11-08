@@ -4,6 +4,20 @@
 
 Accepted
 
+> **Amendment (2026-11-08):** Development trust is now the exact configured
+> `ELECTRON_RENDERER_URL` origin (scheme, host and port), accepted only for
+> credential-free HTTP(S) loopback URLs in an unpackaged build. Packaged builds
+> ignore that environment variable. Missing or invalid configuration falls back
+> to the bundled renderer file in both the main-window and NDI-output loaders.
+> This supersedes the hostname-only development policy below; file trust still
+> requires the exact bundled renderer entry, with query/hash view selectors
+> preserved. IPC additionally requires a live owning window, its own live
+> `webContents`, and exact non-null main-frame identity; a same-URL child frame
+> is insufficient. NDI readiness messages apply the same main-frame rule.
+> Managed-media requests retain support for Chromium's absent packaged referrer;
+> a present referrer must satisfy the narrowed renderer URL policy. URL denials
+> do not expose the rejected URL in errors or logs.
+
 ## Context
 
 Issue #158 (parent #119, depends on #114/#115) closes a gap found during the

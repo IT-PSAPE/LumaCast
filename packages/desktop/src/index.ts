@@ -5,3 +5,5 @@ export { windowChromeOptions, applyTitleBarOverlay, OVERLAY_COLORS } from './win
 export type { WindowChromeOptions, CaptionOverlayColors, OverlayTheme, TitleBarOverlayTarget } from './window-chrome';
 export { createAppWindow } from './app-window';
 export type { AppWindowOptions } from './app-window';
+export { assertJsonRequestBudget, readBoundedJsonRequest, JsonRequestLimitError } from './bounded-json';
+export type { JsonRequestLimits } from './bounded-json';

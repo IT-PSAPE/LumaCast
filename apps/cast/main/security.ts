@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { BrowserWindow, net, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, net, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import {
   resolveManagedMedia,
   type ManagedMediaFailure,
@@ -10,6 +10,19 @@ import {
 } from './media-capability';
 
 const DEV_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** The only remote entry the app may load, and only in an unpackaged build. */
+export function getDevServerUrl(): string | null {
+  if (app.isPackaged || !process.env.ELECTRON_RENDERER_URL) return null;
+  try {
+    const parsed = new URL(process.env.ELECTRON_RENDERER_URL);
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      || hasUrlCredentials(parsed) || !DEV_ALLOWED_HOSTS.has(parsed.hostname)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
 type IpcEvent = IpcMainEvent | IpcMainInvokeEvent;
 type CastMediaRequest = Pick<Request, 'method' | 'referrer' | 'url'> & {
@@ -99,16 +112,14 @@ function isTrustedAppUrl(value: string): boolean {
 
   try {
     const parsed = new URL(value);
+    if (hasUrlCredentials(parsed)) return false;
     if (parsed.protocol === 'file:') {
       return matchesPackagedRendererPath(fileURLToPath(parsed));
     }
 
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      // Reject credentials before trusting the host: `https://user:pass@
-      // localhost/` parses with hostname `localhost` and would otherwise
-      // pass the DEV_ALLOWED_HOSTS check unchanged.
-      if (hasUrlCredentials(parsed)) return false;
-      return DEV_ALLOWED_HOSTS.has(parsed.hostname);
+      const devServerUrl = getDevServerUrl();
+      return devServerUrl !== null && parsed.origin === new URL(devServerUrl).origin;
     }
   } catch {
     return false;
@@ -162,18 +173,22 @@ export function describeUrlSchemeForLogging(value: string): string {
 
 export function assertTrustedIpcSender(event: IpcEvent): void {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
-  if (!senderWindow || senderWindow.isDestroyed()) {
+  if (!senderWindow || senderWindow.isDestroyed()
+    || senderWindow.webContents !== event.sender || event.sender.isDestroyed()) {
     throw new Error('IPC sender is not attached to an application window');
+  }
+
+  if (!event.senderFrame || event.senderFrame !== event.sender.mainFrame) {
+    throw new Error('IPC sender is not the application window main frame');
   }
 
   const topLevelUrl = event.sender.getURL();
   if (!isTrustedAppUrl(topLevelUrl)) {
-    throw new Error(`Untrusted IPC sender URL: ${topLevelUrl || '<empty>'}`);
+    throw new Error('Untrusted IPC sender URL');
   }
 
-  const frameUrl = event.senderFrame?.url;
-  if (frameUrl && !isTrustedAppUrl(frameUrl)) {
-    throw new Error(`Untrusted IPC frame URL: ${frameUrl}`);
+  if (!isTrustedAppUrl(event.senderFrame.url)) {
+    throw new Error('Untrusted IPC frame URL');
   }
 }
 

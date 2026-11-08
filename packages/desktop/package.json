@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Main-process window helpers shared by the LumaCast apps: per-platform custom window chrome options, and the secure main-window factory. Main-process only.",
+  "description": "Main-process helpers shared by the LumaCast apps: window chrome, the secure main-window factory, and bounded JSON request parsing. Main-process only.",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "exports": {

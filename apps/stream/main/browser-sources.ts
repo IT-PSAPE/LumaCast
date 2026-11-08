@@ -1,4 +1,4 @@
-import { BrowserWindow, type BrowserWindowConstructorOptions, type WebContents } from 'electron';
+import { BrowserWindow, type BrowserWindowConstructorOptions, type WebContents, type WebFrameMain } from 'electron';
 import { IPC_CHANNELS } from './ipc-channels';
 import type { BrowserSourceActivity, BrowserSourceInput } from '../shared/desktop-api';
 
@@ -15,12 +15,39 @@ interface BrowserSourceSession {
   window: BrowserWindow;
   ready: Promise<void>;
   lastFrameAt: number;
+  navigationEpoch: number;
+  audioCaptureGrant?: BrowserSourceAudioGrant;
+}
+
+interface BrowserSourceAudioGrant {
+  requester: WebContents;
+  requesterFrame: WebFrameMain;
+  requesterUrl: string;
+  sourceFrame: WebFrameMain;
+  sourceUrl: string;
+  sourceEpoch: number;
+  origin: string;
+  expiresAt: number;
+  revoke: () => void;
 }
 
 const MAX_POINTER_WHEEL_DELTA = 10_000;
 const MAX_KEY_LENGTH = 64;
 const MAX_KEY_TEXT_LENGTH = 256;
 const INPUT_MODIFIER_MASK = 0b1111;
+const AUDIO_CAPTURE_GRANT_MS = 10_000;
+
+function nativeMediaOrigin(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash || url.pathname !== '/') return null;
+    // Native frame.origin serializes file as file://; media securityOrigin
+    // serializes it as file:///. Do not collapse opaque origins to URL's "null".
+    if (url.protocol === 'file:' && !url.hostname) return 'file://';
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.origin : null;
+  } catch { return null; }
+}
 
 function validateInputModifiers(value: unknown): number {
   if (value === undefined) return 0;
@@ -187,6 +214,13 @@ export class BrowserSourceManager {
         partition: 'persist:stream-browser-sources',
       },
     });
+    // Tab capture is attributed to its target source frame, but retains the
+    // native requester origin. Only the minted, one-shot bridge grant may pass.
+    // Keep this shared partition policy installed when individual sources close.
+    window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
+      callback(this.authorizeAudioCapture(contents, permission, details));
+    });
+    window.webContents.session.setPermissionCheckHandler(() => false);
     const session: BrowserSourceSession = {
       ...config,
       viewportWidth,
@@ -197,12 +231,19 @@ export class BrowserSourceManager {
       window,
       ready: Promise.resolve(),
       lastFrameAt: 0,
+      navigationEpoch: 0,
     };
     this.sources.set(config.id, session);
     window.webContents.setAudioMuted(true);
     window.webContents.setBackgroundThrottling(false);
     window.webContents.setFrameRate(15);
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('did-start-navigation', (event) => {
+      if (!event.isMainFrame) return;
+      session.navigationEpoch += 1;
+      session.audioCaptureGrant?.revoke();
+    });
+    window.webContents.on('destroyed', () => session.audioCaptureGrant?.revoke());
     const allowedUrl = (value: string) => {
       try { const url = new URL(value); return url.protocol === 'http:' || url.protocol === 'https:'; }
       catch { return false; }
@@ -327,12 +368,70 @@ export class BrowserSourceManager {
   async getAudioCaptureId(rawId: unknown, requester: WebContents): Promise<string> {
     if (typeof rawId !== 'string' || !/^[0-9a-f-]{16,128}$/i.test(rawId)) throw new Error('Invalid browser source.');
     const source = this.sources.get(rawId);
-    if (!source) throw new Error('The browser source is not available.');
-    await source.ready;
-    if (source.window.isDestroyed() || requester.isDestroyed()) throw new Error('The browser source is not available.');
-    const captureId = source.window.webContents.getMediaSourceId(requester);
-    this.audioCapturePermissionExpiry.set(requester.id, Date.now() + 10_000);
-    return captureId;
+    if (!source || requester !== this.getContents() || requester.isDestroyed()) throw new Error('The browser source is not available.');
+    const requesterFrame = requester.mainFrame;
+    const requesterUrl = requesterFrame.url;
+    const origin = nativeMediaOrigin(requesterFrame.origin);
+    const sourceEpoch = source.navigationEpoch;
+    let revoked = false;
+    let retained = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const revoke = () => {
+      revoked = true;
+      if (timer !== undefined) clearTimeout(timer);
+      requester.removeListener('did-start-navigation', navigated);
+      requester.removeListener('destroyed', revoke);
+      if (source.audioCaptureGrant?.revoke === revoke) source.audioCaptureGrant = undefined;
+    };
+    const navigated = (event: { isMainFrame: boolean }) => { if (event.isMainFrame) revoke(); };
+    requester.on('did-start-navigation', navigated);
+    requester.once('destroyed', revoke);
+    try {
+      await source.ready;
+      if (revoked || this.sources.get(rawId) !== source || source.navigationEpoch !== sourceEpoch
+        || source.window.isDestroyed() || source.window.webContents.isDestroyed() || requester.isDestroyed() || requester !== this.getContents()
+        || requester.mainFrame !== requesterFrame || requesterFrame.url !== requesterUrl
+        || origin === null || nativeMediaOrigin(requesterFrame.origin) !== origin) {
+        throw new Error('The browser source is not available.');
+      }
+      const sourceFrame = source.window.webContents.mainFrame;
+      const sourceOrigin = nativeMediaOrigin(sourceFrame.origin);
+      // Same-origin development pages cannot prove requester provenance here.
+      if (sourceOrigin === null || sourceOrigin === origin) throw new Error('Browser source audio is unavailable for this origin.');
+      const captureId = source.window.webContents.getMediaSourceId(requester);
+      source.audioCaptureGrant?.revoke();
+      const expiresAt = Date.now() + AUDIO_CAPTURE_GRANT_MS;
+      source.audioCaptureGrant = { requester, requesterFrame, requesterUrl, sourceFrame, sourceUrl: sourceFrame.url, sourceEpoch, origin, expiresAt, revoke };
+      timer = setTimeout(revoke, AUDIO_CAPTURE_GRANT_MS);
+      this.audioCapturePermissionExpiry.set(requester.id, expiresAt);
+      retained = true;
+      return captureId;
+    } finally {
+      if (!retained) revoke();
+    }
+  }
+
+  private authorizeAudioCapture(contents: WebContents, permission: string, details: {
+    isMainFrame: boolean; requestingUrl: string; mediaTypes?: string[]; securityOrigin?: string;
+  }): boolean {
+    const source = [...this.sources.values()].find((value) => !value.window.isDestroyed() && value.window.webContents === contents);
+    const grant = source?.audioCaptureGrant;
+    if (!source || !grant) return false;
+    if (grant.expiresAt <= Date.now() || source.window.isDestroyed() || contents.isDestroyed()
+      || source.navigationEpoch !== grant.sourceEpoch || contents.mainFrame !== grant.sourceFrame || contents.mainFrame.url !== grant.sourceUrl
+      || grant.requester !== this.getContents() || grant.requester.isDestroyed()
+      || grant.requester.mainFrame !== grant.requesterFrame || grant.requesterFrame.url !== grant.requesterUrl
+      || nativeMediaOrigin(grant.requesterFrame.origin) !== grant.origin) {
+      grant.revoke();
+      return false;
+    }
+    const sourceOrigin = nativeMediaOrigin(contents.mainFrame.origin);
+    if (permission !== 'media' || !details.isMainFrame || details.requestingUrl !== grant.sourceUrl
+      || !Array.isArray(details.mediaTypes) || details.mediaTypes.length !== 0
+      || nativeMediaOrigin(details.securityOrigin) !== grant.origin
+      || sourceOrigin === null || sourceOrigin === grant.origin) return false;
+    grant.revoke();
+    return true;
   }
 
   isAudioCaptureAuthorized(webContentsId: number): boolean {
@@ -348,6 +447,7 @@ export class BrowserSourceManager {
   close(id: string): void {
     const session = this.sources.get(id);
     if (!session) return;
+    session.audioCaptureGrant?.revoke();
     this.sources.delete(id);
     if (!session.window.isDestroyed()) session.window.destroy();
   }
